@@ -292,6 +292,29 @@ button { cursor: pointer; }
   border-radius: 5px; padding: 8px 10px; margin: 0 12px 10px 12px;
   display: flex; align-items: center; gap: 10px; }
 .linked-icon { font-size: 14px; }
+
+/* attachments */
+.att-zone { border: 1px dashed var(--border); border-radius: 5px; padding: 10px;
+  background: var(--bg3); text-align: center; font-size: 11px; color: var(--muted);
+  transition: border-color .15s, background .15s; }
+.att-zone.dragging { border-color: var(--green); background: rgba(28,231,131,.10); color: var(--green); }
+.att-zone .att-pick-btn { background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+  padding: 3px 9px; border-radius: 4px; font-size: 11px; cursor: pointer; margin-left: 4px; }
+.att-zone .att-pick-btn:hover { border-color: var(--green); }
+.att-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.att-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 11px;
+  text-decoration: none; color: var(--text); max-width: 100%; }
+.att-chip:hover { border-color: var(--blue); }
+.att-chip.oversized { border-color: var(--yellow); color: var(--yellow); }
+.att-chip .att-icon { font-size: 13px; flex-shrink: 0; }
+.att-chip .att-name { font-weight: 500; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-chip .att-size { color: var(--muted); font-size: 10px; }
+.att-chip .att-x { background: none; border: 0; color: var(--muted); cursor: pointer;
+  padding: 0 2px; margin-left: 2px; font-size: 14px; line-height: 1; }
+.att-chip .att-x:hover { color: var(--red); }
+.auto-link { color: var(--blue); }
+.auto-link:hover { text-decoration: underline; }
 .btn-ghost { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
   border-radius: 5px; padding: 5px 10px; font-size: 11px; }
 .btn-ghost.danger { color: var(--red); border-color: var(--red); }
@@ -765,6 +788,8 @@ const STATE = {
   reminderInterval: '15m',
   customLocations: [],
   userTemplates: [],
+  attachments: [],          // current Compose draft attachments
+  noteAttachments: [],      // current note-input attachments
   crisisLog: [],
   roomMessages: [
     { from:'GSOC', when: nowMinus(20), body:'Monitoring multiple regions. SF/TYO/BLR active.' },
@@ -836,6 +861,61 @@ function esc(s) {
 }
 /** Check if a modal is currently open. */
 function isModalOpen() { return !!document.getElementById('modal-back'); }
+
+/** Auto-linkify http(s) URLs inside escaped text. Pass already-escaped text. */
+function linkify(escapedText) {
+  if (!escapedText) return '';
+  return escapedText.replace(/(https?:\/\/[^\s<>"]+)/g, (m) => `<a href="${m}" target="_blank" rel="noopener" class="auto-link">${m}</a>`);
+}
+
+/** File-size formatting + icon by MIME type. */
+function fmtSize(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/(1024*1024)).toFixed(1) + ' MB';
+}
+function fileIcon(type) {
+  type = type || '';
+  if (type.startsWith('image/')) return '🖼️';
+  if (type === 'application/pdf') return '📄';
+  if (type.startsWith('video/')) return '🎬';
+  if (type.startsWith('audio/')) return '🎵';
+  if (type.includes('zip') || type.includes('compressed') || type.includes('archive')) return '📦';
+  if (type.includes('word') || type.includes('document')) return '📝';
+  if (type.includes('sheet') || type.includes('csv') || type.includes('excel')) return '📊';
+  return '📎';
+}
+/** Read a File into an attachment object. Embeds as data: URL if small. */
+const ATT_EMBED_LIMIT = 2 * 1024 * 1024;   // 2MB
+function fileToAttachment(file) {
+  return new Promise((resolve) => {
+    const base = {
+      id: 'att_'+Math.random().toString(36).slice(2,9),
+      name: file.name, size: file.size, type: file.type,
+    };
+    if (file.size > ATT_EMBED_LIMIT) {
+      resolve({ ...base, data: null, oversized: true });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve({ ...base, data: reader.result });
+    reader.onerror = () => resolve({ ...base, data: null });
+    reader.readAsDataURL(file);
+  });
+}
+/** Render an attachment chip. removable=true when in draft state. */
+function attachmentChipHTML(att, removable=false) {
+  const href = att.data ? att.data : '#';
+  const click = att.data ? '' : `onclick="event.preventDefault();alert('File too large to embed (limit ${fmtSize(ATT_EMBED_LIMIT)}). In production this would be uploaded to a backend.');"`;
+  const dl = att.data ? `download="${esc(att.name)}"` : '';
+  return `<a class="att-chip${att.oversized?' oversized':''}" href="${href}" target="_blank" rel="noopener" ${dl} ${click}>
+    <span class="att-icon" aria-hidden="true">${fileIcon(att.type)}</span>
+    <span class="att-name">${esc(att.name)}</span>
+    ${att.size ? `<span class="att-size">${fmtSize(att.size)}</span>` : ''}
+    ${removable ? `<button class="att-x" data-att-remove="${esc(att.id)}" aria-label="Remove ${esc(att.name)}" title="Remove">×</button>` : ''}
+  </a>`;
+}
 
 /* ---------- 6. Office markers + popups ---------- */
 const OFFICE_MARKERS = {};
@@ -1190,7 +1270,18 @@ function renderComposeForm() {
         <label style="margin-bottom:0">Message</label>
         <a href="#" id="cc-clear-msg" style="font-size:10px;color:var(--muted)">Clear</a>
       </div>
-      <textarea id="msg-body" placeholder="Compose the safety message...">${esc(message)}</textarea>
+      <textarea id="msg-body" placeholder="Compose the safety message... URLs you paste will be clickable when received.">${esc(message)}</textarea>
+    </div>
+
+    <div class="field">
+      <label>Attachments & Links</label>
+      <div class="att-zone" id="att-zone-cc">
+        Drop files here, paste, or
+        <button type="button" class="att-pick-btn" id="att-pick-cc">Choose files</button>
+        <input type="file" id="att-input-cc" multiple style="display:none"/>
+        <div style="font-size:10px;margin-top:4px">URLs in your message auto-link. Files ≤ ${fmtSize(ATT_EMBED_LIMIT)} are embedded.</div>
+      </div>
+      ${STATE.attachments.length ? `<div class="att-list">${STATE.attachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
     </div>
 
     <div class="field" style="margin-bottom:6px">
@@ -1221,26 +1312,84 @@ function renderCCLog() {
   if (!STATE.crisisLog.length) return '<div class="empty">No messages sent yet.</div>';
   return STATE.crisisLog.slice().reverse().map(e => `
     <div class="crisis-log-entry">
-      <div><span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${e.by}</span></div>
-      <div class="body">${e.body}</div>
+      <div><span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${esc(e.by)}</span></div>
+      ${e.subject?`<div style="font-weight:600;font-size:12px;margin-top:2px">${esc(e.subject)}</div>`:''}
+      <div class="body" style="white-space:pre-wrap">${linkify(esc(e.body))}</div>
+      ${e.attachments?.length?`<div class="att-list">${e.attachments.map(a => attachmentChipHTML(a, false)).join('')}</div>`:''}
       <div class="meta">
-        ${e.offices.map(o=>`<span class="src-pill">${o}</span>`).join('')}
-        ${e.channels.map(c=>`<span class="src-pill">${c}</span>`).join('')}
+        ${e.offices.map(o=>`<span class="src-pill">${esc(o)}</span>`).join('')}
+        ${e.channels.map(c=>`<span class="src-pill">${esc(c)}</span>`).join('')}
         <span class="src-pill">${e.recipients} recipients</span>
         ${e.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
+        ${e.attachments?.length?`<span class="src-pill">📎 ${e.attachments.length}</span>`:''}
       </div>
     </div>`).join('');
 }
 function renderRoom() {
   return `<div class="room-thread" id="room-thread">
-    ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${esc(m.from)}</span><span class="when">${relTime(m.when)} ago</span><div>${esc(m.body)}</div></div>`).join('')}
+    ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${esc(m.from)}</span><span class="when">${relTime(m.when)} ago</span><div style="white-space:pre-wrap">${linkify(esc(m.body))}</div></div>`).join('')}
   </div>
   <div class="room-input">
     <input id="room-input" placeholder="Post to GSOC situation room..." />
     <button class="btn-ghost" id="room-send">Post</button>
   </div>`;
 }
+/** Wire a drag/drop + click + paste attachments zone.
+ *  zoneEl + inputEl + pickBtnEl + onAdd(att[]) + onRemove(id) callbacks. */
+function wireAttZone({ zoneId, inputId, pickId, getList, setList, onChange }) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  const pick = document.getElementById(pickId);
+  if (!zone || !input || !pick) return;
+  pick.onclick = (e) => { e.preventDefault(); input.click(); };
+  zone.onclick = (e) => { if (e.target === zone) input.click(); };
+  input.onchange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const atts = await Promise.all(files.map(fileToAttachment));
+    setList([...getList(), ...atts]);
+    e.target.value = ''; onChange();
+    atts.forEach(a => { if (a.oversized) toast(`"${a.name}" is over ${fmtSize(ATT_EMBED_LIMIT)} — kept as a reference but not embedded.`); });
+  };
+  ['dragenter','dragover'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); e.stopPropagation(); zone.classList.add('dragging');
+  }));
+  ['dragleave','drop'].forEach(ev => zone.addEventListener(ev, e => {
+    e.preventDefault(); e.stopPropagation(); zone.classList.remove('dragging');
+  }));
+  zone.addEventListener('drop', async (e) => {
+    const files = Array.from(e.dataTransfer.files || []);
+    if (!files.length) return;
+    const atts = await Promise.all(files.map(fileToAttachment));
+    setList([...getList(), ...atts]);
+    onChange();
+    atts.forEach(a => { if (a.oversized) toast(`"${a.name}" is over ${fmtSize(ATT_EMBED_LIMIT)} — kept as a reference but not embedded.`); });
+  });
+  // Bind remove handlers on existing chips
+  document.querySelectorAll(`#${zoneId} ~ .att-list [data-att-remove], #${zoneId.replace('-zone-','-list-')} [data-att-remove]`).forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.attRemove;
+      setList(getList().filter(a => a.id !== id));
+      onChange();
+    };
+  });
+}
+
 function bindCCHandlers() {
+  // Compose attachments zone
+  wireAttZone({
+    zoneId: 'att-zone-cc',
+    inputId: 'att-input-cc',
+    pickId: 'att-pick-cc',
+    getList: () => STATE.attachments,
+    setList: (list) => { STATE.attachments = list; },
+    onChange: () => renderCC(),
+  });
+  // Bind remove buttons (att-list is sibling-ish; cover all in compose form)
+  document.querySelectorAll('.compose-form [data-att-remove]').forEach(b => b.onclick = () => {
+    STATE.attachments = STATE.attachments.filter(a => a.id !== b.dataset.attRemove);
+    renderCC();
+  });
+
   // Template dropdown
   document.getElementById('cc-tpl-pick')?.addEventListener('change', e => {
     STATE.template = e.target.value;
@@ -1361,6 +1510,7 @@ function bindCCHandlers() {
       document.getElementById('modal-confirm').onclick = () => {
         STATE.selectedOffices = [];
         STATE.template = ''; STATE.customMessage = ''; STATE.subject = '';
+        STATE.attachments = [];
         STATE.channels = { slack:true, email:false, sms:false };
         closeModal();
         renderCC();
@@ -1408,6 +1558,7 @@ function dispatchSend(body, channels, reach) {
     body, recipients: reach, responseRequired: STATE.responseRequired,
     template: STATE.template, templateName: tplName,
     reminder: STATE.reminderInterval,
+    attachments: STATE.attachments.slice(),
     incidentId: null,    // filled below
   };
 
@@ -1438,8 +1589,9 @@ function dispatchSend(body, channels, reach) {
   }
 
   STATE.crisisLog.push(msg);
-  toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}`);
+  toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}${msg.attachments.length?` · ${msg.attachments.length} attachment${msg.attachments.length===1?'':'s'}`:''}`);
   STATE.customMessage = ''; STATE.subject = ''; STATE.template = '';
+  STATE.attachments = [];
   STATE.linkedIncidentId = inc ? inc.id : null;   // keep linked for subsequent messages in the flow
   setCcTab('log');
   renderIncidents();
@@ -1614,12 +1766,14 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
             <div class="muted-xs">${new Date(m.when).toLocaleString()}</div>
           </div>
           ${m.subject?`<div style="font-size:12px;font-weight:600;margin-top:4px">${esc(m.subject)}</div>`:''}
-          <div style="font-size:11px;line-height:1.4;color:var(--text);margin-top:4px;white-space:pre-wrap">${esc(m.body)}</div>
+          <div style="font-size:11px;line-height:1.4;color:var(--text);margin-top:4px;white-space:pre-wrap">${linkify(esc(m.body))}</div>
+          ${m.attachments?.length?`<div class="att-list">${m.attachments.map(a => attachmentChipHTML(a, false)).join('')}</div>`:''}
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
             ${m.channels.map(c=>`<span class="src-pill">${c.toUpperCase()}</span>`).join('')}
             <span class="src-pill">${m.recipients.toLocaleString()} recipients</span>
             <span class="src-pill">${esc(m.offices.join(', '))}</span>
             ${m.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
+            ${m.attachments?.length?`<span class="src-pill">📎 ${m.attachments.length}</span>`:''}
           </div>
         </div>`;
       }).join('')}
@@ -1650,11 +1804,23 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
     ${travRows.length ? `<div class="section-h">✈ Visiting Travelers (${travRows.length})</div>${f(travRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}`;
   }
   if (STATE.incidentTab === 'notes') {
-    return `<div style="padding:8px 12px;display:flex;gap:6px;border-bottom:1px solid var(--border)">
-      <input id="note-input" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px" placeholder="Add a note..."/>
-      <button class="btn-ghost" id="note-add">Add</button>
+    return `<div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+      <textarea id="note-input" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px;min-height:48px;resize:vertical" placeholder="Add a note... (paste URLs to make them clickable)"></textarea>
+      <div class="att-zone" id="att-zone-note" style="margin-top:6px">
+        Drop files here or
+        <button type="button" class="att-pick-btn" id="att-pick-note">Choose files</button>
+        <input type="file" id="att-input-note" multiple style="display:none"/>
+      </div>
+      ${STATE.noteAttachments.length ? `<div class="att-list">${STATE.noteAttachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
+      <div style="display:flex;justify-content:flex-end;margin-top:6px">
+        <button class="btn-ghost" id="note-add">Add Note</button>
+      </div>
     </div>
-    ${inc.notes.length ? inc.notes.slice().reverse().map(n=>`<div class="note-entry"><div class="meta">${new Date(n.when).toLocaleString()} · ${esc(n.by)}</div><div>${esc(n.body)}</div></div>`).join('') : '<div class="empty">No notes yet.</div>'}`;
+    ${inc.notes.length ? inc.notes.slice().reverse().map(n=>`<div class="note-entry">
+      <div class="meta">${new Date(n.when).toLocaleString()} · ${esc(n.by)}</div>
+      <div style="white-space:pre-wrap">${linkify(esc(n.body))}</div>
+      ${n.attachments?.length?`<div class="att-list">${n.attachments.map(a => attachmentChipHTML(a, false)).join('')}</div>`:''}
+    </div>`).join('') : '<div class="empty">No notes yet.</div>'}`;
   }
   if (STATE.incidentTab === 'log') {
     return `${inc.log.length ? inc.log.slice().reverse().map(l=>`<div class="log-entry-i kind-${l.kind}"><span class="when">${new Date(l.when).toLocaleString()} · ${l.by}</span><div>${l.body}</div></div>`).join('') : '<div class="empty">No activity logged.</div>'}`;
@@ -1684,13 +1850,36 @@ function bindIncidentDetailHandlers() {
     addIncidentLog(inc.id, 'msg', `Status logged for <b>${esc(eid)}</b>: ${esc(st)}`);
     renderIncidentDetail();
   }));
+  // Note attachments zone
+  wireAttZone({
+    zoneId: 'att-zone-note',
+    inputId: 'att-input-note',
+    pickId: 'att-pick-note',
+    getList: () => STATE.noteAttachments,
+    setList: (list) => { STATE.noteAttachments = list; },
+    onChange: () => renderIncidentDetail(),
+  });
+  document.querySelectorAll('.note-entry [data-att-remove]').forEach(b => {
+    // shouldn't be removable in saved notes; no-op
+  });
+  document.querySelectorAll('#att-zone-note ~ .att-list [data-att-remove]').forEach(b => b.onclick = () => {
+    STATE.noteAttachments = STATE.noteAttachments.filter(a => a.id !== b.dataset.attRemove);
+    renderIncidentDetail();
+  });
   document.getElementById('note-add')?.addEventListener('click', () => {
     const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
     const inp = document.getElementById('note-input');
-    if (!inp.value.trim()) return;
-    inc.notes.push({ when: new Date().toISOString(), by:'cowork-3p', body: inp.value });
-    addIncidentLog(inc.id, 'note', `Note added: ${esc(inp.value.slice(0,80))}${inp.value.length>80?'…':''}`);
-    inp.value=''; renderIncidentDetail();
+    if (!inp.value.trim() && !STATE.noteAttachments.length) return;
+    inc.notes.push({
+      when: new Date().toISOString(), by:'cowork-3p',
+      body: inp.value,
+      attachments: STATE.noteAttachments.slice(),
+    });
+    const attCount = STATE.noteAttachments.length;
+    addIncidentLog(inc.id, 'note', `Note added: ${esc(inp.value.slice(0,80))}${inp.value.length>80?'…':''}${attCount?` <span class="src-pill">📎 ${attCount}</span>`:''}`);
+    inp.value = '';
+    STATE.noteAttachments = [];
+    renderIncidentDetail();
   });
   document.getElementById('btn-simulate')?.addEventListener('click', () => {
     const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
@@ -2391,8 +2580,9 @@ function exportIncidentReport(incidentId) {
     <tr><th>Notes recorded</th><td>${notes.length}</td></tr>
     <tr><th>Activity log entries</th><td>${log.length}</td></tr>
     <tr><th>Originating source</th><td>${origAlert
-      ? `Alert <code>${esc(origAlert.id)}</code> — ${esc(origAlert.title)} <span class="pill">${esc(origAlert.source)}</span>${origSrc?.url ? ` <a href="${origSrc.url}" target="_blank" rel="noopener">View source ↗</a>` : ''}${origAlert.sourceUrl ? ` · <a href="${origAlert.sourceUrl}" target="_blank" rel="noopener">View this alert at source ↗</a>` : ''}`
+      ? `Alert <code>${esc(origAlert.id)}</code> — ${esc(origAlert.title)}`
       : 'Manually created'}</td></tr>
+    ${origAlert ? `<tr><th>Source feed</th><td><b>${esc(origAlert.source)}</b>${origSrc?.name ? ` — ${esc(origSrc.name)}` : ''} <span class="pill" style="background:${origSrc?.status==='ok'?'#dcfce7':origSrc?.status==='stale'?'#fef9c3':'#fee2e2'};color:${origSrc?.status==='ok'?'#16a34a':origSrc?.status==='stale'?'#a16207':'#dc2626'};border-color:currentColor">${origSrc?.status||'unknown'}</span>${origSrc?.url ? ` · <a href="${origSrc.url}" target="_blank" rel="noopener">View at source ↗</a>` : ''}${origAlert.sourceUrl ? ` · <a href="${origAlert.sourceUrl}" target="_blank" rel="noopener">View this alert at source ↗</a>` : ''}</td></tr>` : ''}
     <tr><th>Incident ID</th><td><code>${esc(inc.id)}</code></td></tr>
     <tr><th>Dashboard link</th><td><a href="${dashLink}" target="_blank" rel="noopener">${dashLink} ↗</a></td></tr>
   </table>
@@ -2427,9 +2617,14 @@ function exportIncidentReport(incidentId) {
     <tr><th>Severity</th><th>Source</th><th>Title</th><th>Office</th><th>Issued</th><th>Links</th></tr>
     ${relatedAlerts.map(a => {
       const aSrc = SOURCES.find(s => s.id === a.source);
+      const statusColor = aSrc?.status==='ok'?'#16a34a':aSrc?.status==='stale'?'#a16207':'#dc2626';
       return `<tr>
         <td><span class="sev" style="background:${SEV_COLOR[a.sev]}22;color:${SEV_COLOR[a.sev]};border-color:${SEV_COLOR[a.sev]};font-size:10px;padding:2px 6px">${SEV_NAME[a.sev]}</span></td>
-        <td><b>${esc(a.source)}</b>${aSrc?.url ? `<br><a href="${aSrc.url}" target="_blank" rel="noopener" style="font-size:10px">View source ↗</a>` : ''}</td>
+        <td>
+          <b>${esc(a.source)}</b>${aSrc?.name ? ` — ${esc(aSrc.name)}` : ''}
+          ${aSrc?.status ? `<br><span style="font-size:10px;color:${statusColor}">● ${aSrc.status}</span>` : ''}
+          ${aSrc?.url ? ` · <a href="${aSrc.url}" target="_blank" rel="noopener" style="font-size:10px">View at source ↗</a>` : ''}
+        </td>
         <td>${esc(a.title)}</td>
         <td>${esc(a.officeId||'—')}</td>
         <td>${new Date(a.issued).toLocaleString()}</td>
@@ -2473,7 +2668,8 @@ function exportIncidentReport(incidentId) {
         <span class="msg-when">${new Date(m.when).toLocaleString()}</span>
       </div>
       ${m.subject?`<div class="msg-subject">${esc(m.subject)}</div>`:''}
-      <div class="msg-body">${esc(m.body)}</div>
+      <div class="msg-body">${linkify(esc(m.body))}</div>
+      ${m.attachments?.length?`<div style="margin-top:8px;font-size:11px"><b>Attachments:</b> ${m.attachments.map(a => `<a href="${a.data||'#'}" target="_blank" ${a.data?`download="${esc(a.name)}"`:''} style="margin-right:6px">${fileIcon(a.type)} ${esc(a.name)}${a.size?` (${fmtSize(a.size)})`:''}</a>`).join('')}</div>`:''}
       <div style="margin-top:8px">
         ${m.channels.map(c=>`<span class="pill">${c.toUpperCase()}</span>`).join('')}
         <span class="pill">${m.recipients.toLocaleString()} recipients</span>
@@ -2509,7 +2705,8 @@ function exportIncidentReport(incidentId) {
   <h2>Notes (${notes.length})</h2>
   ${notes.length?notes.map(n=>`<div class="msg-block" style="border-left-color:#facc15">
     <div class="msg-when">${new Date(n.when).toLocaleString()} · ${esc(n.by||'—')}</div>
-    <div class="msg-body" style="margin-top:4px">${esc(n.body)}</div>
+    <div class="msg-body" style="margin-top:4px">${linkify(esc(n.body))}</div>
+    ${n.attachments?.length?`<div style="margin-top:6px;font-size:11px"><b>Attachments:</b> ${n.attachments.map(a => `<a href="${a.data||'#'}" target="_blank" ${a.data?`download="${esc(a.name)}"`:''} style="margin-right:6px">${fileIcon(a.type)} ${esc(a.name)}${a.size?` (${fmtSize(a.size)})`:''}</a>`).join('')}</div>`:''}
   </div>`).join(''):'<div class="summary">No notes logged.</div>'}
 
   <h2>Activity Log (${log.length})</h2>
