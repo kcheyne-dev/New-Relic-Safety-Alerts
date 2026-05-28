@@ -1442,9 +1442,9 @@ function dispatchSend(body, channels, reach) {
 }
 
 /* ---------- 12. INCIDENTS render ---------- */
-function createIncident({ title, offices, severity, description, messageId }) {
+function createIncident({ title, offices, severity, description, messageId, alertId }) {
   const inc = {
-    id: uid(), title, offices, severity, description, messageId,
+    id: uid(), title, offices, severity, description, messageId, alertId: alertId || null,
     opened: new Date().toISOString(), status:'open', closedNote:null, closedAt:null,
     notes: [], log: [], messages: [],
     reopens: [],   // [{ when, by }] each time the incident is reopened
@@ -2229,6 +2229,11 @@ function showAlertDetails(id) {
       <div class="rel-meta"><span class="sev" style="font-size:9px;padding:1px 5px;background:${SEV_COLOR[r.sev]}22;color:${SEV_COLOR[r.sev]};border-color:${SEV_COLOR[r.sev]}">${SEV_NAME[r.sev]}</span> ${r.source} · ${r.location} · ${relTime(r.issued)} ago</div>
     </div>`).join('')}</div>` : ''}
 
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:24px">
+    <a href="${location.href.split('#')[0]}#alert/${esc(a.id)}" target="_top" style="background:#27272a;border:1px solid #3f3f46;color:#e4e4e7;border-radius:5px;padding:6px 12px;text-decoration:none;font-size:12px">📍 Show on dashboard</a>
+    ${o?`<a href="${location.href.split('#')[0]}#open-incident/${esc(a.id)}" target="_top" style="background:rgba(248,113,113,.12);border:1px solid #f87171;color:#f87171;border-radius:5px;padding:6px 12px;text-decoration:none;font-size:12px">🚨 Open incident from this alert</a>`:''}
+  </div>
+
   <div style="margin-top:32px;color:#a1a1aa;font-size:11px;border-top:1px solid #3f3f46;padding-top:14px">
     NR Safety Alerts · GSOC · This page is a static snapshot. Data is regenerated on every dashboard load.
   </div>
@@ -2259,6 +2264,12 @@ function exportIncidentReport(incidentId) {
   const messages = (inc.messages||[]).slice().sort((a,b)=>new Date(a.when)-new Date(b.when));
   const log = (inc.log||[]).slice();
   const notes = (inc.notes||[]).slice().sort((a,b)=>new Date(a.when)-new Date(b.when));
+  // Originating alert (if incident was opened from one)
+  const origAlert = inc.alertId ? ALERTS.find(x => x.id === inc.alertId) : null;
+  const origSrc = origAlert ? (SOURCES.find(s => s.id === origAlert.source) || { name: origAlert.source }) : null;
+  // Dashboard permalink (deep link back to this incident)
+  const dashRoot = location.href.split('#')[0];
+  const dashLink = `${dashRoot}#incident/${inc.id}`;
 
   // build per-office response table
   const employeeRows = []; const travelerRows = [];
@@ -2312,11 +2323,12 @@ function exportIncidentReport(incidentId) {
   @media print { .nav, .no-print { display:none; } body { padding:14px; } }
 </style></head><body>
   <div class="nav no-print">
-    <span><b>NR Safety Alerts · GSOC</b> — Incident Report</span>
+    <span><b>NR Safety Alerts · GSOC</b> — Incident Report · <code style="font-size:11px;color:#52525b">${esc(inc.id)}</code></span>
     <span>
       <a href="#" onclick="window.print();return false;">🖨 Print</a>
-      <a href="#" onclick="downloadJSON();return false;">⬇ Download JSON</a>
-      <a href="${location.href.split('#')[0]}" target="_top">← Back to dashboard</a>
+      <a href="#" onclick="downloadJSON();return false;">⬇ JSON</a>
+      <a href="#" onclick="navigator.clipboard.writeText('${dashLink}');this.textContent='✓ Copied';return false;">🔗 Copy link</a>
+      <a href="${dashLink}" target="_top">← Open in dashboard</a>
     </span>
   </div>
 
@@ -2335,10 +2347,37 @@ function exportIncidentReport(incidentId) {
   <div class="summary">${esc(inc.description||'No description provided.')}</div>
   ${inc.closedNote?`<div class="closure"><b>Closure note:</b> ${esc(inc.closedNote)}</div>`:''}
 
+  ${origAlert ? `<h2>Originating Alert</h2>
+  <div class="msg-block" style="border-left-color:${SEV_COLOR[origAlert.sev]}">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+      <div>
+        <span class="sev" style="background:${SEV_COLOR[origAlert.sev]}22;color:${SEV_COLOR[origAlert.sev]};border-color:${SEV_COLOR[origAlert.sev]}">${SEV_NAME[origAlert.sev]}</span>
+        <span class="msg-step" style="color:${SEV_COLOR[origAlert.sev]};margin-left:6px">${esc(origAlert.type)} · ${esc(origAlert.source)}</span>
+      </div>
+      <span class="msg-when">issued ${new Date(origAlert.issued).toLocaleString()}</span>
+    </div>
+    <div class="msg-subject" style="margin-top:8px">${esc(origAlert.title)}</div>
+    <div class="msg-body">${esc(origAlert.summary)}</div>
+    <table style="margin-top:10px;font-size:12px">
+      <tr><th style="width:140px">Source</th><td>${origSrc?.url ? `<a href="${origSrc.url}" target="_blank" rel="noopener">${esc(origAlert.source)} — ${esc(origSrc.name)} ↗</a>` : esc(origAlert.source)}</td></tr>
+      <tr><th>Location</th><td>${esc(origAlert.location)}</td></tr>
+      <tr><th>Coordinates</th><td>${origAlert.lat.toFixed(4)}, ${origAlert.lng.toFixed(4)} <a href="https://www.google.com/maps/search/?api=1&query=${origAlert.lat},${origAlert.lng}" target="_blank" rel="noopener" style="margin-left:8px">View on Google Maps ↗</a></td></tr>
+      <tr><th>Impact radius</th><td>${origAlert.radiusKm ? origAlert.radiusKm + ' km' : '—'}</td></tr>
+      <tr><th>Alert ID</th><td><code>${esc(origAlert.id)}</code> · <a href="${dashRoot}#alert/${esc(origAlert.id)}" target="_blank" rel="noopener">Full alert page ↗</a></td></tr>
+    </table>
+  </div>` : ''}
+
   <h2>Affected Offices</h2>
   <table>
-    <tr><th>Code</th><th>Name</th><th>Country</th><th>Address</th><th style="text-align:right">Headcount</th></tr>
-    ${offices.map(o => `<tr><td><b>${o.id}</b></td><td>${esc(o.name)}</td><td>${esc(o.country)}</td><td>${esc(o.address)}</td><td style="text-align:right">${o.headcount.toLocaleString()}</td></tr>`).join('')}
+    <tr><th>Code</th><th>Name</th><th>Country</th><th>Address</th><th style="text-align:right">Headcount</th><th>Map</th></tr>
+    ${offices.map(o => `<tr>
+      <td><b>${o.id}</b></td>
+      <td>${esc(o.name)}</td>
+      <td>${esc(o.country)}</td>
+      <td>${esc(o.address)}</td>
+      <td style="text-align:right">${o.headcount.toLocaleString()}</td>
+      <td><a href="https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lng}" target="_blank" rel="noopener">📍 Maps ↗</a></td>
+    </tr>`).join('')}
   </table>
 
   <h2>Response Tally</h2>
@@ -2403,19 +2442,33 @@ function exportIncidentReport(incidentId) {
     ${log.map(l=>`<div class="log-row"><div class="log-when">${new Date(l.when).toLocaleString()} · ${esc(l.by)} · ${esc(l.kind)}</div><div>${l.body}</div></div>`).join('')}
   </div>
 
+  <h2>References</h2>
+  <table>
+    <tr><th style="width:160px">Item</th><th>Link</th></tr>
+    <tr><td>Dashboard permalink</td><td><a href="${dashLink}" target="_blank" rel="noopener">${dashLink}</a></td></tr>
+    ${origAlert ? `<tr><td>Originating alert</td><td><a href="${dashRoot}#alert/${esc(origAlert.id)}" target="_blank" rel="noopener">Alert ${esc(origAlert.id)} — ${esc(origAlert.title)} ↗</a></td></tr>` : ''}
+    ${origSrc?.url ? `<tr><td>Data source</td><td><a href="${origSrc.url}" target="_blank" rel="noopener">${esc(origSrc.id||origAlert.source)} — ${esc(origSrc.name)} ↗</a></td></tr>` : ''}
+    ${offices.map(o => `<tr><td>${o.id} office</td><td><a href="https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lng}" target="_blank" rel="noopener">${esc(o.address)} ↗</a></td></tr>`).join('')}
+  </table>
+
   <div class="footer">
     NR Safety Alerts · CMT Dashboard · GSOC<br>
     Report generated ${new Date().toLocaleString()}<br>
-    This report is a static snapshot of the incident at the time of export.
+    Incident ID <code>${esc(inc.id)}</code> · This report is a static snapshot of the incident at the time of export.
   </div>
 
   <script>
     window.__incident = ${JSON.stringify({
       id: inc.id, title: inc.title, status: inc.status, severity: inc.severity,
       opened: inc.opened, closedAt: inc.closedAt, closedNote: inc.closedNote,
-      offices: inc.offices, description: inc.description,
+      offices: inc.offices, officeDetails: offices,
+      description: inc.description,
+      alertId: inc.alertId, originatingAlert: origAlert || null,
+      sourceUrl: origSrc?.url || null,
+      dashboardLink: dashLink,
       messages, notes, log: inc.log, responses: resp,
       reopens: inc.reopens || [],
+      generatedAt: new Date().toISOString(),
     }).replace(/</g,'\\u003c')};
     function downloadJSON() {
       const blob = new Blob([JSON.stringify(window.__incident, null, 2)], {type:'application/json'});
@@ -2459,6 +2512,36 @@ function tick() {
   document.getElementById('last-updated').textContent = `Last updated ${fmtClock()}`;
 }
 tick(); setInterval(tick, 30000);
+
+/* ---------- 20. URL hash routing ---------- */
+function handleHashRoute() {
+  const h = location.hash;
+  let m;
+  if (m = h.match(/^#alert\/(.+)$/)) {
+    const a = ALERTS.find(x => x.id === m[1]);
+    if (a) { selectAlert(a.id); openPanel('alerts'); }
+    history.replaceState(null, '', location.pathname + location.search);
+  } else if (m = h.match(/^#open-incident\/(.+)$/)) {
+    const a = ALERTS.find(x => x.id === m[1]);
+    if (a && a.officeId) {
+      const inc = createIncident({
+        title: a.title, offices: [a.officeId], severity: a.sev,
+        description: `Auto-opened from alert ${a.id}: ${a.summary}`,
+        alertId: a.id,
+      });
+      openPanel('incident');
+      selectIncident(inc.id);
+      toast('Incident opened from alert.');
+    }
+    history.replaceState(null, '', location.pathname + location.search);
+  } else if (m = h.match(/^#incident\/(.+)$/)) {
+    const inc = STATE.incidents.find(x => x.id === m[1]);
+    if (inc) { openPanel('incident'); selectIncident(inc.id); }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+}
+window.addEventListener('hashchange', handleHashRoute);
+handleHashRoute();
 
 /* Map opens at global view — no auto-selection */
 </script>
