@@ -475,6 +475,12 @@ button { cursor: pointer; }
 
       <!-- BOTTOM BAR for fence counts -->
       <div class="map-overlay map-fence-bottom" id="fence-bottom" style="display:none;"></div>
+
+      <!-- RESET VIEW button -->
+      <button id="btn-reset-view" title="Show all offices"
+        style="position:absolute;top:80px;left:10px;z-index:600;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:5px;font-size:12px;display:flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer">
+        🌐 All offices
+      </button>
     </div>
 
     <!-- RIGHT ZONE: Crisis + Incidents stacked -->
@@ -773,8 +779,10 @@ function travelersAtOffice(id) { return TRAVELERS.filter(t => t.atOffice === id)
 function uid() { return 'i_'+Math.random().toString(36).slice(2,9); }
 
 /* ---------- 6. Office markers + popups ---------- */
+const OFFICE_MARKERS = {};
 function renderOffices() {
   layers.offices.clearLayers();
+  for (const k in OFFICE_MARKERS) delete OFFICE_MARKERS[k];
   OFFICES.forEach(o => {
     if (!STATE.visibleOffices.includes(o.id)) return;
     const sev = maxSevForOffice(o.id);
@@ -784,6 +792,7 @@ function renderOffices() {
     const icon = L.divIcon({ html, className:'', iconSize:[100,22], iconAnchor:[50,11] });
     const m = L.marker([o.lat, o.lng], { icon }).addTo(layers.offices);
     m.bindPopup(officePopup(o));
+    OFFICE_MARKERS[o.id] = m;
   });
 }
 function officePopup(o) {
@@ -1762,6 +1771,9 @@ document.querySelectorAll('[data-feed-tab]').forEach(t => t.addEventListener('cl
 document.querySelectorAll('[data-cc-tab]').forEach(t => t.addEventListener('click', () => setCcTab(t.dataset.ccTab)));
 document.getElementById('feed-search').addEventListener('input', e => { STATE.search = e.target.value; renderFeed(); });
 
+document.getElementById('btn-reset-view').onclick = () => App.resetView();
+document.addEventListener('keydown', e => { if (e.key === 'Escape') App.resetView(); });
+
 document.getElementById('btn-style').onclick = () => {
   STATE.theme = STATE.theme==='dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', STATE.theme);
@@ -1854,6 +1866,16 @@ window.App = {
   zoomOffice(id) {
     const o = OFFICE_BY_ID[id]; if (!o) return;
     map.setView([o.lat, o.lng], 7);
+    // open the popup after the pan settles
+    const m = OFFICE_MARKERS[id];
+    if (m) setTimeout(() => m.openPopup(), 250);
+  },
+  resetView() {
+    // close any open popup, fit to all offices
+    map.closePopup();
+    map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
+    STATE.selectedAlertId = null;
+    renderFeed();
   },
   removeOffice(id) {
     STATE.selectedOffices = STATE.selectedOffices.filter(x => x !== id);
