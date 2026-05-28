@@ -2581,7 +2581,6 @@ function showFreshness() {
     </table>
     <div class="modal-actions"><button class="btn-ghost" onclick="App.closeModal()">Close</button></div>`);
 }
-window.App.showFreshness = showFreshness;
 
 document.getElementById('btn-help').onclick = () => {
   showModal(`<h3>Quick Reference</h3>
@@ -2694,6 +2693,7 @@ window.App = {
   exportFenceCSV, fenceToCrisis, closeModal,
   showAlertDetails,
   selectAlert,
+  showFreshness,
 };
 
 /* ---------- 17b. Alert Details — opens in a new tab ---------- */
