@@ -288,6 +288,10 @@ button { cursor: pointer; }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 .btn-primary.cc-send { background: var(--teal); color: #062c27; padding: 12px; font-size: 14px; }
 .btn-primary.cc-send:hover { background: #5eead4; }
+.linked-banner { background: rgba(45,212,191,.10); border: 1px solid var(--teal);
+  border-radius: 5px; padding: 8px 10px; margin: 0 12px 10px 12px;
+  display: flex; align-items: center; gap: 10px; }
+.linked-icon { font-size: 14px; }
 .btn-ghost { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
   border-radius: 5px; padding: 5px 10px; font-size: 11px; }
 .btn-ghost.danger { color: var(--red); border-color: var(--red); }
@@ -351,6 +355,10 @@ button { cursor: pointer; }
 .log-entry-i.kind-msg { border-left-color: var(--green); }
 .log-entry-i.kind-close { border-left-color: var(--red); }
 .log-entry-i .when { color: var(--muted); font-size: 10px; }
+/* incident comms timeline cards */
+.comm-card { background: var(--bg3); border: 1px solid var(--border); border-left: 3px solid var(--teal);
+  border-radius: 0 5px 5px 0; padding: 8px 10px; margin: 6px 12px; font-size: 11px; }
+.comm-step { font-size: 11px; font-weight: 700; color: var(--teal); text-transform: uppercase; letter-spacing: .04em; }
 
 /* ============ MODALS ============================================== */
 .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 2000;
@@ -764,7 +772,9 @@ const STATE = {
   ],
   incidents: [],
   selectedIncidentId: null,
+  linkedIncidentId: null,           // when set, new comms append to this incident
   incidentTab: 'details',
+  incidentListFilter: 'open',       // open | closed | all
   msgFilter: 'all',
   responses: {},  // { incidentId: { employeeId: { status: 'ok'|'help'|'no', when, by } } }
   panels: { alerts:false, crisis:false, incident:false },
@@ -1097,7 +1107,19 @@ function renderComposeForm() {
   const clearBtn = document.getElementById('btn-clear-draft');
   if (clearBtn) clearBtn.style.display = hasDraftContent() ? '' : 'none';
 
+  const linked = STATE.linkedIncidentId ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId) : null;
+  const linkedBanner = linked ? `
+    <div class="linked-banner">
+      <span class="linked-icon" aria-hidden="true">🔗</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Linked to incident</div>
+        <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(linked.title)}</div>
+      </div>
+      <a href="#" id="cc-unlink" class="field-action muted" title="Unlink — next message will create a new incident">Unlink</a>
+    </div>` : '';
+
   return `<div class="compose-form">
+    ${linkedBanner}
     <div class="field">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
         <label style="margin-bottom:0">Offices</label>
@@ -1185,7 +1207,9 @@ function renderComposeForm() {
     </div>
 
     <button class="btn-primary cc-send" id="btn-send" ${reachOffices&&activeChannels.length?'':'disabled'}>
-      Send to ${reachOffices} office${reachOffices===1?'':'s'} ▶
+      ${linked
+        ? `Send & log to incident ▶`
+        : `Send to ${reachOffices} office${reachOffices===1?'':'s'} ▶`}
     </button>
   </div>`;
 }
@@ -1295,6 +1319,12 @@ function bindCCHandlers() {
     STATE.customMessage = ''; STATE.template = ''; STATE.subject = '';
     renderCC();
   });
+  document.getElementById('cc-unlink')?.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.linkedIncidentId = null;
+    toast('Unlinked. Next message will create a new incident.');
+    renderCC();
+  });
   document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
   document.getElementById('reminder')?.addEventListener('change', e => STATE.reminderInterval = e.target.value);
 
@@ -1365,18 +1395,31 @@ function confirmSend() {
   };
 }
 function dispatchSend(body, channels, reach) {
+  const tpl = allTemplates().find(t => t.id === STATE.template);
+  const tplName = tpl?.name || 'Custom message';
   const msg = {
     id: uid(), when: new Date().toISOString(), by:'cowork-3p',
     offices: STATE.selectedOffices.slice(), channels: channels.slice(),
     subject: STATE.subject,
     body, recipients: reach, responseRequired: STATE.responseRequired,
-    template: STATE.template, reminder: STATE.reminderInterval,
+    template: STATE.template, templateName: tplName,
+    reminder: STATE.reminderInterval,
+    incidentId: null,    // filled below
   };
-  STATE.crisisLog.push(msg);
-  let inc = null;
-  if (STATE.responseRequired) {
-    const tpl = allTemplates().find(t => t.id === STATE.template);
-    const tplName = tpl?.name || 'Custom message';
+
+  let inc = STATE.linkedIncidentId
+    ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId)
+    : null;
+
+  if (inc) {
+    // Append to existing incident
+    msg.incidentId = inc.id;
+    inc.messages.push(msg);
+    // top up response shells in case offices were added since open
+    buildResponseShells(inc.id, STATE.selectedOffices);
+    addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
+  } else if (STATE.responseRequired) {
+    // Create new incident on first response-required send
     inc = createIncident({
       title: `${tplName} — ${STATE.selectedOffices.join(', ')}`,
       offices: STATE.selectedOffices.slice(),
@@ -1384,10 +1427,15 @@ function dispatchSend(body, channels, reach) {
       description: 'Auto-created on dispatch with Response Required.',
       messageId: msg.id,
     });
+    msg.incidentId = inc.id;
+    inc.messages.push(msg);
     addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
   }
+
+  STATE.crisisLog.push(msg);
   toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}`);
-  STATE.customMessage = '';
+  STATE.customMessage = ''; STATE.subject = ''; STATE.template = '';
+  STATE.linkedIncidentId = inc ? inc.id : null;   // keep linked for subsequent messages in the flow
   setCcTab('log');
   renderIncidents();
   if (inc) selectIncident(inc.id);
@@ -1398,21 +1446,38 @@ function createIncident({ title, offices, severity, description, messageId }) {
   const inc = {
     id: uid(), title, offices, severity, description, messageId,
     opened: new Date().toISOString(), status:'open', closedNote:null, closedAt:null,
-    notes: [], log: [],
+    notes: [], log: [], messages: [],
+    reopens: [],   // [{ when, by }] each time the incident is reopened
   };
   STATE.incidents.unshift(inc);
   STATE.responses[inc.id] = {};
-  // build response shells from employees
+  buildResponseShells(inc.id, offices);
+  addIncidentLog(inc.id, 'create', `Incident <b>${esc(title)}</b> opened.`);
+  return inc;
+}
+function buildResponseShells(incidentId, offices) {
   offices.forEach(oid => {
     EMPLOYEES.filter(e => e.office === oid).forEach(e => {
-      STATE.responses[inc.id][e.id] = { status:'no', when:null, by:null };
+      if (!STATE.responses[incidentId][e.id]) {
+        STATE.responses[incidentId][e.id] = { status:'no', when:null, by:null };
+      }
     });
     travelersAtOffice(oid).forEach(t => {
-      STATE.responses[inc.id]['T-'+t.id] = { status:'no', when:null, by:null, traveler:true };
+      const key = 'T-'+t.id;
+      if (!STATE.responses[incidentId][key]) {
+        STATE.responses[incidentId][key] = { status:'no', when:null, by:null, traveler:true };
+      }
     });
   });
-  addIncidentLog(inc.id, 'create', `Incident <b>${title}</b> opened.`);
-  return inc;
+}
+function reopenIncident(incidentId) {
+  const inc = STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
+  inc.status = 'open';
+  inc.closedAt = null;
+  inc.reopens.push({ when: new Date().toISOString(), by:'cowork-3p' });
+  addIncidentLog(inc.id, 'create', `Incident <b>reopened</b>.`);
+  toast('Incident reopened.');
+  renderIncidents();
 }
 function addIncidentLog(id, kind, body) {
   const inc = STATE.incidents.find(x=>x.id===id); if (!inc) return;
@@ -1428,24 +1493,46 @@ function renderIncidents() {
   const body = document.getElementById('incident-body');
   const open = STATE.incidents.filter(i => i.status === 'open');
   document.getElementById('incident-active-badge').textContent = open.length;
-  if (!STATE.incidents.length) { body.innerHTML = '<div class="empty">No incidents. Click <b>+ New</b> to create one or send a Crisis message with Response Required.</div>'; return; }
+  if (!STATE.incidents.length) { body.innerHTML = '<div class="empty">No incidents. Click <b>+ New</b> to create one, or send a Crisis message with Response Required.</div>'; return; }
   if (!STATE.selectedIncidentId || !STATE.incidents.find(x => x.id === STATE.selectedIncidentId)) {
-    body.innerHTML = renderIncidentList(); bindIncidentListHandlers(); return;
+    body.innerHTML = renderIncidentFilter() + renderIncidentList(); bindIncidentListHandlers(); return;
   }
-  body.innerHTML = renderIncidentList() + renderIncidentDetailHTML();
+  body.innerHTML = renderIncidentFilter() + renderIncidentList() + renderIncidentDetailHTML();
   bindIncidentListHandlers(); bindIncidentDetailHandlers();
 }
+function renderIncidentFilter() {
+  const open   = STATE.incidents.filter(i => i.status === 'open').length;
+  const closed = STATE.incidents.filter(i => i.status === 'closed').length;
+  const total  = STATE.incidents.length;
+  const f = STATE.incidentListFilter;
+  return `<div class="msg-filter" role="tablist" aria-label="Filter incidents">
+    <button class="${f==='open'?'active':''}" data-i-filter="open"  role="tab" aria-selected="${f==='open'}">Open ${open}</button>
+    <button class="${f==='closed'?'active':''}" data-i-filter="closed" role="tab" aria-selected="${f==='closed'}">Closed ${closed}</button>
+    <button class="${f==='all'?'active':''}" data-i-filter="all" role="tab" aria-selected="${f==='all'}">All ${total}</button>
+  </div>`;
+}
+function visibleIncidents() {
+  const f = STATE.incidentListFilter;
+  if (f === 'all') return STATE.incidents;
+  return STATE.incidents.filter(i => i.status === f);
+}
 function renderIncidentList() {
-  return `<div class="incident-list">${STATE.incidents.map(i => `
+  const list = visibleIncidents();
+  if (!list.length) return '<div class="empty">No incidents in this filter.</div>';
+  return `<div class="incident-list">${list.map(i => {
+    const msgs = (i.messages||[]).length;
+    return `
     <div class="incident-row ${STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${esc(i.id)}">
       <div class="i-title">${esc(i.title)}</div>
       <div class="i-meta">
         <span class="sev-pill ${i.severity}">${SEV_NAME[i.severity]}</span>
         <span>${relTime(i.opened)} ago</span>
         <span>${esc(i.offices.join(', '))}</span>
+        ${msgs?`<span title="messages sent">📨 ${msgs}</span>`:''}
         <span style="margin-left:auto;color:${i.status==='open'?'var(--red)':'var(--muted)'}">${i.status}</span>
       </div>
-    </div>`).join('')}</div>`;
+    </div>`;
+  }).join('')}</div>`;
 }
 function renderIncidentDetail() {
   document.getElementById('incident-body').innerHTML = renderIncidentList() + renderIncidentDetailHTML();
@@ -1471,15 +1558,24 @@ function renderIncidentDetailHTML() {
       </div>
     </div>
     <div class="tabs">
-      ${['details','messages','notes','log'].map(t=>`<div class="tab ${STATE.incidentTab===t?'active':''}" data-i-tab="${t}">${t}${t==='messages'?` <span class="count">${total}</span>`:''}</div>`).join('')}
+      ${[
+        ['details','Details'],
+        ['comms','Comms', (inc.messages||[]).length],
+        ['responses','Responses', total],
+        ['notes','Notes', inc.notes.length],
+        ['log','Log'],
+      ].map(([t,label,count])=>`<div class="tab ${STATE.incidentTab===t?'active':''}" data-i-tab="${t}">${label}${count!==undefined?` <span class="count">${count}</span>`:''}</div>`).join('')}
     </div>
     <div style="flex:1; overflow-y:auto">${renderIncidentTab(inc, ok, help, no, total, pct)}</div>
   </div>`;
 }
 function renderIncidentTab(inc, ok, help, no, total, pct) {
+  const isOpen = inc.status === 'open';
   if (STATE.incidentTab === 'details') {
     return `<div style="padding:12px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${esc(inc.description)}</div>
+      ${inc.closedNote?`<div style="font-size:11px;background:var(--bg3);border-left:3px solid var(--red);padding:6px 10px;margin-bottom:10px;border-radius:0 4px 4px 0"><b>Closure note:</b> ${esc(inc.closedNote)}<div style="color:var(--muted);font-size:10px;margin-top:2px">${inc.closedAt?new Date(inc.closedAt).toLocaleString():''}</div></div>`:''}
+      ${inc.reopens?.length?`<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Reopened ${inc.reopens.length}× · last ${relTime(inc.reopens[inc.reopens.length-1].when)} ago</div>`:''}
       <div class="tally">
         <div class="tally-cell ok"><div class="n">${ok}</div><div class="l">OK</div></div>
         <div class="tally-cell help"><div class="n">${help}</div><div class="l">Needs Help</div></div>
@@ -1487,12 +1583,44 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
       </div>
       <div class="progress"><span style="width:${pct}%"></span></div>
       <div style="font-size:10px;color:var(--muted);margin-top:4px">${pct}% responded · ${total} total recipients</div>
-      <div style="display:flex;gap:6px;margin-top:14px">
-        ${inc.status==='open'?'<button class="btn-ghost" id="btn-simulate">Simulate Replies</button><button class="btn-ghost danger" id="btn-close-inc">End Incident</button>':''}
+      <div style="display:flex;gap:6px;margin-top:14px;flex-wrap:wrap">
+        ${isOpen?'<button class="btn-ghost" id="btn-send-msg">📣 Send Message</button>':''}
+        ${isOpen?'<button class="btn-ghost" id="btn-simulate">Simulate Replies</button>':''}
+        <button class="btn-ghost" id="btn-export-inc">📄 Export Report</button>
+        ${isOpen
+          ? '<button class="btn-ghost danger" id="btn-close-inc">End Incident</button>'
+          : '<button class="btn-ghost" id="btn-reopen-inc" style="color:var(--green);border-color:var(--green)">↻ Reopen</button>'}
       </div>
     </div>`;
   }
-  if (STATE.incidentTab === 'messages') {
+  if (STATE.incidentTab === 'comms') {
+    const msgs = (inc.messages||[]).slice().sort((a,b) => new Date(a.when) - new Date(b.when));
+    return `<div style="padding:8px 0">
+      ${isOpen?`<div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+        <button class="btn-primary cc-send" id="btn-send-msg" style="margin:0;padding:9px;font-size:13px">📣 Send Another Message</button>
+      </div>`:''}
+      ${!msgs.length?'<div class="empty">No messages sent for this incident yet.</div>':''}
+      ${msgs.map((m,i)=>{
+        const tplName = m.templateName || allTemplates().find(t=>t.id===m.template)?.name || 'Custom';
+        const sevColor = (m.template==='evac'||m.template==='shelter')?SEV_COLOR.high:m.template==='allclear'?SEV_COLOR.low:SEV_COLOR.mod;
+        return `<div class="comm-card" style="border-left-color:${sevColor}">
+          <div class="row-between">
+            <div class="comm-step">${i+1}. ${esc(tplName)}</div>
+            <div class="muted-xs">${new Date(m.when).toLocaleString()}</div>
+          </div>
+          ${m.subject?`<div style="font-size:12px;font-weight:600;margin-top:4px">${esc(m.subject)}</div>`:''}
+          <div style="font-size:11px;line-height:1.4;color:var(--text);margin-top:4px;white-space:pre-wrap">${esc(m.body)}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+            ${m.channels.map(c=>`<span class="src-pill">${c.toUpperCase()}</span>`).join('')}
+            <span class="src-pill">${m.recipients.toLocaleString()} recipients</span>
+            <span class="src-pill">${esc(m.offices.join(', '))}</span>
+            ${m.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+  if (STATE.incidentTab === 'responses') {
     const resp = STATE.responses[inc.id] || {};
     const empRows = []; const travRows = [];
     Object.entries(resp).forEach(([eid, r]) => {
@@ -1537,6 +1665,9 @@ function msgRowHTML(r, inc) {
 }
 function bindIncidentListHandlers() {
   document.querySelectorAll('.incident-row').forEach(el => el.addEventListener('click', () => selectIncident(el.dataset.id)));
+  document.querySelectorAll('[data-i-filter]').forEach(el => el.addEventListener('click', () => {
+    STATE.incidentListFilter = el.dataset.iFilter; renderIncidents();
+  }));
 }
 function bindIncidentDetailHandlers() {
   document.querySelectorAll('[data-i-tab]').forEach(el => el.addEventListener('click', () => setIncidentTab(el.dataset.iTab)));
@@ -1569,6 +1700,17 @@ function bindIncidentDetailHandlers() {
     toast(`${n} replies received.`);
     renderIncidentDetail();
   });
+  document.getElementById('btn-send-msg')?.addEventListener('click', () => {
+    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    STATE.linkedIncidentId = inc.id;
+    STATE.selectedOffices = inc.offices.slice();
+    openPanel('crisis');
+    setCcTab('compose');
+    renderCC();
+    toast(`Linked to "${inc.title}". Compose your next message.`);
+  });
+  document.getElementById('btn-reopen-inc')?.addEventListener('click', () => reopenIncident(STATE.selectedIncidentId));
+  document.getElementById('btn-export-inc')?.addEventListener('click', () => exportIncidentReport(STATE.selectedIncidentId));
   document.getElementById('btn-close-inc')?.addEventListener('click', () => {
     const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
     showModal(`<h3>Close Incident</h3>
@@ -2097,6 +2239,198 @@ function showAlertDetails(id) {
   w.document.write(html);
   w.document.close();
   w.document.title = `Alert ${a.id} — ${a.title}`;
+}
+
+/* ---------- 17c. Incident Report — opens in a new tab ---------- */
+function exportIncidentReport(incidentId) {
+  const inc = STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
+  const resp = STATE.responses[inc.id] || {};
+  const rs = Object.values(resp);
+  const ok = rs.filter(r=>r.status==='ok').length;
+  const help = rs.filter(r=>r.status==='help').length;
+  const no = rs.filter(r=>r.status==='no').length;
+  const total = rs.length;
+  const pct = total ? Math.round(((ok+help)/total)*100) : 0;
+  const offices = inc.offices.map(id => OFFICE_BY_ID[id]).filter(Boolean);
+  const sev = SEV_NAME[inc.severity];
+  const sevColor = SEV_COLOR[inc.severity];
+  const opened = new Date(inc.opened).toLocaleString();
+  const closed = inc.closedAt ? new Date(inc.closedAt).toLocaleString() : null;
+  const messages = (inc.messages||[]).slice().sort((a,b)=>new Date(a.when)-new Date(b.when));
+  const log = (inc.log||[]).slice();
+  const notes = (inc.notes||[]).slice().sort((a,b)=>new Date(a.when)-new Date(b.when));
+
+  // build per-office response table
+  const employeeRows = []; const travelerRows = [];
+  Object.entries(resp).forEach(([eid, r]) => {
+    if (r.traveler) {
+      const t = TRAVELERS.find(x => 'T-'+x.id === eid);
+      if (t) travelerRows.push({ name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} → ${t.destCity}`, status: r.status, when: r.when, by: r.by });
+    } else {
+      const e = EMPLOYEES.find(x => x.id === eid);
+      if (e) employeeRows.push({ name: e.name, who: `${OFFICE_BY_ID[e.office]?.name||e.office} · ${e.role||'—'}`, status: r.status, when: r.when, by: r.by });
+    }
+  });
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Incident Report — ${esc(inc.title)}</title>
+<style>
+  body { margin:0; background:#fff; color:#18181b; font-family:-apple-system,system-ui,sans-serif; padding:32px; max-width:900px; }
+  h1 { font-size:24px; margin:6px 0 8px 0; line-height:1.3; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.08em; color:#1ce783; margin:28px 0 8px 0; padding-bottom:6px; border-bottom:1px solid #d4d4d8; }
+  .sev { display:inline-block; padding:3px 10px; border-radius:4px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; background:${sevColor}22; color:${sevColor}; border:1px solid ${sevColor}; }
+  .meta-bar { display:flex; gap:16px; flex-wrap:wrap; color:#52525b; font-size:12px; margin-bottom:18px; padding-bottom:12px; border-bottom:2px solid ${sevColor}; }
+  .summary { background:#fafafa; border:1px solid #d4d4d8; border-left:4px solid ${sevColor}; border-radius:4px; padding:14px 16px; font-size:13px; line-height:1.6; margin-bottom:8px; }
+  .closure { background:#fef2f2; border:1px solid #fecaca; border-left:4px solid #dc2626; border-radius:4px; padding:12px 14px; font-size:13px; line-height:1.5; margin-top:12px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { color:#52525b; font-weight:600; text-align:left; padding:6px 10px; border-bottom:2px solid #d4d4d8; }
+  td { padding:6px 10px; border-bottom:1px solid #e4e4e7; vertical-align:top; }
+  .tally-row { display:flex; gap:10px; margin:10px 0; }
+  .tally-cell { flex:1; background:#fafafa; border:1px solid #d4d4d8; border-radius:5px; padding:10px; text-align:center; }
+  .tally-cell .n { font-weight:800; font-size:22px; }
+  .tally-cell .l { font-size:11px; color:#52525b; text-transform:uppercase; letter-spacing:.05em; }
+  .tally-cell.ok .n { color:#16a34a; } .tally-cell.help .n { color:#dc2626; } .tally-cell.no .n { color:#71717a; }
+  .progress-bar { height:6px; background:#e4e4e7; border-radius:3px; overflow:hidden; margin-top:6px; }
+  .progress-bar > span { display:block; height:100%; background:#16a34a; }
+  .msg-block { background:#fafafa; border:1px solid #d4d4d8; border-left:4px solid ${sevColor}; border-radius:4px; padding:12px 14px; margin-bottom:10px; }
+  .msg-step { font-size:11px; font-weight:700; color:#1ce783; text-transform:uppercase; letter-spacing:.06em; }
+  .msg-when { font-size:11px; color:#71717a; }
+  .msg-subject { font-size:13px; font-weight:700; margin:4px 0; }
+  .msg-body { font-size:12px; line-height:1.5; color:#27272a; white-space:pre-wrap; margin-top:6px; }
+  .pill { display:inline-block; background:#fff; border:1px solid #d4d4d8; padding:2px 8px; border-radius:10px; font-size:10px; color:#52525b; margin-right:4px; }
+  .log { background:#fafafa; border:1px solid #d4d4d8; border-radius:4px; padding:8px 12px; font-size:11px; }
+  .log-row { padding:6px 0; border-bottom:1px dotted #d4d4d8; }
+  .log-row:last-child { border-bottom:0; }
+  .log-when { color:#71717a; font-size:10px; }
+  .nav { background:#fafafa; border:1px solid #d4d4d8; border-radius:5px; padding:10px 14px; margin-bottom:18px; font-size:12px; display:flex; justify-content:space-between; align-items:center; }
+  .nav a { color:#1e90ff; text-decoration:none; margin-left:12px; }
+  .nav a:hover { text-decoration:underline; }
+  .status-ok { color:#16a34a; font-weight:700; }
+  .status-help { color:#dc2626; font-weight:700; }
+  .status-no { color:#71717a; }
+  .footer { margin-top:36px; padding-top:14px; border-top:1px solid #d4d4d8; font-size:11px; color:#71717a; }
+  @media print { .nav, .no-print { display:none; } body { padding:14px; } }
+</style></head><body>
+  <div class="nav no-print">
+    <span><b>NR Safety Alerts · GSOC</b> — Incident Report</span>
+    <span>
+      <a href="#" onclick="window.print();return false;">🖨 Print</a>
+      <a href="#" onclick="downloadJSON();return false;">⬇ Download JSON</a>
+      <a href="${location.href.split('#')[0]}" target="_top">← Back to dashboard</a>
+    </span>
+  </div>
+
+  <span class="sev">${sev}</span>
+  <h1>${esc(inc.title)}</h1>
+  <div class="meta-bar">
+    <span><b>Status:</b> ${inc.status}</span>
+    <span><b>Opened:</b> ${opened}</span>
+    ${closed?`<span><b>Closed:</b> ${closed}</span>`:''}
+    <span><b>Offices:</b> ${esc(inc.offices.join(', '))}</span>
+    <span><b>Incident ID:</b> <code>${esc(inc.id)}</code></span>
+    ${inc.reopens?.length?`<span><b>Reopened:</b> ${inc.reopens.length}×</span>`:''}
+  </div>
+
+  <h2>Description</h2>
+  <div class="summary">${esc(inc.description||'No description provided.')}</div>
+  ${inc.closedNote?`<div class="closure"><b>Closure note:</b> ${esc(inc.closedNote)}</div>`:''}
+
+  <h2>Affected Offices</h2>
+  <table>
+    <tr><th>Code</th><th>Name</th><th>Country</th><th>Address</th><th style="text-align:right">Headcount</th></tr>
+    ${offices.map(o => `<tr><td><b>${o.id}</b></td><td>${esc(o.name)}</td><td>${esc(o.country)}</td><td>${esc(o.address)}</td><td style="text-align:right">${o.headcount.toLocaleString()}</td></tr>`).join('')}
+  </table>
+
+  <h2>Response Tally</h2>
+  <div class="tally-row">
+    <div class="tally-cell ok"><div class="n">${ok}</div><div class="l">OK</div></div>
+    <div class="tally-cell help"><div class="n">${help}</div><div class="l">Needs Help</div></div>
+    <div class="tally-cell no"><div class="n">${no}</div><div class="l">No Response</div></div>
+    <div class="tally-cell"><div class="n">${pct}%</div><div class="l">Responded</div></div>
+  </div>
+  <div class="progress-bar"><span style="width:${pct}%"></span></div>
+
+  <h2>Communications Sent (${messages.length})</h2>
+  ${messages.length ? messages.map((m,i)=>{
+    const tplName = m.templateName || allTemplates().find(t=>t.id===m.template)?.name || 'Custom';
+    return `<div class="msg-block">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="msg-step">${i+1}. ${esc(tplName)}</span>
+        <span class="msg-when">${new Date(m.when).toLocaleString()}</span>
+      </div>
+      ${m.subject?`<div class="msg-subject">${esc(m.subject)}</div>`:''}
+      <div class="msg-body">${esc(m.body)}</div>
+      <div style="margin-top:8px">
+        ${m.channels.map(c=>`<span class="pill">${c.toUpperCase()}</span>`).join('')}
+        <span class="pill">${m.recipients.toLocaleString()} recipients</span>
+        <span class="pill">${esc(m.offices.join(', '))}</span>
+        ${m.responseRequired?'<span class="pill" style="color:#16a34a;border-color:#16a34a">tracked</span>':''}
+      </div>
+    </div>`;
+  }).join('') : '<div class="summary">No messages sent for this incident.</div>'}
+
+  <h2>Employee Responses (${employeeRows.length})</h2>
+  ${employeeRows.length?`<table>
+    <tr><th>Name</th><th>Office / Role</th><th>Status</th><th>When</th><th>Logged by</th></tr>
+    ${employeeRows.map(r => `<tr>
+      <td><b>${esc(r.name)}</b></td>
+      <td>${esc(r.who)}</td>
+      <td class="status-${r.status==='no'?'no':r.status}">${r.status==='no'?'No response':r.status==='ok'?'OK':'Needs Help'}</td>
+      <td>${r.when?new Date(r.when).toLocaleString():'—'}</td>
+      <td>${esc(r.by||'—')}</td>
+    </tr>`).join('')}
+  </table>`:'<div class="summary">No employee responses logged.</div>'}
+
+  ${travelerRows.length?`<h2>Visiting Travelers (${travelerRows.length})</h2><table>
+    <tr><th>Name</th><th>Home → Destination</th><th>Status</th><th>When</th><th>Logged by</th></tr>
+    ${travelerRows.map(r => `<tr>
+      <td><b>${esc(r.name)}</b></td>
+      <td>${esc(r.who)}</td>
+      <td class="status-${r.status==='no'?'no':r.status}">${r.status==='no'?'No response':r.status==='ok'?'OK':'Needs Help'}</td>
+      <td>${r.when?new Date(r.when).toLocaleString():'—'}</td>
+      <td>${esc(r.by||'—')}</td>
+    </tr>`).join('')}
+  </table>`:''}
+
+  <h2>Notes (${notes.length})</h2>
+  ${notes.length?notes.map(n=>`<div class="msg-block" style="border-left-color:#facc15">
+    <div class="msg-when">${new Date(n.when).toLocaleString()} · ${esc(n.by||'—')}</div>
+    <div class="msg-body" style="margin-top:4px">${esc(n.body)}</div>
+  </div>`).join(''):'<div class="summary">No notes logged.</div>'}
+
+  <h2>Activity Log (${log.length})</h2>
+  <div class="log">
+    ${log.map(l=>`<div class="log-row"><div class="log-when">${new Date(l.when).toLocaleString()} · ${esc(l.by)} · ${esc(l.kind)}</div><div>${l.body}</div></div>`).join('')}
+  </div>
+
+  <div class="footer">
+    NR Safety Alerts · CMT Dashboard · GSOC<br>
+    Report generated ${new Date().toLocaleString()}<br>
+    This report is a static snapshot of the incident at the time of export.
+  </div>
+
+  <script>
+    window.__incident = ${JSON.stringify({
+      id: inc.id, title: inc.title, status: inc.status, severity: inc.severity,
+      opened: inc.opened, closedAt: inc.closedAt, closedNote: inc.closedNote,
+      offices: inc.offices, description: inc.description,
+      messages, notes, log: inc.log, responses: resp,
+      reopens: inc.reopens || [],
+    }).replace(/</g,'\\u003c')};
+    function downloadJSON() {
+      const blob = new Blob([JSON.stringify(window.__incident, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'incident-' + window.__incident.id + '.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('Pop-up blocked. Allow pop-ups for this site to view the report.'); return; }
+  w.document.write(html);
+  w.document.close();
 }
 
 /* ---------- 18. Master render ---------- */
