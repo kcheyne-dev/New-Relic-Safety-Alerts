@@ -1090,7 +1090,10 @@ function renderComposeForm() {
     </div>
 
     <div class="field">
-      <label>Message</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <label style="margin-bottom:0">Message</label>
+        <a href="#" id="cc-clear-msg" style="font-size:10px;color:var(--muted)">Clear</a>
+      </div>
       <textarea id="msg-body" placeholder="Compose the safety message...">${message}</textarea>
     </div>
 
@@ -1217,6 +1220,11 @@ function bindCCHandlers() {
   // Subject + message + response + reminder
   document.getElementById('cc-subject')?.addEventListener('input', e => STATE.subject = e.target.value);
   document.getElementById('msg-body')?.addEventListener('input', e => STATE.customMessage = e.target.value);
+  document.getElementById('cc-clear-msg')?.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.customMessage = ''; STATE.template = '';
+    renderCC();
+  });
   document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
   document.getElementById('reminder')?.addEventListener('change', e => STATE.reminderInterval = e.target.value);
 
