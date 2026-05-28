@@ -1649,6 +1649,12 @@ function renderAll() {
 buildLayerControls();
 setupDraw();
 renderAll();
+/* Fit map to show all offices, with padding for the rails/header */
+map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
+window.addEventListener('resize', () => {
+  map.invalidateSize();
+  map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
+});
 function tick() {
   document.getElementById('last-updated').textContent = `Last updated ${fmtClock()}`;
 }
