@@ -1654,13 +1654,7 @@ function tick() {
 }
 tick(); setInterval(tick, 1000);
 
-/* Pre-select highest severity alert + a couple of comms targets for demo */
-const highest = ALERTS.filter(passesFilter).sort((a,b)=>SEV_RANK[b.sev]-SEV_RANK[a.sev])[0];
-if (highest && highest.officeId) {
-  STATE.selectedOffices = [highest.officeId];
-  selectAlert(highest.id);
-}
-renderCC();
+/* Map opens at global view — no auto-selection */
 </script>
 </body>
 </html>
