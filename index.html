@@ -7,7 +7,7 @@
   default-src 'self';
   script-src 'self' 'unsafe-inline' https://unpkg.com;
   style-src 'self' 'unsafe-inline' https://unpkg.com;
-  img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://*.rainviewer.com https://mesonet.agron.iastate.edu;
+  img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://*.rainviewer.com https://mesonet.agron.iastate.edu https://gibs.earthdata.nasa.gov https://*.gibs.earthdata.nasa.gov;
   connect-src 'self' https://*.basemaps.cartocdn.com https://api.rainviewer.com;
   font-src 'self' data:;
   frame-ancestors 'none';
@@ -488,10 +488,12 @@ button { cursor: pointer; }
         <div class="toggle-row"><label><span class="swatch" style="background:var(--blue)"></span>Flood Risk Zones</label><input type="checkbox" data-overlay="flood"/></div>
         <div class="toggle-row"><label><span class="swatch" style="background:var(--orange)"></span>Seismic Risk</label><input type="checkbox" data-overlay="quake"/></div>
         <div class="toggle-row"><label><span class="swatch" style="background:var(--yellow)"></span>Civil Unrest Zones</label><input type="checkbox" data-overlay="unrest"/></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#dc2626"></span>Heat Advisory Zones</label><input type="checkbox" data-overlay="heat"/></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#a855f7"></span>Air Quality (AQI &gt; 100)</label><input type="checkbox" data-overlay="aqi"/></div>
 
         <h4>Live Overlays</h4>
         <div class="toggle-row"><label>🌧 Precipitation Radar (RainViewer)</label><input type="checkbox" data-overlay="precip"/></div>
-        <div class="toggle-row"><label>🫁 Air Quality (OpenAQ stations)</label><input type="checkbox" data-overlay="aqi"/></div>
+        <div class="toggle-row"><label>🌡 Land Surface Temperature (NASA GIBS)</label><input type="checkbox" data-overlay="temp"/></div>
 
         <h4>Severity Filter</h4>
         <div class="sev-segments" id="sev-segments">
@@ -815,7 +817,7 @@ const STATE = {
   panels: { alerts:false, crisis:false, incident:false },
   fence: null,             // {layer, shape, mode, results: {offices, employees, travelers}}
   fenceMode: 'highlight',
-  hazards: { fire:false, flood:false, quake:false, unrest:false, precip:false, aqi:false },
+  hazards: { fire:false, flood:false, quake:false, unrest:false, heat:false, aqi:false, precip:false, temp:false },
   theme: 'dark',
 };
 
@@ -1093,7 +1095,24 @@ const HAZARD_ZONES = {
       { lat: 17.4, lng: 78.5, radiusKm: 80,  label: 'Hyderabad AQI 130' },
     ],
   },
-  // precip is a real tile overlay (RainViewer) — see TILE_OVERLAYS
+  heat: {
+    label: '☀️ Heat Advisory',
+    color: '#dc2626',
+    source: 'NWS',
+    sourceName: 'National Weather Service — Heat Watches & Warnings',
+    sourceUrl: 'https://www.weather.gov/safety/heat',
+    description: 'Areas under active heat advisories, watches, or warnings. Includes excessive-heat warnings (NWS), regional heatwave advisories (MeteoAlarm), and IMD heat alerts.',
+    zones: [
+      { lat: 17.4,  lng: 78.5,    radiusKm: 80,  label: 'Hyderabad — heat index 47°C' },
+      { lat: 28.6,  lng: 77.2,    radiusKm: 200, label: 'Delhi — IMD heatwave alert' },
+      { lat: 33.45, lng: -112.07, radiusKm: 180, label: 'Phoenix — excessive heat warning' },
+      { lat: 36.17, lng: -115.14, radiusKm: 140, label: 'Las Vegas — heat advisory' },
+      { lat: 30.04, lng: 31.24,   radiusKm: 220, label: 'Cairo region heatwave' },
+      { lat: 35.68, lng: 139.65,  radiusKm: 130, label: 'Tokyo summer alert' },
+      { lat: 41.39, lng: 2.17,    radiusKm: 110, label: 'Catalonia heatwave' },
+    ],
+  },
+  // precip + temp are real tile overlays — see TILE_OVERLAYS
 };
 
 /** Live tile-based overlays — actual real-time data when available. */
@@ -1103,12 +1122,19 @@ const TILE_OVERLAYS = {
     source: 'RainViewer',
     sourceName: 'RainViewer global weather radar',
     sourceUrl: 'https://www.rainviewer.com/',
-    description: 'Real-time global precipitation radar updated every 10 minutes. Click anywhere outside a zone for source.',
+    description: 'Real-time global precipitation radar updated every 10 minutes.',
+  },
+  temp: {
+    label: '🌡 Live Land Surface Temperature',
+    source: 'NASA GIBS',
+    sourceName: 'NASA Global Imagery Browse Services — MODIS Terra LST Day',
+    sourceUrl: 'https://gibs.earthdata.nasa.gov/',
+    description: 'MODIS Terra land surface temperature (daytime). Updated daily — colored from cold (blue) to hot (red).',
   },
 };
 
 /* Tile layers cached after first activation. */
-const tileOverlayLayers = { precip: null };
+const tileOverlayLayers = { precip: null, temp: null };
 let tileOverlayLoading = {};
 
 async function ensurePrecipTileLayer() {
@@ -1133,6 +1159,24 @@ async function ensurePrecipTileLayer() {
   } finally {
     tileOverlayLoading.precip = false;
   }
+}
+
+/** NASA GIBS — MODIS Terra Land Surface Temperature (Day). Free, no API key.
+ *  Updated daily; we request "yesterday" since today's tiles may not be ready globally. */
+function ensureTempTileLayer() {
+  if (tileOverlayLayers.temp) return tileOverlayLayers.temp;
+  const d = new Date(Date.now() - 24*3600*1000);  // yesterday
+  const date = d.toISOString().slice(0, 10);
+  const url = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_Land_Surface_Temp_Day/default/${date}/GoogleMapsCompatible_Level7/{z}/{y}/{x}.png`;
+  tileOverlayLayers.temp = L.tileLayer(url, {
+    opacity: 0.55,
+    attribution: '© NASA GIBS · MODIS Terra LST',
+    maxZoom: 7,    // GIBS LST max zoom for this layer
+    minZoom: 1,
+    tileSize: 256,
+    errorTileUrl: '',
+  });
+  return tileOverlayLayers.temp;
 }
 
 /** HTML for a hazard-zone popup, including clickable source link. */
@@ -1176,7 +1220,7 @@ function renderHazardZones() {
   return active;
 }
 
-/** Manage live tile overlays (precip). */
+/** Manage live tile overlays (precip + temp). */
 async function applyTileOverlays() {
   // Precipitation radar — RainViewer
   if (STATE.hazards.precip) {
@@ -1184,6 +1228,13 @@ async function applyTileOverlays() {
     if (layer && STATE.hazards.precip && !map.hasLayer(layer)) layer.addTo(map);
   } else if (tileOverlayLayers.precip && map.hasLayer(tileOverlayLayers.precip)) {
     map.removeLayer(tileOverlayLayers.precip);
+  }
+  // Live land surface temperature — NASA GIBS
+  if (STATE.hazards.temp) {
+    const layer = ensureTempTileLayer();
+    if (layer && !map.hasLayer(layer)) layer.addTo(map);
+  } else if (tileOverlayLayers.temp && map.hasLayer(tileOverlayLayers.temp)) {
+    map.removeLayer(tileOverlayLayers.temp);
   }
 }
 
@@ -1193,6 +1244,7 @@ function updateHazardLegend(active) {
   if (!leg) return;
   const entries = [...active.map(({def}) => ({ label: def.label, color: def.color, count: def.zones.length, source: def.source, sourceUrl: def.sourceUrl }))];
   if (STATE.hazards.precip) entries.push({ label: TILE_OVERLAYS.precip.label, color: '#3b82f6', count: 'live', source: TILE_OVERLAYS.precip.source, sourceUrl: TILE_OVERLAYS.precip.sourceUrl });
+  if (STATE.hazards.temp)   entries.push({ label: TILE_OVERLAYS.temp.label,   color: '#dc2626', count: 'live', source: TILE_OVERLAYS.temp.source,   sourceUrl: TILE_OVERLAYS.temp.sourceUrl });
   if (!entries.length) { leg.style.display = 'none'; leg.innerHTML = ''; return; }
   leg.style.display = '';
   leg.innerHTML = `<div class="leg-title">Map overlays active</div>` +
