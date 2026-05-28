@@ -1424,11 +1424,12 @@ function dispatchSend(body, channels, reach) {
     addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
   } else if (STATE.responseRequired) {
     // Create new incident on first response-required send
+    const officeNames = STATE.selectedOffices.map(id => targetById(id)?.name || id).join(', ');
     inc = createIncident({
       title: `${tplName} — ${STATE.selectedOffices.join(', ')}`,
       offices: STATE.selectedOffices.slice(),
       severity: STATE.template==='evac' || STATE.template==='shelter' ? 'high' : 'mod',
-      description: 'Auto-created on dispatch with Response Required.',
+      description: `Incident auto-created when "${tplName}" was dispatched with Response Required enabled. Initial reach: ~${reach.toLocaleString()} recipients across ${officeNames}. Channels: ${channels.map(c=>c.toUpperCase()).join(', ')}. Reminder interval: ${STATE.reminderInterval}.`,
       messageId: msg.id,
     });
     msg.incidentId = inc.id;
@@ -2340,6 +2341,9 @@ function exportIncidentReport(incidentId) {
   .status-help { color:#dc2626; font-weight:700; }
   .status-no { color:#71717a; }
   .footer { margin-top:36px; padding-top:14px; border-top:1px solid #d4d4d8; font-size:11px; color:#71717a; }
+  .facts-table th { width:170px; vertical-align:top; }
+  .facts-table td { vertical-align:top; }
+  .facts-table code { font-family:ui-monospace,monospace; font-size:11px; background:#f4f4f5; padding:1px 5px; border-radius:3px; }
   @media print { .nav, .no-print { display:none; } body { padding:14px; } }
 </style></head><body>
   <div class="nav no-print">
@@ -2363,8 +2367,30 @@ function exportIncidentReport(incidentId) {
     ${inc.reopens?.length?`<span><b>Reopened:</b> ${inc.reopens.length}×</span>`:''}
   </div>
 
+  <h2>Incident Summary</h2>
+  <table class="facts-table">
+    <tr><th>Title</th><td>${esc(inc.title)}</td></tr>
+    <tr><th>Severity</th><td><span class="sev">${sev}</span></td></tr>
+    <tr><th>Status</th><td>${inc.status}${inc.status==='closed'?` (closed ${closed})`:''}</td></tr>
+    <tr><th>Opened</th><td>${opened}${closed?` · duration: ${(() => {
+      const ms = new Date(inc.closedAt) - new Date(inc.opened);
+      const hrs = Math.floor(ms/3600000); const min = Math.floor((ms%3600000)/60000);
+      return `${hrs}h ${min}m`;
+    })()}`:''}</td></tr>
+    ${inc.reopens?.length?`<tr><th>Reopened</th><td>${inc.reopens.length}× — last ${new Date(inc.reopens[inc.reopens.length-1].when).toLocaleString()}</td></tr>`:''}
+    <tr><th>Affected offices</th><td>${offices.map(o => `${o.id} · ${esc(o.name)}`).join(', ')||'—'}</td></tr>
+    <tr><th>Total headcount</th><td>${offices.reduce((s,o)=>s+o.headcount,0).toLocaleString()} employees</td></tr>
+    <tr><th>Messages sent</th><td>${messages.length}${messages.length?` · last ${relTime(messages[messages.length-1].when)} ago`:''}</td></tr>
+    <tr><th>Response tracking</th><td>${total ? `${ok} OK · ${help} need help · ${no} no response (${pct}% responded)` : 'No tracked responses'}</td></tr>
+    <tr><th>Notes recorded</th><td>${notes.length}</td></tr>
+    <tr><th>Activity log entries</th><td>${log.length}</td></tr>
+    <tr><th>Originating source</th><td>${origAlert ? `Alert <code>${esc(origAlert.id)}</code> — ${esc(origAlert.title)}` : 'Manually created'}</td></tr>
+    <tr><th>Incident ID</th><td><code>${esc(inc.id)}</code></td></tr>
+    <tr><th>Dashboard link</th><td><a href="${dashLink}" target="_blank" rel="noopener">${dashLink} ↗</a></td></tr>
+  </table>
+
   <h2>Description</h2>
-  <div class="summary">${esc(inc.description||'No description provided.')}</div>
+  <div class="summary">${inc.description ? esc(inc.description) : '<i style="color:#71717a">No description provided when this incident was opened.</i>'}</div>
   ${inc.closedNote?`<div class="closure"><b>Closure note:</b> ${esc(inc.closedNote)}</div>`:''}
 
   ${origAlert ? `<h2>Originating Alert</h2>
