@@ -56,7 +56,21 @@ button { cursor: pointer; }
 .left-zone, .right-zone { display: flex; }
 .right-zone { flex-direction: row; }
 .rail { width: var(--rail-w); background: var(--bg2); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px; cursor: pointer; }
+  display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px; cursor: pointer; min-height: 0; }
+.rail.alert { width: 56px; }
+.rail-bell { font-size: 16px; }
+.rail-office-list { display: flex; flex-direction: column; gap: 4px; padding: 6px 4px 12px 4px; width: 100%;
+  flex: 1; overflow-y: auto; min-height: 0; }
+.rail-office { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 2px; text-align: center; cursor: pointer; }
+.rail-office:hover { border-color: var(--green); }
+.rail-office-code { font-size: 9px; color: var(--muted); letter-spacing: .04em; font-weight: 600; }
+.rail-office-counts { display: flex; justify-content: center; gap: 3px; margin-top: 2px; font-size: 11px; font-weight: 800; line-height: 1; }
+.rail-sev-count { padding: 1px 3px; border-radius: 2px; }
+.rail-sev-count.s-low  { color: var(--sev-low);  background: rgba(74,222,128,.15); }
+.rail-sev-count.s-mod  { color: var(--sev-mod);  background: rgba(250,204,21,.15); }
+.rail-sev-count.s-high { color: var(--sev-high); background: rgba(251,146,60,.15); }
+.rail-sev-count.s-ext  { color: var(--sev-ext);  background: rgba(248,113,113,.18); }
 .right-zone .rail { border-right: 0; border-left: 1px solid var(--border); }
 .rail .rail-icon { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px;
   color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
@@ -119,6 +133,9 @@ button { cursor: pointer; }
 .alert-card .crisis-btn { background: rgba(28,231,131,.15); border: 1px solid rgba(28,231,131,.4);
   color: var(--green); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }
 .alert-card .crisis-btn:hover { background: var(--green); color: #000; }
+.alert-card .details-btn { background: var(--bg2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }
+.alert-card .details-btn:hover { border-color: var(--blue); color: var(--blue); }
 .sev-pill { padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .04em; }
 .sev-pill.low { background: rgba(74,222,128,.15); color: var(--sev-low); }
@@ -356,7 +373,11 @@ button { cursor: pointer; }
   <div class="main">
     <!-- LEFT ZONE: Alert Feed -->
     <div class="left-zone">
-      <div class="rail alert" id="rail-alerts" title="Alert Feed"><span class="rail-icon">🔔 Alerts</span><span class="badge" id="rail-alerts-count">0</span></div>
+      <div class="rail alert" id="rail-alerts" title="Alert Feed">
+        <span class="rail-bell">🔔</span>
+        <span class="rail-icon">ALERTS</span>
+        <div class="rail-office-list" id="rail-office-list"></div>
+      </div>
       <aside class="panel collapsed" id="panel-alerts">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-emerald">🔔</span> Alert Feed</div>
@@ -773,6 +794,7 @@ function officePopup(o) {
         <span class="sev-pill ${al.sev}">${SEV_NAME[al.sev]}</span>
         <span class="src-pill">${al.source}</span>
         <div style="margin-top:2px">${al.title}</div>
+        <button class="btn-ghost" style="font-size:10px;padding:2px 6px;margin-top:3px" onclick="App.showAlertDetails('${al.id}')">Details</button>
       </div>`).join('')}
     </div>
     <div class="pop-actions">
@@ -842,10 +864,38 @@ function renderHazards() {
 }
 
 /* ---------- 10. ALERT FEED render ---------- */
+function renderRailAlerts() {
+  const list = document.getElementById('rail-office-list');
+  if (!list) return;
+  const data = OFFICES.map(o => {
+    const a = activeAlertsForOffice(o.id);
+    const counts = SEVERITY.reduce((m,s) => { m[s] = a.filter(x => x.sev===s).length; return m; }, {});
+    return { o, counts, total: a.length };
+  }).filter(x => x.total > 0)
+    .sort((a,b) => {
+      const aMax = Math.max(...SEVERITY.map(s => a.counts[s] ? SEV_RANK[s] : 0));
+      const bMax = Math.max(...SEVERITY.map(s => b.counts[s] ? SEV_RANK[s] : 0));
+      return bMax - aMax || b.total - a.total;
+    });
+  if (!data.length) { list.innerHTML = '<div style="font-size:9px;color:var(--muted);text-align:center;padding:6px 0">no alerts</div>'; return; }
+  list.innerHTML = data.map(({o, counts}) => {
+    const segs = ['ext','high','mod','low'].filter(s => counts[s] > 0)
+      .map(s => `<span class="rail-sev-count s-${s}" title="${SEV_NAME[s]}">${counts[s]}</span>`).join('');
+    return `<div class="rail-office" data-id="${o.id}" title="${o.name}: ${SEVERITY.map(s=>counts[s]?counts[s]+' '+SEV_NAME[s]:'').filter(Boolean).join(', ')}">
+      <div class="rail-office-code">${o.id}</div>
+      <div class="rail-office-counts">${segs}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.rail-office').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    App.zoomOffice(el.dataset.id);
+    openPanel('alerts');
+  }));
+}
 function renderFeed() {
   const body = document.getElementById('feed-body');
   const alerts = visibleAlerts();
-  document.getElementById('rail-alerts-count').textContent = alerts.length;
+  renderRailAlerts();
   if (!alerts.length) { body.innerHTML = '<div class="empty">No alerts match the current filter.</div>'; return; }
   if (STATE.feedTab === 'office') {
     const groups = {};
@@ -888,6 +938,10 @@ function renderFeed() {
       toast(`${a.officeId} pre-loaded in Crisis Comms.`);
     }
   }));
+  body.querySelectorAll('.details-btn').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    showAlertDetails(el.dataset.details);
+  }));
 }
 function alertCardHTML(a) {
   const sel = STATE.selectedAlertId === a.id ? 'selected' : '';
@@ -896,10 +950,13 @@ function alertCardHTML(a) {
       <span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span>
       <span class="src-pill">${a.source}</span>
       <span class="a-title">${a.title}</span>
-      ${a.officeId?`<button class="crisis-btn" data-id="${a.id}">Crisis</button>`:''}
     </div>
     <div class="a-sub">
       <span>${a.location}</span>·<span>${relTime(a.issued)}</span>·<span>${a.type}</span>
+    </div>
+    <div style="display:flex;gap:4px;margin-top:6px">
+      <button class="details-btn" data-details="${a.id}">Details</button>
+      ${a.officeId?`<button class="crisis-btn" data-id="${a.id}">Crisis</button>`:''}
     </div>
   </div>`;
 }
@@ -1450,7 +1507,7 @@ function computeFenceResults() {
     <div class="fence-row"><b>Offices</b><span>${offIn.length}</span></div>
     ${offIn.map(o=>`<div class="fence-row"><span>${o.id} · ${o.name}</span><span>${o.headcount} emp</span></div>`).join('')}
     <div class="fence-row" style="margin-top:6px"><b>Alerts</b><span>${alertIn.length}</span></div>
-    ${alertIn.slice(0,5).map(a=>`<div class="fence-row"><span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span><span>${a.title.slice(0,40)}…</span></div>`).join('')}
+    ${alertIn.slice(0,5).map(a=>`<div class="fence-row" style="cursor:pointer" onclick="App.showAlertDetails('${a.id}')"><span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span><span>${a.title.slice(0,30)}…</span><span style="color:var(--green);font-size:10px">Details ›</span></div>`).join('')}
   `;
   document.getElementById('fence-result-summary').textContent = `${empIn.length} emp · ${travIn.length} trav`;
   // bottom bar
@@ -1638,7 +1695,88 @@ window.App = {
     renderCC();
   },
   exportFenceCSV, fenceToCrisis, closeModal,
+  showAlertDetails,
+  selectAlert,
 };
+
+/* ---------- 17b. Alert Details — opens in a new tab ---------- */
+function showAlertDetails(id) {
+  const a = ALERTS.find(x => x.id === id); if (!a) return;
+  const o = a.officeId ? OFFICE_BY_ID[a.officeId] : null;
+  const ageMin = Math.floor((Date.now() - new Date(a.issued).getTime())/60000);
+  const stale = ageMin > 4320 || (SEV_RANK[a.sev]<=1 && ageMin>1440);
+  const src = SOURCES.find(s => s.id === a.source) || { name:a.source, status:'ok' };
+  const visitors = o ? travelersAtOffice(o.id).length : 0;
+  const sevColor = SEV_COLOR[a.sev];
+  const related = ALERTS.filter(x => x.id !== a.id &&
+    (x.officeId === a.officeId || x.type === a.type) &&
+    Math.abs(new Date(x.issued)-new Date(a.issued)) < 6*3600*1000).slice(0,4);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>Alert ${a.id} — ${a.title}</title>
+<style>
+  body { margin:0; background:#18181b; color:#e4e4e7; font-family:-apple-system,system-ui,sans-serif; padding:32px; max-width:780px; }
+  h1 { font-size:22px; margin:0 0 6px 0; line-height:1.3; }
+  .sub { color:#a1a1aa; font-size:13px; margin-bottom:18px; }
+  .sev { display:inline-block; padding:3px 10px; border-radius:4px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; background:${sevColor}22; color:${sevColor}; border:1px solid ${sevColor}; }
+  .summary { background:#27272a; border:1px solid #3f3f46; border-left:4px solid ${sevColor}; border-radius:6px; padding:14px 16px; font-size:14px; line-height:1.6; margin-bottom:20px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { padding:8px 12px; text-align:left; border-bottom:1px solid #3f3f46; }
+  th { color:#a1a1aa; font-weight:500; width:160px; }
+  .stale { color:#facc15; }
+  .src-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-left:4px; vertical-align:middle; background:${src.status==='ok'?'#1ce783':src.status==='stale'?'#facc15':'#f87171'}; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:#1ce783; margin:24px 0 8px 0; }
+  .related { display:flex; flex-direction:column; gap:6px; }
+  .rel { background:#27272a; border:1px solid #3f3f46; border-radius:5px; padding:8px 12px; font-size:12px; }
+  .rel-title { font-weight:600; }
+  .rel-meta { color:#a1a1aa; font-size:11px; margin-top:3px; }
+  a { color:#1e90ff; text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .nav { background:#27272a; border:1px solid #3f3f46; border-radius:6px; padding:10px 14px; margin-bottom:24px; font-size:12px; display:flex; justify-content:space-between; align-items:center; }
+  @media print { body { background:#fff; color:#000; } .summary,.rel,.nav,th,td { background:#fff; color:#000; border-color:#ccc; } }
+</style></head><body>
+  <div class="nav">
+    <span><b>NR Safety Alerts</b> · Alert ${a.id}</span>
+    <span><a href="${location.href.split('#')[0]}" target="_top">← Back to dashboard</a> · <a href="#" onclick="window.print();return false;">Print</a> · <a href="#" onclick="navigator.clipboard.writeText(location.href);return false;">Copy Link</a></span>
+  </div>
+
+  <span class="sev">${SEV_NAME[a.sev]}</span>
+  <h1 style="margin-top:8px">${a.title}</h1>
+  <div class="sub">${a.type} · ${a.source} · ${stale?'<span class="stale">⚠ stale · </span>':''}issued ${relTime(a.issued)} ago</div>
+
+  <div class="summary">${a.summary}</div>
+
+  <h2>Details</h2>
+  <table>
+    <tr><th>Severity</th><td><span class="sev">${SEV_NAME[a.sev]}</span></td></tr>
+    <tr><th>Type</th><td>${a.type}</td></tr>
+    <tr><th>Source</th><td><b>${a.source}</b> — ${src.name} <span class="src-dot"></span> <span style="font-size:11px;color:#a1a1aa">${src.status}</span></td></tr>
+    <tr><th>Location</th><td>${a.location}</td></tr>
+    <tr><th>Coordinates</th><td>${a.lat.toFixed(4)}, ${a.lng.toFixed(4)} <a href="https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}" target="_blank" style="margin-left:8px;font-size:11px">View on Google Maps ↗</a></td></tr>
+    <tr><th>Impact radius</th><td>${a.radiusKm ? a.radiusKm + ' km' : '—'}</td></tr>
+    <tr><th>Issued</th><td>${new Date(a.issued).toLocaleString()} <span style="color:#a1a1aa">(${relTime(a.issued)} ago)</span></td></tr>
+    <tr><th>Affected office</th><td>${o ? `<b>${o.id} · ${o.name}</b>, ${o.country} — ${o.headcount.toLocaleString()} employees<br><span style="color:#a1a1aa;font-size:11px">${o.address}</span>` : '<span style="color:#a1a1aa">— regional / travel-only</span>'}</td></tr>
+    ${o?`<tr><th>Visiting travelers</th><td>${visitors} ✈</td></tr>`:''}
+    <tr><th>Alert ID</th><td><code style="font-family:monospace;font-size:11px">${a.id}</code></td></tr>
+  </table>
+
+  ${related.length ? `<h2>Related alerts</h2><div class="related">${related.map(r => `
+    <div class="rel" style="border-left:3px solid ${SEV_COLOR[r.sev]}">
+      <div class="rel-title">${r.title}</div>
+      <div class="rel-meta"><span class="sev" style="font-size:9px;padding:1px 5px;background:${SEV_COLOR[r.sev]}22;color:${SEV_COLOR[r.sev]};border-color:${SEV_COLOR[r.sev]}">${SEV_NAME[r.sev]}</span> ${r.source} · ${r.location} · ${relTime(r.issued)} ago</div>
+    </div>`).join('')}</div>` : ''}
+
+  <div style="margin-top:32px;color:#a1a1aa;font-size:11px;border-top:1px solid #3f3f46;padding-top:14px">
+    NR Safety Alerts · GSOC · This page is a static snapshot. Data is regenerated on every dashboard load.
+  </div>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('Pop-up blocked. Allow pop-ups for this site to view details.'); return; }
+  w.document.write(html);
+  w.document.close();
+  w.document.title = `Alert ${a.id} — ${a.title}`;
+}
 
 /* ---------- 18. Master render ---------- */
 function renderAll() {
