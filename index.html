@@ -1574,14 +1574,20 @@ function dispatchSend(body, channels, reach) {
     buildResponseShells(inc.id, STATE.selectedOffices);
     addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
   } else if (STATE.responseRequired) {
-    // Create new incident on first response-required send
+    // Create new incident on first response-required send.
+    // Auto-link the highest-severity active alert in the affected offices, if any.
+    const candidateAlerts = ALERTS
+      .filter(a => a.officeId && STATE.selectedOffices.includes(a.officeId) && passesFilter(a))
+      .sort((a,b) => SEV_RANK[b.sev] - SEV_RANK[a.sev] || new Date(b.issued) - new Date(a.issued));
+    const linkedAlert = candidateAlerts[0] || null;
     const officeNames = STATE.selectedOffices.map(id => targetById(id)?.name || id).join(', ');
     inc = createIncident({
       title: `${tplName} — ${STATE.selectedOffices.join(', ')}`,
       offices: STATE.selectedOffices.slice(),
       severity: STATE.template==='evac' || STATE.template==='shelter' ? 'high' : 'mod',
-      description: `Incident auto-created when "${tplName}" was dispatched with Response Required enabled. Initial reach: ~${reach.toLocaleString()} recipients across ${officeNames}. Channels: ${channels.map(c=>c.toUpperCase()).join(', ')}. Reminder interval: ${STATE.reminderInterval}.`,
+      description: `Incident auto-created when "${tplName}" was dispatched with Response Required enabled. Initial reach: ~${reach.toLocaleString()} recipients across ${officeNames}. Channels: ${channels.map(c=>c.toUpperCase()).join(', ')}. Reminder interval: ${STATE.reminderInterval}.${linkedAlert?` Linked to active alert ${linkedAlert.id}: ${linkedAlert.title}.`:''}`,
       messageId: msg.id,
+      alertId: linkedAlert ? linkedAlert.id : null,
     });
     msg.incidentId = inc.id;
     inc.messages.push(msg);
