@@ -1,6 +1,6 @@
 # New Relic Safety Alerts
 
-A global threat-monitoring and crisis-communications dashboard for Physical Security & GSOC.
+A global threat-monitoring and crisis-communications dashboard for the Crisis Management Team (CMT).
 
 Single-file static web app. Open `index.html` in a browser, or host on GitHub Pages.
 

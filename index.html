@@ -872,7 +872,7 @@ const STATE = {
   noteAttachments: [],      // current note-input attachments
   crisisLog: [],
   roomMessages: [
-    { from:'GSOC', when: nowMinus(20), body:'Monitoring multiple regions. SF/TYO/BLR active.' },
+    { from:'CMT', when: nowMinus(20), body:'Monitoring multiple regions. SF/TYO/BLR active.' },
     { from:'cowork-3p', when: nowMinus(2), body:'On shift. Reviewing TYO seismic.' },
   ],
   incidents: [],
@@ -1635,7 +1635,7 @@ function renderRoom() {
     ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${esc(m.from)}</span><span class="when">${relTime(m.when)} ago</span><div style="white-space:pre-wrap">${linkify(esc(m.body))}</div></div>`).join('')}
   </div>
   <div class="room-input">
-    <input id="room-input" placeholder="Post to GSOC situation room..." />
+    <input id="room-input" placeholder="Post to CMT situation room..." />
     <button class="btn-ghost" id="room-send">Post</button>
   </div>`;
 }
@@ -1833,7 +1833,7 @@ function confirmSend() {
   const tplName = allTemplates().find(t=>t.id===STATE.template)?.name || 'Custom';
   showModal(`
     <h3>Confirm send</h3>
-    <p style="font-size:12px;color:var(--muted)">Review before dispatching to GSOC.</p>
+    <p style="font-size:12px;color:var(--muted)">Review before dispatching.</p>
     <div class="reach-preview" style="margin-top:8px">
       <div><b>Offices:</b> ${esc(STATE.selectedOffices.map(id=>targetById(id)?.name||id).join(', '))}</div>
       <div><b>Channels:</b> ${channels.map(c=>c.toUpperCase()).join(' + ')}</div>
@@ -2769,7 +2769,7 @@ function showAlertDetails(id) {
   </div>
 
   <div style="margin-top:32px;color:#a1a1aa;font-size:11px;border-top:1px solid #3f3f46;padding-top:14px">
-    NR Safety Alerts · GSOC · This page is a static snapshot. Data is regenerated on every dashboard load.
+    NR Safety Alerts · This page is a static snapshot. Data is regenerated on every dashboard load.
   </div>
 </body></html>`;
 
@@ -2866,7 +2866,7 @@ function exportIncidentReport(incidentId) {
   @media print { .nav, .no-print { display:none; } body { padding:14px; } }
 </style></head><body>
   <div class="nav no-print">
-    <span><b>NR Safety Alerts · GSOC</b> — Incident Report · <code style="font-size:11px;color:#52525b">${esc(inc.id)}</code></span>
+    <span><b>NR Safety Alerts · CMT Dashboard</b> — Incident Report · <code style="font-size:11px;color:#52525b">${esc(inc.id)}</code></span>
     <span>
       <a href="#" onclick="window.print();return false;">🖨 Print</a>
       <a href="#" onclick="downloadJSON();return false;">⬇ JSON</a>
@@ -3059,7 +3059,7 @@ function exportIncidentReport(incidentId) {
   </table>
 
   <div class="footer">
-    NR Safety Alerts · CMT Dashboard · GSOC<br>
+    NR Safety Alerts · CMT Dashboard<br>
     Report generated ${new Date().toLocaleString()}<br>
     Incident ID <code>${esc(inc.id)}</code> · This report is a static snapshot of the incident at the time of export.
   </div>
