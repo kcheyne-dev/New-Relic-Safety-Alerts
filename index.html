@@ -264,6 +264,8 @@ button { cursor: pointer; }
 .btn-primary { width: 100%; background: var(--green); color: #000; padding: 9px; border-radius: 6px; border: 0;
   font-weight: 700; font-size: 13px; margin-top: 8px; }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary.cc-send { background: var(--teal); color: #062c27; padding: 12px; font-size: 14px; }
+.btn-primary.cc-send:hover { background: #5eead4; }
 .btn-ghost { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
   border-radius: 5px; padding: 5px 10px; font-size: 11px; }
 .btn-ghost.danger { color: var(--red); border-color: var(--red); }
@@ -480,12 +482,15 @@ button { cursor: pointer; }
       <aside class="panel collapsed" id="panel-crisis" style="width: 360px;">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-teal">📣</span> Crisis Comms</div>
-          <button class="btn-ghost" id="btn-collapse-crisis">»</button>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-ghost" id="btn-clear-draft" style="display:none">Clear ✕</button>
+            <button class="btn-ghost" id="btn-collapse-crisis">»</button>
+          </div>
         </div>
         <div class="tabs">
+          <div class="tab" data-cc-tab="room">Room</div>
           <div class="tab active" data-cc-tab="compose">Compose</div>
           <div class="tab" data-cc-tab="log">Log <span class="count" id="cc-log-count">0</span></div>
-          <div class="tab" data-cc-tab="room">Room</div>
         </div>
         <div class="panel-body" id="cc-body"></div>
       </aside>
@@ -696,11 +701,14 @@ const STATE = {
   empMode: 'office',
   showTravelers: true,
   ccTab: 'compose',
-  channels: { slack:true, email:true, sms:false },
-  template: 'check',
+  channels: { slack:true, email:false, sms:false },
+  template: '',
   customMessage: '',
+  subject: '',
   responseRequired: true,
   reminderInterval: '15m',
+  customLocations: [],
+  userTemplates: [],
   crisisLog: [],
   roomMessages: [
     { from:'GSOC', when: nowMinus(20), body:'Monitoring multiple regions. SF/TYO/BLR active.' },
@@ -981,58 +989,129 @@ function renderCC() {
   else body.innerHTML = renderRoom();
   bindCCHandlers();
 }
+function allTargets() {
+  // Offices + custom locations available for selection
+  return [...OFFICES.map(o => ({ id:o.id, name:o.name, kind:'office', headcount:o.headcount })),
+          ...STATE.customLocations.map(c => ({ id:c.id, name:c.name, kind:'custom', headcount:0 }))];
+}
+function targetById(id) { return allTargets().find(t => t.id === id); }
+function recipientsForChannel(ch, ids) {
+  return ids.map(id => {
+    const t = targetById(id); if (!t) return null;
+    if (ch === 'slack') return `#nr-safety-${t.id.toLowerCase()}`;
+    if (ch === 'email') return `${t.id.toLowerCase()}-safety@newrelic.com`;
+    if (ch === 'sms')   return `${t.headcount || '—'} numbers`;
+    return null;
+  }).filter(Boolean);
+}
+function allTemplates() {
+  return [
+    ...Object.entries(TEMPLATES).filter(([k])=>k!=='custom').map(([k,t]) => ({ id:k, name:t.name, body:t.body, builtin:true })),
+    ...STATE.userTemplates.map(t => ({ id:t.id, name:t.name, body:t.body, builtin:false })),
+  ];
+}
+function hasDraftContent() {
+  return STATE.selectedOffices.length > 0 || STATE.customMessage || STATE.subject || STATE.template;
+}
 function renderComposeForm() {
   const reachOffices = STATE.selectedOffices.length;
-  const reachEmps = STATE.selectedOffices.reduce((s,id)=>s+(OFFICE_BY_ID[id]?.headcount||0),0);
+  const reachEmps = STATE.selectedOffices.reduce((s,id)=>{
+    const t = targetById(id); return s + (t?.headcount || 0);
+  },0);
   const reachTrav = TRAVELERS.filter(t => STATE.selectedOffices.includes(t.atOffice)).length;
-  const message = STATE.template === 'custom' ? STATE.customMessage : (STATE.customMessage || TEMPLATES[STATE.template].body);
+  const activeChannels = Object.entries(STATE.channels).filter(([k,v])=>v).map(([k])=>k);
+  const message = STATE.customMessage ||
+    (STATE.template ? (allTemplates().find(t=>t.id===STATE.template)?.body || '') : '');
+
+  // toggle "Clear ✕" button visibility
+  const clearBtn = document.getElementById('btn-clear-draft');
+  if (clearBtn) clearBtn.style.display = hasDraftContent() ? '' : 'none';
+
   return `<div class="compose-form">
     <div class="field">
-      <label>Target Offices <button class="btn-ghost" id="aud-all" style="float:right;font-size:10px;padding:2px 6px">All offices</button></label>
-      <div class="chip-list" id="chip-list">
-        ${STATE.selectedOffices.map(id=>`<span class="chip" data-id="${id}">${id}<x onclick="App.removeOffice('${id}')">×</x></span>`).join('')}
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <label style="margin-bottom:0">Offices</label>
+        <div style="font-size:10px">
+          <a href="#" id="cc-add-all" style="color:var(--green);margin-right:8px">Add all</a>
+          <a href="#" id="cc-clear-offices" style="color:var(--muted)">Clear</a>
+        </div>
       </div>
-      <div class="office-picker" style="margin-top:6px">
-        ${OFFICES.map(o => `<label><input type="checkbox" data-office="${o.id}" ${STATE.selectedOffices.includes(o.id)?'checked':''}/> ${o.id} · ${o.name} <span style="color:var(--muted);margin-left:auto;font-size:10px">${o.headcount}</span></label>`).join('')}
+      <select id="cc-office-pick" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px;margin-bottom:6px">
+        <option value="">Select an office...</option>
+        ${OFFICES.filter(o=>!STATE.selectedOffices.includes(o.id)).map(o=>`<option value="${o.id}">${o.id} · ${o.name} · ${o.headcount.toLocaleString()}</option>`).join('')}
+        ${STATE.customLocations.filter(c=>!STATE.selectedOffices.includes(c.id)).map(c=>`<option value="${c.id}">${c.id} · ${c.name} (custom)</option>`).join('')}
+      </select>
+      <div style="display:flex;gap:4px;margin-bottom:6px">
+        <input type="text" id="cc-new-loc" placeholder="Add new location..." style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px"/>
+        <button class="btn-ghost" id="cc-add-loc">Add</button>
+      </div>
+      <div class="chip-list" id="chip-list" style="border:0;background:transparent;padding:0">
+        ${STATE.selectedOffices.map(id=>{
+          const t = targetById(id);
+          return `<span class="chip" data-id="${id}">${t?t.name:id}<x onclick="App.removeOffice('${id}')">×</x></span>`;
+        }).join('')}
       </div>
     </div>
+
     <div class="field">
       <label>Channels</label>
       <div class="channel-row">
-        <div class="channel-pill ${STATE.channels.slack?'on':''}" data-ch="slack">💬 Slack</div>
-        <div class="channel-pill ${STATE.channels.email?'on':''}" data-ch="email">✉️ Email</div>
-        <div class="channel-pill disabled" data-ch="sms">📱 SMS <span style="font-size:9px;color:var(--muted)">soon</span></div>
+        <div class="channel-pill ${STATE.channels.slack?'on':''}" data-ch="slack">💬 slack</div>
+        <div class="channel-pill ${STATE.channels.email?'on':''}" data-ch="email">✉️ email</div>
+        <div class="channel-pill disabled" data-ch="sms">📱 sms</div>
       </div>
     </div>
+
+    ${activeChannels.length && reachOffices ? `<div class="field">
+      <label>Recipients</label>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 10px;font-size:11px;display:flex;flex-direction:column;gap:4px">
+        ${activeChannels.map(ch => {
+          const recs = recipientsForChannel(ch, STATE.selectedOffices);
+          const icon = ch==='slack'?'💬':ch==='email'?'✉️':'📱';
+          return `<div style="display:flex;gap:6px;align-items:flex-start"><span>${icon}</span><span style="color:var(--text)">${recs.join(', ')}</span></div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
     <div class="field">
       <label>Template</label>
-      <div class="template-row">
-        ${Object.entries(TEMPLATES).map(([k,t])=>`<button class="${STATE.template===k?'active':''}" data-tpl="${k}">${t.name}</button>`).join('')}
+      <div style="display:flex;gap:4px">
+        <select id="cc-tpl-pick" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px">
+          <option value="">— select —</option>
+          ${allTemplates().map(t=>`<option value="${t.id}" ${STATE.template===t.id?'selected':''}>${t.name}${t.builtin?'':' (custom)'}</option>`).join('')}
+        </select>
+        <button class="btn-ghost" id="cc-tpl-add" title="Add custom template">+</button>
       </div>
     </div>
+
+    <div class="field">
+      <label>Subject</label>
+      <input type="text" id="cc-subject" value="${STATE.subject.replace(/"/g,'&quot;')}" placeholder="[Severity] Safety Alert — ..."/>
+    </div>
+
     <div class="field">
       <label>Message</label>
-      <textarea id="msg-body">${message}</textarea>
+      <textarea id="msg-body" placeholder="Compose the safety message...">${message}</textarea>
     </div>
-    <div class="field">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="checkbox" id="resp-required" ${STATE.responseRequired?'checked':''}/>
-        Response required (track per-employee status in incident)
+
+    <div class="field" style="margin-bottom:6px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text);font-weight:400">
+        <input type="checkbox" id="resp-required" ${STATE.responseRequired?'checked':''} style="width:auto"/>
+        Response required
       </label>
     </div>
-    <div class="field">
-      <label>Reminder interval</label>
-      <select id="reminder">
+    <div class="field" style="display:flex;align-items:center;gap:8px">
+      <label style="margin-bottom:0;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted);font-weight:400">Remind after</label>
+      <select id="reminder" style="flex:1">
         <option value="15m" ${STATE.reminderInterval==='15m'?'selected':''}>15 minutes</option>
-        <option value="1h" ${STATE.reminderInterval==='1h'?'selected':''}>1 hour</option>
-        <option value="1d" ${STATE.reminderInterval==='1d'?'selected':''}>1 day</option>
+        <option value="30m" ${STATE.reminderInterval==='30m'?'selected':''}>30 minutes</option>
+        <option value="1h"  ${STATE.reminderInterval==='1h' ?'selected':''}>1 hour</option>
+        <option value="4h"  ${STATE.reminderInterval==='4h' ?'selected':''}>4 hours</option>
+        <option value="1d"  ${STATE.reminderInterval==='1d' ?'selected':''}>1 day</option>
       </select>
     </div>
-    <div class="reach-preview">
-      Reach: <b>${reachOffices}</b> office${reachOffices===1?'':'s'} ·
-      ~<b>${reachEmps.toLocaleString()}</b> employees${reachTrav?` · <b>${reachTrav}</b> visiting travelers`:''}
-    </div>
-    <button class="btn-primary" id="btn-send" ${reachOffices&&Object.values(STATE.channels).some(Boolean)?'':'disabled'}>
+
+    <button class="btn-primary cc-send" id="btn-send" ${reachOffices&&activeChannels.length?'':'disabled'}>
       Send to ${reachOffices} office${reachOffices===1?'':'s'} ▶
     </button>
   </div>`;
@@ -1061,52 +1140,127 @@ function renderRoom() {
   </div>`;
 }
 function bindCCHandlers() {
-  document.querySelectorAll('[data-tpl]').forEach(b => b.addEventListener('click', () => {
-    STATE.template = b.dataset.tpl;
-    STATE.customMessage = '';
+  // Template dropdown
+  document.getElementById('cc-tpl-pick')?.addEventListener('change', e => {
+    STATE.template = e.target.value;
+    const t = allTemplates().find(x => x.id === STATE.template);
+    if (t) {
+      STATE.customMessage = t.body;
+      // auto-fill subject if empty
+      if (!STATE.subject) STATE.subject = `[Safety] ${t.name}${STATE.selectedOffices.length===1?` — ${targetById(STATE.selectedOffices[0])?.name||''} Office`:''}`;
+    }
     renderCC();
-  }));
+  });
+  document.getElementById('cc-tpl-add')?.addEventListener('click', () => {
+    showModal(`<h3>New custom template</h3>
+      <div class="field"><label>Name</label><input id="utpl-name" placeholder="e.g. Severe Weather Hold"/></div>
+      <div class="field"><label>Body</label><textarea id="utpl-body" placeholder="Message body..."></textarea></div>
+      <div class="modal-actions">
+        <button class="btn-ghost" onclick="App.closeModal()">Cancel</button>
+        <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px" id="utpl-save">Save Template</button>
+      </div>`);
+    document.getElementById('utpl-save').onclick = () => {
+      const name = document.getElementById('utpl-name').value.trim();
+      const body = document.getElementById('utpl-body').value.trim();
+      if (!name || !body) { toast('Name and body required.'); return; }
+      const id = 'u_'+Math.random().toString(36).slice(2,7);
+      STATE.userTemplates.push({ id, name, body });
+      STATE.template = id;
+      STATE.customMessage = body;
+      closeModal();
+      renderCC();
+      toast('Template saved.');
+    };
+  });
+
+  // Channels
   document.querySelectorAll('[data-ch]').forEach(c => c.addEventListener('click', () => {
     const k = c.dataset.ch;
     if (k === 'sms') return;
     STATE.channels[k] = !STATE.channels[k];
     renderCC();
   }));
-  document.querySelectorAll('[data-office]').forEach(c => c.addEventListener('change', e => {
-    const id = e.target.dataset.office;
-    if (e.target.checked) { if (!STATE.selectedOffices.includes(id)) STATE.selectedOffices.push(id); }
-    else STATE.selectedOffices = STATE.selectedOffices.filter(x => x !== id);
-    renderCC();
-  }));
-  document.getElementById('aud-all')?.addEventListener('click', e => {
-    e.stopPropagation();
-    STATE.selectedOffices = STATE.selectedOffices.length === OFFICES.length ? [] : OFFICES.map(o => o.id);
+
+  // Office single-select dropdown
+  document.getElementById('cc-office-pick')?.addEventListener('change', e => {
+    const id = e.target.value;
+    if (!id) return;
+    if (!STATE.selectedOffices.includes(id)) STATE.selectedOffices.push(id);
     renderCC();
   });
+  // Add custom location
+  document.getElementById('cc-add-loc')?.addEventListener('click', () => {
+    const inp = document.getElementById('cc-new-loc');
+    const name = inp.value.trim();
+    if (!name) return;
+    const id = 'CL_'+Math.random().toString(36).slice(2,5).toUpperCase();
+    STATE.customLocations.push({ id, name });
+    STATE.selectedOffices.push(id);
+    inp.value = '';
+    renderCC();
+    toast(`Custom location "${name}" added.`);
+  });
+  document.getElementById('cc-new-loc')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('cc-add-loc').click(); }
+  });
+  document.getElementById('cc-add-all')?.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.selectedOffices = OFFICES.map(o => o.id);
+    renderCC();
+  });
+  document.getElementById('cc-clear-offices')?.addEventListener('click', e => {
+    e.preventDefault();
+    STATE.selectedOffices = [];
+    renderCC();
+  });
+
+  // Subject + message + response + reminder
+  document.getElementById('cc-subject')?.addEventListener('input', e => STATE.subject = e.target.value);
   document.getElementById('msg-body')?.addEventListener('input', e => STATE.customMessage = e.target.value);
   document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
   document.getElementById('reminder')?.addEventListener('change', e => STATE.reminderInterval = e.target.value);
+
+  // Send
   document.getElementById('btn-send')?.addEventListener('click', confirmSend);
+
+  // Room
   document.getElementById('room-send')?.addEventListener('click', () => {
     const inp = document.getElementById('room-input');
     if (!inp.value.trim()) return;
     STATE.roomMessages.push({ from:'cowork-3p', when:new Date().toISOString(), body:inp.value });
     inp.value=''; renderCC();
   });
+
+  // Panel-level Clear ✕ (binds once but harmless to rebind)
+  const clearBtn = document.getElementById('btn-clear-draft');
+  if (clearBtn && !clearBtn.dataset.bound) {
+    clearBtn.dataset.bound = '1';
+    clearBtn.onclick = () => {
+      if (!confirm('Clear the current draft? Selected offices, subject, and message will be reset.')) return;
+      STATE.selectedOffices = [];
+      STATE.template = ''; STATE.customMessage = ''; STATE.subject = '';
+      STATE.channels = { slack:true, email:false, sms:false };
+      renderCC();
+      toast('Draft cleared.');
+    };
+  }
 }
 function confirmSend() {
   const channels = Object.entries(STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
   if (!channels.length || !STATE.selectedOffices.length) return;
-  const body = STATE.template === 'custom' ? STATE.customMessage : (STATE.customMessage || TEMPLATES[STATE.template].body);
-  const reach = STATE.selectedOffices.reduce((s,id)=>s+(OFFICE_BY_ID[id]?.headcount||0),0);
+  const body = STATE.customMessage || (allTemplates().find(t=>t.id===STATE.template)?.body || '');
+  if (!body.trim()) { toast('Pick a template or write a message.'); return; }
+  const reach = STATE.selectedOffices.reduce((s,id)=>s+(targetById(id)?.headcount||0),0);
+  const tplName = allTemplates().find(t=>t.id===STATE.template)?.name || 'Custom';
   showModal(`
     <h3>Confirm send</h3>
     <p style="font-size:12px;color:var(--muted)">Review before dispatching to GSOC.</p>
     <div class="reach-preview" style="margin-top:8px">
-      <div><b>Offices:</b> ${STATE.selectedOffices.join(', ')}</div>
+      <div><b>Offices:</b> ${STATE.selectedOffices.map(id=>targetById(id)?.name||id).join(', ')}</div>
       <div><b>Channels:</b> ${channels.map(c=>c.toUpperCase()).join(' + ')}</div>
       <div><b>Recipients:</b> ~${reach.toLocaleString()}</div>
-      <div><b>Template:</b> ${TEMPLATES[STATE.template].name}</div>
+      <div><b>Template:</b> ${tplName}</div>
+      ${STATE.subject?`<div><b>Subject:</b> ${STATE.subject}</div>`:''}
       ${STATE.responseRequired?'<div><b>Response tracking:</b> on (creates new incident)</div>':''}
     </div>
     <div style="font-size:11px;background:var(--bg3);border-radius:5px;padding:6px;margin-top:8px;line-height:1.4">${body}</div>
@@ -1124,6 +1278,7 @@ function dispatchSend(body, channels, reach) {
   const msg = {
     id: uid(), when: new Date().toISOString(), by:'cowork-3p',
     offices: STATE.selectedOffices.slice(), channels: channels.slice(),
+    subject: STATE.subject,
     body, recipients: reach, responseRequired: STATE.responseRequired,
     template: STATE.template, reminder: STATE.reminderInterval,
   };
