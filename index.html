@@ -527,21 +527,21 @@ const SEV_COLOR = { low:'#4ade80', mod:'#facc15', high:'#fb923c', ext:'#f87171' 
 const ALERT_TYPES = ['Natural Disaster','Civil Unrest','Public Safety','Travel Advisory'];
 
 const SOURCES = [
-  { id:'NWS',         name:'National Weather Service',       type:'Natural Disaster', status:'ok' },
-  { id:'USGS',        name:'US Geological Survey',           type:'Natural Disaster', status:'ok' },
-  { id:'EMSC',        name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok' },
-  { id:'NASA EONET',  name:'Earth Observatory',              type:'Natural Disaster', status:'ok' },
-  { id:'GDACS',       name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok' },
-  { id:'ACLED',       name:'Armed Conflict Location Data',   type:'Civil Unrest',     status:'stale' },
-  { id:'GDELT',       name:'Global Database of Events',      type:'Civil Unrest',     status:'ok' },
-  { id:'Flashalert',  name:'PDX/OR Emergency Notifications', type:'Public Safety',    status:'ok' },
-  { id:'Socrata',     name:'SF Open Data — Police',          type:'Public Safety',    status:'ok' },
-  { id:'ArcGIS APD',  name:'Atlanta Police Department',      type:'Public Safety',    status:'ok' },
-  { id:'FEMA IPAWS',  name:'FEMA Public Alert System',       type:'Public Safety',    status:'error' },
-  { id:'State Dept',  name:'US Travel Advisory',             type:'Travel Advisory',  status:'ok' },
-  { id:'MeteoAlarm',  name:'European Weather Warnings',      type:'Natural Disaster', status:'ok' },
-  { id:'OpenWeatherMap', name:'Live Weather',                type:'Natural Disaster', status:'ok' },
-  { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale' },
+  { id:'NWS',         name:'National Weather Service',       type:'Natural Disaster', status:'ok',    url:'https://www.weather.gov/' },
+  { id:'USGS',        name:'US Geological Survey',           type:'Natural Disaster', status:'ok',    url:'https://earthquake.usgs.gov/earthquakes/map/' },
+  { id:'EMSC',        name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok',    url:'https://www.emsc-csem.org/Earthquake/' },
+  { id:'NASA EONET',  name:'Earth Observatory',              type:'Natural Disaster', status:'ok',    url:'https://eonet.gsfc.nasa.gov/' },
+  { id:'GDACS',       name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok',    url:'https://www.gdacs.org/' },
+  { id:'ACLED',       name:'Armed Conflict Location Data',   type:'Civil Unrest',     status:'stale', url:'https://acleddata.com/dashboard/' },
+  { id:'GDELT',       name:'Global Database of Events',      type:'Civil Unrest',     status:'ok',    url:'https://www.gdeltproject.org/' },
+  { id:'Flashalert',  name:'PDX/OR Emergency Notifications', type:'Public Safety',    status:'ok',    url:'https://www.flashalert.net/' },
+  { id:'Socrata',     name:'SF Open Data — Police',          type:'Public Safety',    status:'ok',    url:'https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports/wg3w-h783' },
+  { id:'ArcGIS APD',  name:'Atlanta Police Department',      type:'Public Safety',    status:'ok',    url:'https://opendata.atlantapd.org/' },
+  { id:'FEMA IPAWS',  name:'FEMA Public Alert System',       type:'Public Safety',    status:'error', url:'https://www.fema.gov/emergency-managers/practitioners/integrated-public-alert-warning-system' },
+  { id:'State Dept',  name:'US Travel Advisory',             type:'Travel Advisory',  status:'ok',    url:'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html' },
+  { id:'MeteoAlarm',  name:'European Weather Warnings',      type:'Natural Disaster', status:'ok',    url:'https://www.meteoalarm.org/' },
+  { id:'OpenWeatherMap', name:'Live Weather',                type:'Natural Disaster', status:'ok',    url:'https://openweathermap.org/' },
+  { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale', url:'https://openaq.org/' },
 ];
 
 const OFFICES = [
@@ -1750,7 +1750,7 @@ function showAlertDetails(id) {
   <table>
     <tr><th>Severity</th><td><span class="sev">${SEV_NAME[a.sev]}</span></td></tr>
     <tr><th>Type</th><td>${a.type}</td></tr>
-    <tr><th>Source</th><td><b>${a.source}</b> — ${src.name} <span class="src-dot"></span> <span style="font-size:11px;color:#a1a1aa">${src.status}</span></td></tr>
+    <tr><th>Source</th><td>${src.url ? `<a href="${src.url}" target="_blank" rel="noopener"><b>${a.source}</b></a>` : `<b>${a.source}</b>`} — ${src.name} <span class="src-dot"></span> <span style="font-size:11px;color:#a1a1aa">${src.status}</span>${src.url ? ` <a href="${src.url}" target="_blank" rel="noopener" style="margin-left:8px;font-size:11px">View at source ↗</a>` : ''}${a.sourceUrl ? ` · <a href="${a.sourceUrl}" target="_blank" rel="noopener" style="font-size:11px">View this alert ↗</a>` : ''}</td></tr>
     <tr><th>Location</th><td>${a.location}</td></tr>
     <tr><th>Coordinates</th><td>${a.lat.toFixed(4)}, ${a.lng.toFixed(4)} <a href="https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}" target="_blank" style="margin-left:8px;font-size:11px">View on Google Maps ↗</a></td></tr>
     <tr><th>Impact radius</th><td>${a.radiusKm ? a.radiusKm + ' km' : '—'}</td></tr>
