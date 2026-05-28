@@ -40,7 +40,7 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
 button { cursor: pointer; }
 
 /* ============ LAYOUT ============================================== */
-.app { display: grid; grid-template-rows: 64px 1fr; height: 100vh; }
+.app { display: grid; grid-template-rows: 64px 40px 1fr; height: 100vh; }
 .main { display: grid; grid-template-columns: auto 1fr auto; min-height: 0; }
 
 /* ============ HEADER ============================================== */
@@ -64,6 +64,65 @@ button { cursor: pointer; }
 .htn .dot { width: 8px; height: 8px; border-radius: 50%; }
 .htn .dot.green { background: var(--green); } .htn .dot.yellow { background: var(--yellow); } .htn .dot.red { background: var(--red); }
 .last-updated { font-size: 11px; color: var(--muted); }
+
+/* ============ STATUS STRIP ======================================= */
+.status-strip {
+  height: 40px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0; font-size: 12px;
+  position: relative; overflow: hidden;
+}
+.status-strip.crit {
+  background: linear-gradient(90deg, rgba(248,113,113,.10), var(--bg2) 35%);
+  border-bottom-color: rgba(248,113,113,.4);
+}
+.status-strip.crit::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--red); animation: stripPulse 1.4s ease-in-out infinite;
+}
+@keyframes stripPulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+.ss-chip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; height: 100%;
+  border-right: 1px solid var(--border);
+  color: var(--muted); white-space: nowrap;
+  background: transparent; border-top: 0; border-bottom: 0; border-left: 0;
+  font-family: inherit; font-size: 12px;
+  transition: background .12s, color .12s;
+}
+.ss-chip.clickable { cursor: pointer; }
+.ss-chip.clickable:hover { background: var(--bg3); color: var(--text); }
+.ss-chip:disabled { cursor: default; opacity: 1; }
+.ss-chip .ss-icon { font-size: 14px; flex-shrink: 0; }
+.ss-chip .ss-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ss-chip .ss-value { font-weight: 700; color: var(--text); font-size: 13px; }
+.ss-chip .ss-sub { font-size: 11px; color: var(--muted); margin-left: 4px;
+  max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-chip.identity {
+  background: rgba(28,231,131,.08);
+  border-right: 1px solid rgba(28,231,131,.2);
+}
+.ss-chip.identity .ss-role-tag {
+  background: var(--blue); color: #fff; font-weight: 700;
+  font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+  padding: 2px 6px; border-radius: 3px; margin-left: 4px;
+}
+.ss-chip.warn .ss-value { color: var(--yellow); }
+.ss-chip.high .ss-value { color: var(--orange); }
+.ss-chip.crit .ss-value { color: var(--red); }
+.ss-chip.ok   .ss-value { color: var(--green); }
+.ss-chip.crit .ss-icon { animation: stripPulse 1.4s ease-in-out infinite; }
+.ss-spacer { flex: 1; border-right: 0; padding: 0; background: transparent; cursor: default; }
+.ss-chip.timestamp { color: var(--muted); font-size: 11px; }
+.ss-saved-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 6px rgba(28,231,131,.6); }
+@media (max-width: 1100px) {
+  .ss-chip .ss-label { display: none; }
+  .ss-chip { padding: 0 10px; gap: 6px; }
+  .ss-chip .ss-sub { max-width: 120px; }
+}
+@media (max-width: 850px) {
+  .ss-chip .ss-sub { display: none; }
+}
 
 /* ============ RAILS & PANELS ====================================== */
 .left-zone, .right-zone { display: flex; }
@@ -442,16 +501,15 @@ button { cursor: pointer; }
       </div>
     </div>
     <div class="h-tools">
-      <span class="last-updated" id="last-updated" aria-live="polite">Last updated —</span>
-      <button class="htn" id="btn-freshness" title="Data sources freshness" aria-label="Data sources freshness">
-        <span class="dot green" id="freshness-dot" aria-hidden="true"></span>Sources <span id="freshness-count">12/15</span>
-      </button>
       <button class="htn" id="btn-layers" aria-label="Map layers and filters">⚙ Layers</button>
       <button class="htn" id="btn-fence" aria-label="Geo-fence drawing tool">✏︎ Geo-fence <span id="fence-badge"></span></button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
     </div>
   </header>
+
+  <!-- STATUS STRIP -->
+  <div class="status-strip" id="status-strip" role="region" aria-label="Operational status"></div>
 
   <div class="main">
     <!-- LEFT ZONE: Alert Feed -->
@@ -661,6 +719,16 @@ const OFFICES = [
     address:'Salarpuria Sattva Knowledge City, Raidurg' },
 ];
 const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
+
+/** Logged-in operator. Hardcoded for the prototype; will come from Okta when wired up.
+ *  role: 'admin' | 'cmt' | 'office' | 'employee' */
+const OPERATOR = { name: 'Kelly Cheyne', role: 'cmt', roleLabel: 'CMT' };
+const ROLE_TAG_STYLE = {
+  admin:    { bg: 'var(--green)',  fg: '#062c1f',  label: 'Admin' },
+  cmt:      { bg: 'var(--blue)',   fg: '#fff',     label: 'CMT Member' },
+  office:   { bg: 'var(--yellow)', fg: '#1f1c00',  label: 'Office Manager' },
+  employee: { bg: 'var(--bg3)',    fg: 'var(--muted)', label: 'Employee' },
+};
 
 /* ---------- 2. Mock data generators ---------- */
 function nowMinus(min) { return new Date(Date.now() - min*60000).toISOString(); }
@@ -2501,18 +2569,19 @@ try {
   if (saved === 'light' || saved === 'dark') applyTheme(saved);
 } catch(_) {}
 
-document.getElementById('btn-freshness').onclick = () => {
+function showFreshness() {
   showModal(`<h3>Data Sources Freshness</h3>
     <p style="font-size:11px;color:var(--muted);margin-bottom:8px">${SOURCES.filter(s=>s.status==='ok').length}/${SOURCES.length} sources healthy. 15-min refresh cycle, 24-hour TTL.</p>
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr><th align="left">Source</th><th align="left">Type</th><th>Status</th></tr></thead>
-      <tbody>${SOURCES.map(s=>`<tr style="border-top:1px solid var(--border)"><td><b>${s.id}</b><div style="font-size:10px;color:var(--muted)">${s.name}</div></td><td>${s.type}</td><td align="center">
+      <tbody>${SOURCES.map(s=>`<tr style="border-top:1px solid var(--border)"><td><b>${esc(s.id)}</b><div style="font-size:10px;color:var(--muted)">${esc(s.name)}</div></td><td>${esc(s.type)}</td><td align="center">
         <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.status==='ok'?'var(--green)':s.status==='stale'?'var(--yellow)':'var(--red)'}"></span>
         <span style="font-size:10px;margin-left:4px">${s.status}</span>
       </td></tr>`).join('')}</tbody>
     </table>
     <div class="modal-actions"><button class="btn-ghost" onclick="App.closeModal()">Close</button></div>`);
-};
+}
+window.App.showFreshness = showFreshness;
 
 document.getElementById('btn-help').onclick = () => {
   showModal(`<h3>Quick Reference</h3>
@@ -3031,9 +3100,124 @@ function exportIncidentReport(incidentId) {
   w.document.close();
 }
 
+/* ---------- 17d. Status Strip ---------- */
+let lastRefreshAt = new Date();
+
+function renderStatusStrip() {
+  const el = document.getElementById('status-strip');
+  if (!el) return;
+
+  // 1. Compute the at-a-glance state.
+  const openIncidents = STATE.incidents.filter(i => i.status === 'open');
+  const visAlerts = visibleAlerts();
+  const sevByRank = visAlerts.slice().sort((a,b) => SEV_RANK[b.sev] - SEV_RANK[a.sev]);
+  const highest = sevByRank[0] || null;
+  const helpCount = openIncidents.reduce((sum, inc) => {
+    const r = STATE.responses[inc.id] || {};
+    return sum + Object.values(r).filter(x => x.status === 'help').length;
+  }, 0);
+  const okSources    = SOURCES.filter(s => s.status === 'ok').length;
+  const staleSources = SOURCES.filter(s => s.status === 'stale').length;
+  const errSources   = SOURCES.filter(s => s.status === 'error').length;
+  const sourcesState = errSources ? 'crit' : staleSources ? 'warn' : 'ok';
+
+  // 2. Severity-based whole-strip styling.
+  const isCritical = highest && highest.sev === 'ext';
+  el.classList.toggle('crit', !!isCritical);
+
+  // 3. Build chips.
+  const role = ROLE_TAG_STYLE[OPERATOR.role] || ROLE_TAG_STYLE.employee;
+  const incClass = openIncidents.some(i => i.severity === 'ext') ? 'crit'
+                 : openIncidents.some(i => i.severity === 'high') ? 'high'
+                 : openIncidents.length ? 'warn' : 'ok';
+  const helpClass = helpCount === 0 ? '' : helpCount > 3 ? 'crit' : 'warn';
+  const sevWord  = highest ? SEV_NAME[highest.sev] : 'All clear';
+  const sevClass = !highest ? 'ok' : highest.sev === 'ext' ? 'crit' : highest.sev === 'high' ? 'high' : highest.sev === 'mod' ? 'warn' : 'ok';
+
+  el.innerHTML = `
+    <div class="ss-chip identity" title="Logged-in operator (will come from Okta when integrated)">
+      <span class="ss-icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="ss-label">Logged in as</div>
+        <div><span class="ss-value">${esc(OPERATOR.name)}</span><span class="ss-role-tag" style="background:${role.bg};color:${role.fg}">${esc(role.label)}</span></div>
+      </div>
+    </div>
+    <button class="ss-chip clickable ${incClass}" data-ss-action="incidents" title="Open incidents — click to view">
+      <span class="ss-icon" aria-hidden="true">${openIncidents.length ? '🚨' : '✓'}</span>
+      <div style="text-align:left">
+        <div class="ss-label">Open Incidents</div>
+        <div class="ss-value">${openIncidents.length}</div>
+      </div>
+    </button>
+    <button class="ss-chip clickable ${sevClass}" data-ss-action="highest" ${highest?'':'disabled'} title="${highest ? 'Click to zoom to this alert' : 'No active alerts'}">
+      <span class="ss-icon" aria-hidden="true">${!highest ? '🛡' : highest.sev==='ext' ? '⚠' : highest.sev==='high' ? '⚠' : '⚠'}</span>
+      <div style="text-align:left">
+        <div class="ss-label">Highest Active</div>
+        <div class="ss-value">${esc(sevWord)}${highest ? `<span class="ss-sub">· ${esc(highest.title)}</span>` : ''}</div>
+      </div>
+    </button>
+    <button class="ss-chip clickable ${helpClass}" data-ss-action="help" title="Employees marked Need Help">
+      <span class="ss-icon" aria-hidden="true">${helpCount ? '🆘' : '🤝'}</span>
+      <div style="text-align:left">
+        <div class="ss-label">Need Help</div>
+        <div class="ss-value">${helpCount}</div>
+      </div>
+    </button>
+    <button class="ss-chip clickable ${sourcesState}" data-ss-action="sources" title="Data sources health — click for detail">
+      <span class="ss-icon" aria-hidden="true">📡</span>
+      <div style="text-align:left">
+        <div class="ss-label">Sources</div>
+        <div class="ss-value">${okSources}/${SOURCES.length}</div>
+      </div>
+    </button>
+    <div class="ss-chip ss-spacer"></div>
+    <div class="ss-chip timestamp" title="Last data refresh">
+      <span class="ss-saved-dot" aria-hidden="true"></span>
+      <span>Refreshed ${relTime(lastRefreshAt.toISOString())} ago</span>
+    </div>
+  `;
+
+  // 4. Wire chip clicks.
+  el.querySelectorAll('[data-ss-action]').forEach(b => b.addEventListener('click', () => {
+    const action = b.dataset.ssAction;
+    if (action === 'incidents') {
+      STATE.incidentListFilter = 'open';
+      openPanel('incident');
+      renderIncidents();
+    } else if (action === 'highest' && highest) {
+      selectAlert(highest.id);
+      // Also open the office popup if there is one
+      if (highest.officeId && OFFICE_MARKERS[highest.officeId]) {
+        map.once('moveend', () => OFFICE_MARKERS[highest.officeId].openPopup());
+      }
+    } else if (action === 'help') {
+      // Find the incident with the most help responses, open it in Responses tab.
+      let target = null, max = -1;
+      STATE.incidents.filter(i => i.status === 'open').forEach(inc => {
+        const cnt = Object.values(STATE.responses[inc.id]||{}).filter(r => r.status === 'help').length;
+        if (cnt > max) { max = cnt; target = inc; }
+      });
+      if (target) {
+        STATE.msgFilter = 'help';
+        STATE.incidentTab = 'responses';
+        openPanel('incident');
+        selectIncident(target.id);
+      } else {
+        toast('No employees flagged Need Help.');
+      }
+    } else if (action === 'sources') {
+      document.getElementById('btn-help')?.blur();
+      // Trigger the existing freshness modal directly
+      App.showFreshness?.();
+    }
+  }));
+}
+
 /* ---------- 18. Master render ---------- */
 function renderAll() {
-  renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards(); renderFeed(); renderCC(); renderIncidents();
+  renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards();
+  renderFeed(); renderCC(); renderIncidents();
+  renderStatusStrip();
 }
 
 /* ---------- 19. Boot ---------- */
@@ -3054,7 +3238,8 @@ window.addEventListener('resize', () => {
   }, 120);
 });
 function tick() {
-  document.getElementById('last-updated').textContent = `Last updated ${fmtClock()}`;
+  // Re-render just the status strip every 30s so the relative "refreshed Xm ago" updates.
+  renderStatusStrip();
 }
 tick(); setInterval(tick, 30000);
 

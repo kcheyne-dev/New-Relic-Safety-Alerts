@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Status Strip Preview — NR Safety Alerts</title>
+<style>
+  :root {
+    --bg:#18181b; --bg2:#1c1c1f; --bg3:#27272a;
+    --border:#3f3f46; --text:#e4e4e7; --muted:#a1a1aa;
+    --green:#1ce783; --blue:#1e90ff; --orange:#fb923c;
+    --red:#f87171; --yellow:#facc15; --teal:#2dd4bf;
+    --sev-low:#4ade80; --sev-mod:#facc15; --sev-high:#fb923c; --sev-ext:#f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, system-ui, sans-serif; }
+  body { padding: 32px; max-width: 1400px; margin: 0 auto; }
+
+  /* Page */
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  h1 span { color: var(--green); }
+  .lead { color: var(--muted); font-size: 13px; margin-bottom: 24px; line-height: 1.6; max-width: 720px; }
+  .lead code { background: var(--bg3); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--green); margin: 28px 0 8px 0; }
+  .caption { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.5; }
+
+  /* Mock app frame to give scale context */
+  .frame {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  .frame-header {
+    height: 64px; padding: 0 14px; background: var(--bg2);
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px;
+  }
+  .logo { width: 40px; height: 40px; background: var(--green); border-radius: 9px;
+    display: grid; place-items: center; font-weight: 900; color:#000; font-size: 16px;
+    box-shadow: 0 2px 8px rgba(28,231,131,.25); }
+  .brand-title { font-weight: 700; font-size: 17px; line-height: 1.1; }
+  .brand-title span { color: var(--green); }
+  .brand-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  /* The status strip — the actual subject of this preview */
+  .strip {
+    height: 40px; background: var(--bg2); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 14px;
+    font-size: 12px; gap: 0;
+  }
+  .chip {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 14px; height: 100%; cursor: default;
+    border-right: 1px solid var(--border);
+    color: var(--muted); white-space: nowrap;
+    transition: background .12s, color .12s;
+  }
+  .chip:last-child { border-right: 0; }
+  .chip.clickable { cursor: pointer; }
+  .chip.clickable:hover { background: var(--bg3); color: var(--text); }
+  .chip .icon { font-size: 14px; }
+  .chip .label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .chip .value { font-weight: 700; color: var(--text); font-size: 13px; }
+  .chip .sub { font-size: 11px; color: var(--muted); margin-left: 4px; }
+
+  /* Identity chip — passive, not clickable, shows logged-in user */
+  .chip.identity {
+    background: rgba(28,231,131,.08);
+    border-right: 1px solid rgba(28,231,131,.2);
+  }
+  .chip.identity .role-tag {
+    background: var(--green); color: #062c1f; font-weight: 700;
+    font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+    padding: 2px 6px; border-radius: 3px;
+  }
+  .chip.identity .role-tag.cmt { background: var(--blue); color: #fff; }
+  .chip.identity .role-tag.office { background: var(--yellow); color: #1f1c00; }
+  .chip.identity .role-tag.employee { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+
+  /* State variants on individual chips */
+  .chip.warn .value { color: var(--yellow); }
+  .chip.high .value { color: var(--orange); }
+  .chip.crit .value { color: var(--red); }
+  .chip.ok .value { color: var(--green); }
+  .chip.crit .icon, .chip.crit-pulse .icon {
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.55; transform: scale(0.9); }
+  }
+
+  /* Whole-strip critical state — peripheral vision cue */
+  .strip.strip-critical {
+    background: linear-gradient(90deg, rgba(248,113,113,.08), var(--bg2) 30%);
+    border-bottom-color: rgba(248,113,113,.4);
+  }
+  .strip.strip-critical::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--red); animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  /* Last-updated chip pushed right */
+  .chip.spacer { flex: 1; border-right: 0; cursor: default; padding: 0; background: transparent; }
+  .chip.timestamp { color: var(--muted); font-size: 11px; }
+  .chip.timestamp .saved-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px rgba(28,231,131,.6);
+  }
+
+  /* Map placeholder for context */
+  .map-placeholder {
+    height: 220px; background:
+      radial-gradient(circle at 20% 30%, #2a2a2e 0%, transparent 40%),
+      radial-gradient(circle at 70% 60%, #2a2a2e 0%, transparent 40%),
+      var(--bg);
+    display: grid; place-items: center; color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: .1em;
+  }
+
+  /* Responsive variant */
+  .strip.compact .chip .label { display: none; }
+  .strip.compact .chip { padding: 0 10px; gap: 6px; }
+  .strip.compact .chip.identity .role-tag { padding: 1px 5px; }
+
+  .role-row { display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+  .role-row .strip { flex: 1; min-width: 280px; height: 36px; border-radius: 5px; border: 1px solid var(--border); }
+  .role-row .chip { padding: 0 10px; }
+  .role-row .chip:not(.identity) { display: none; }
+
+  .legend { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px 16px; margin-top: 28px; }
+  .legend h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--green); margin-bottom: 10px; }
+  .legend ul { list-style: none; padding: 0; }
+  .legend li { font-size: 12px; color: var(--muted); padding: 4px 0; line-height: 1.6; }
+  .legend li b { color: var(--text); }
+  .legend code { background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+  .strip { position: relative; }
+</style>
+</head>
+<body>
+
+<h1>Status Strip <span>Preview</span></h1>
+<p class="lead">
+  Read-only visual mockup of the proposed status strip. Each variant below shows the strip in a
+  different state. Hover the chips to see clickable behavior. The 4 role-tag samples at the bottom
+  preview how the identity chip would adapt to future access levels.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 1 — All Quiet</h2>
+<div class="frame">
+  <div class="frame-header">
+    <div class="logo">NR</div>
+    <div>
+      <div class="brand-title">New Relic <span>Safety Alerts</span></div>
+      <div class="brand-sub">CMT Dashboard</div>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag cmt">CMT</span></div>
+      </div>
+    </div>
+    <div class="chip ok clickable">
+      <span class="icon" aria-hidden="true">✓</span>
+      <div>
+        <div class="label">Open Incidents</div>
+        <div class="value">0</div>
+      </div>
+    </div>
+    <div class="chip ok clickable">
+      <span class="icon" aria-hidden="true">🛡</span>
+      <div>
+        <div class="label">Threat Level</div>
+        <div class="value">All clear</div>
+      </div>
+    </div>
+    <div class="chip clickable">
+      <span class="icon" aria-hidden="true">🆘</span>
+      <div>
+        <div class="label">Need Help</div>
+        <div class="value">0</div>
+      </div>
+    </div>
+    <div class="chip ok clickable">
+      <span class="icon" aria-hidden="true">📡</span>
+      <div>
+        <div class="label">Sources</div>
+        <div class="value">15/15</div>
+      </div>
+    </div>
+    <div class="chip spacer"></div>
+    <div class="chip timestamp">
+      <span class="saved-dot" aria-hidden="true"></span>
+      <span>💾 saved · refreshed 30s ago</span>
+    </div>
+  </div>
+  <div class="map-placeholder">— map area —</div>
+</div>
+<p class="caption">No open incidents, no extreme alerts, all 15 alert sources healthy. Strip is muted/calm. The identity chip shows the logged-in operator and their role tag (CMT in this example).</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 2 — Monitoring (one moderate alert active)</h2>
+<div class="frame">
+  <div class="frame-header">
+    <div class="logo">NR</div>
+    <div>
+      <div class="brand-title">New Relic <span>Safety Alerts</span></div>
+      <div class="brand-sub">CMT Dashboard</div>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag cmt">CMT</span></div>
+      </div>
+    </div>
+    <div class="chip ok clickable">
+      <span class="icon" aria-hidden="true">✓</span>
+      <div>
+        <div class="label">Open Incidents</div>
+        <div class="value">0</div>
+      </div>
+    </div>
+    <div class="chip warn clickable">
+      <span class="icon" aria-hidden="true">⚠</span>
+      <div>
+        <div class="label">Highest Active</div>
+        <div class="value">Moderate <span class="sub">· Severe rain — Catalonia</span></div>
+      </div>
+    </div>
+    <div class="chip clickable">
+      <span class="icon" aria-hidden="true">🆘</span>
+      <div>
+        <div class="label">Need Help</div>
+        <div class="value">0</div>
+      </div>
+    </div>
+    <div class="chip ok clickable">
+      <span class="icon" aria-hidden="true">📡</span>
+      <div>
+        <div class="label">Sources</div>
+        <div class="value">15/15</div>
+      </div>
+    </div>
+    <div class="chip spacer"></div>
+    <div class="chip timestamp">
+      <span class="saved-dot" aria-hidden="true"></span>
+      <span>💾 saved · refreshed 2m ago</span>
+    </div>
+  </div>
+  <div class="map-placeholder">— map area —</div>
+</div>
+<p class="caption">Moderate-severity alert active but no operator response needed yet. The "Highest Active" chip shows the severity word in yellow with a truncated alert title. Click it → map zooms to that alert.</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 3 — Active Response (incidents open, employees responding)</h2>
+<div class="frame">
+  <div class="frame-header">
+    <div class="logo">NR</div>
+    <div>
+      <div class="brand-title">New Relic <span>Safety Alerts</span></div>
+      <div class="brand-sub">CMT Dashboard</div>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag cmt">CMT</span></div>
+      </div>
+    </div>
+    <div class="chip high clickable">
+      <span class="icon" aria-hidden="true">🚨</span>
+      <div>
+        <div class="label">Open Incidents</div>
+        <div class="value">2</div>
+      </div>
+    </div>
+    <div class="chip high clickable">
+      <span class="icon" aria-hidden="true">⚠</span>
+      <div>
+        <div class="label">Highest Active</div>
+        <div class="value">High <span class="sub">· Suspicious package — Dublin</span></div>
+      </div>
+    </div>
+    <div class="chip warn clickable">
+      <span class="icon" aria-hidden="true">🆘</span>
+      <div>
+        <div class="label">Need Help</div>
+        <div class="value">2</div>
+      </div>
+    </div>
+    <div class="chip ok clickable">
+      <span class="icon" aria-hidden="true">📡</span>
+      <div>
+        <div class="label">Sources</div>
+        <div class="value">14/15</div>
+      </div>
+    </div>
+    <div class="chip spacer"></div>
+    <div class="chip timestamp">
+      <span class="saved-dot" aria-hidden="true"></span>
+      <span>💾 saved · refreshed 1m ago</span>
+    </div>
+  </div>
+  <div class="map-placeholder">— map area —</div>
+</div>
+<p class="caption">Active workflow state. 2 open incidents (orange), 2 employees flagged Need Help (yellow), one source has gone stale (14/15). Click "Need Help" → opens an incident's Responses tab filtered to Help.</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 4 — Critical (extreme alert active, peripheral-vision cue)</h2>
+<div class="frame">
+  <div class="frame-header">
+    <div class="logo">NR</div>
+    <div>
+      <div class="brand-title">New Relic <span>Safety Alerts</span></div>
+      <div class="brand-sub">CMT Dashboard</div>
+    </div>
+  </div>
+  <div class="strip strip-critical">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag cmt">CMT</span></div>
+      </div>
+    </div>
+    <div class="chip crit clickable">
+      <span class="icon" aria-hidden="true">🚨</span>
+      <div>
+        <div class="label">Open Incidents</div>
+        <div class="value">3</div>
+      </div>
+    </div>
+    <div class="chip crit clickable">
+      <span class="icon crit-pulse" aria-hidden="true">⚠</span>
+      <div>
+        <div class="label">Highest Active</div>
+        <div class="value">EXTREME <span class="sub">· M5.8 earthquake — Tokyo</span></div>
+      </div>
+    </div>
+    <div class="chip crit clickable">
+      <span class="icon" aria-hidden="true">🆘</span>
+      <div>
+        <div class="label">Need Help</div>
+        <div class="value">4</div>
+      </div>
+    </div>
+    <div class="chip warn clickable">
+      <span class="icon" aria-hidden="true">📡</span>
+      <div>
+        <div class="label">Sources</div>
+        <div class="value">12/15</div>
+      </div>
+    </div>
+    <div class="chip spacer"></div>
+    <div class="chip timestamp">
+      <span class="saved-dot" aria-hidden="true"></span>
+      <span>💾 saved · refreshed just now</span>
+    </div>
+  </div>
+  <div class="map-placeholder">— map area —</div>
+</div>
+<p class="caption">Extreme alert is active. The strip gets a subtle red wash from the left edge as a peripheral-vision cue, the warning icon pulses, and impacted chips turn red. The operator's eye goes here without being told to.</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>Compact / narrow viewport</h2>
+<div class="frame">
+  <div class="strip compact">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <span class="value">Kelly Cheyne</span>
+      <span class="role-tag cmt">CMT</span>
+    </div>
+    <div class="chip crit clickable">
+      <span class="icon" aria-hidden="true">🚨</span>
+      <span class="value">3</span>
+    </div>
+    <div class="chip crit clickable">
+      <span class="icon crit-pulse" aria-hidden="true">⚠</span>
+      <span class="value">EXTREME</span>
+    </div>
+    <div class="chip crit clickable">
+      <span class="icon" aria-hidden="true">🆘</span>
+      <span class="value">4</span>
+    </div>
+    <div class="chip warn clickable">
+      <span class="icon" aria-hidden="true">📡</span>
+      <span class="value">12/15</span>
+    </div>
+    <div class="chip spacer"></div>
+    <div class="chip timestamp"><span class="saved-dot"></span><span>just now</span></div>
+  </div>
+</div>
+<p class="caption">On narrow windows, labels collapse to icon + value only. The identity chip drops the "Logged in as" preamble. Severity word (EXTREME) stays because it's load-bearing.</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>Identity chip — preview of future role tags</h2>
+<div class="role-row">
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag">Admin</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag cmt">CMT Member</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag office">Office Manager</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="chip identity">
+      <span class="icon" aria-hidden="true">👤</span>
+      <div>
+        <div class="label">Logged in as</div>
+        <div><span class="value">Kelly Cheyne</span> <span class="role-tag employee">Employee</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="caption">
+  Just a preview of how the identity chip could badge each access level. Real role assignment will come from your auth provider (Okta).
+  Admin = green (full system trust), CMT Member = blue (incident command), Office Manager = yellow (local awareness), Employee = grey (read-only / self-status).
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<div class="legend">
+  <h3>Behavior summary</h3>
+  <ul>
+    <li><b>Identity chip</b> — passive, not clickable. Sourced from auth (Okta) when wired up. Today: hardcoded for the prototype.</li>
+    <li><b>Open Incidents</b> — clickable → opens Incidents panel filtered to Open. Red when ≥1 incident has Extreme severity, orange when there's any open, muted when zero.</li>
+    <li><b>Highest Active</b> — clickable → zooms map to that alert + opens Alert Details. Color tracks severity. Title truncates first on narrow screens.</li>
+    <li><b>Need Help</b> — clickable → jumps to incident with most Help responses, opens Responses tab filtered to Help.</li>
+    <li><b>Sources</b> — clickable → opens the existing Freshness modal. Shows <code>X/Y</code>. Green dot when all healthy, yellow when any stale, red when any source errored.</li>
+    <li><b>Last updated</b> — passive. Shows relative time of last data sync. Pulsing dot indicates recent save (persistence layer).</li>
+    <li><b>Critical state wash</b> — when any Extreme alert is active, the strip gets a subtle red gradient from the left edge. Designed for peripheral attention without dominating the screen.</li>
+  </ul>
+</div>
+
+</body>
+</html>
