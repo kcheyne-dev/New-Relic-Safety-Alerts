@@ -382,6 +382,7 @@ button { cursor: pointer; }
   text-decoration: none; color: var(--text); max-width: 100%; }
 .att-chip:hover { border-color: var(--blue); }
 .att-chip.oversized { border-color: var(--yellow); color: var(--yellow); }
+.att-chip.restored { border-style: dashed; opacity: 0.85; }
 .att-chip .att-icon { font-size: 13px; flex-shrink: 0; }
 .att-chip .att-name { font-weight: 500; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-chip .att-size { color: var(--muted); font-size: 10px; }
@@ -996,12 +997,22 @@ function fileToAttachment(file) {
 /** Render an attachment chip. removable=true when in draft state. */
 function attachmentChipHTML(att, removable=false) {
   const href = att.data ? att.data : '#';
-  const click = att.data ? '' : `onclick="event.preventDefault();alert('File too large to embed (limit ${fmtSize(ATT_EMBED_LIMIT)}). In production this would be uploaded to a backend.');"`;
   const dl = att.data ? `download="${esc(att.name)}"` : '';
-  return `<a class="att-chip${att.oversized?' oversized':''}" href="${href}" target="_blank" rel="noopener" ${dl} ${click}>
+  let click = '';
+  if (!att.data) {
+    if (att._restored) {
+      click = `onclick="event.preventDefault();alert('File content not retained across page reload. Metadata preserved (${esc(att.name)}, ${fmtSize(att.size)}). Re-attach the file to send it.');"`;
+    } else if (att.oversized) {
+      click = `onclick="event.preventDefault();alert('File too large to embed (limit ${fmtSize(ATT_EMBED_LIMIT)}). In production this would be uploaded to a backend.');"`;
+    } else {
+      click = `onclick="event.preventDefault();"`;
+    }
+  }
+  return `<a class="att-chip${att.oversized?' oversized':''}${att._restored?' restored':''}" href="${href}" target="_blank" rel="noopener" ${dl} ${click}>
     <span class="att-icon" aria-hidden="true">${fileIcon(att.type)}</span>
     <span class="att-name">${esc(att.name)}</span>
     ${att.size ? `<span class="att-size">${fmtSize(att.size)}</span>` : ''}
+    ${att._restored ? '<span class="att-size" style="color:var(--muted)" title="Restored from local save — file content not retained">↺</span>' : ''}
     ${removable ? `<button class="att-x" data-att-remove="${esc(att.id)}" aria-label="Remove ${esc(att.name)}" title="Remove">×</button>` : ''}
   </a>`;
 }
@@ -1779,8 +1790,8 @@ function bindCCHandlers() {
   });
 
   // Subject + message + response + reminder
-  document.getElementById('cc-subject')?.addEventListener('input', e => STATE.subject = e.target.value);
-  document.getElementById('msg-body')?.addEventListener('input', e => STATE.customMessage = e.target.value);
+  document.getElementById('cc-subject')?.addEventListener('input', e => { STATE.subject = e.target.value; saveState(); });
+  document.getElementById('msg-body')?.addEventListener('input', e => { STATE.customMessage = e.target.value; saveState(); });
   document.getElementById('cc-clear-msg')?.addEventListener('click', e => {
     e.preventDefault();
     STATE.customMessage = ''; STATE.template = ''; STATE.subject = '';
@@ -2608,6 +2619,14 @@ document.getElementById('btn-help').onclick = () => {
     </div>
     <h4 style="margin-top:12px">Sources active</h4>
     <p style="font-size:11px;color:var(--muted)">${SOURCES.map(s=>s.id).join(' · ')}</p>
+    <h4 style="margin-top:14px">Local Data</h4>
+    <p style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px">
+      All your incidents, drafts, sent messages, and notes are saved to this browser. Use these tools to back up or wipe.
+    </p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn-ghost" onclick="App.exportData()">⬇ Export Data (JSON)</button>
+      <button class="btn-ghost danger" onclick="App.resetData()">🗑 Reset Local Data</button>
+    </div>
     <div class="modal-actions"><button class="btn-ghost" onclick="App.closeModal()">Close</button></div>`);
 };
 
@@ -2703,6 +2722,7 @@ window.App = {
   showAlertDetails,
   selectAlert,
   showFreshness,
+  exportData, resetData,
 };
 
 /* ---------- 17b. Alert Details — opens in a new tab ---------- */
@@ -3109,7 +3129,144 @@ function exportIncidentReport(incidentId) {
   w.document.close();
 }
 
-/* ---------- 17d. Status Strip ---------- */
+/* ---------- 17d. Persistence (localStorage) ---------- */
+const PERSIST_KEY = 'nrsa-state-v1';
+const PERSIST_DEBOUNCE_MS = 500;
+let _saveTimer = null;
+let lastSavedAt = null;
+
+/** Strip the (potentially huge) data: URL from an attachment, keep metadata. */
+function stripAtt(a) {
+  if (!a) return a;
+  const { data, ...rest } = a;
+  return { ...rest, _restored: !data };  // mark as no-data after persist
+}
+function stripMessageAtts(m) {
+  return { ...m, attachments: (m.attachments || []).map(stripAtt) };
+}
+function stripIncident(i) {
+  return {
+    ...i,
+    notes: (i.notes || []).map(n => ({ ...n, attachments: (n.attachments || []).map(stripAtt) })),
+    messages: (i.messages || []).map(stripMessageAtts),
+  };
+}
+function buildPersistPayload() {
+  return {
+    schema: 1,
+    savedAt: new Date().toISOString(),
+    incidents:        STATE.incidents.map(stripIncident),
+    responses:        STATE.responses,
+    crisisLog:        STATE.crisisLog.map(stripMessageAtts),
+    roomMessages:     STATE.roomMessages,
+    userTemplates:    STATE.userTemplates,
+    customLocations:  STATE.customLocations,
+    expandedOffices:  Array.from(STATE.expandedOffices || []),
+    incidentListFilter: STATE.incidentListFilter,
+    draft: {
+      selectedOffices:  STATE.selectedOffices,
+      channels:         STATE.channels,
+      template:         STATE.template,
+      customMessage:    STATE.customMessage,
+      subject:          STATE.subject,
+      responseRequired: STATE.responseRequired,
+      reminderInterval: STATE.reminderInterval,
+      attachments:      (STATE.attachments || []).map(stripAtt),
+      linkedIncidentId: STATE.linkedIncidentId,
+    },
+    noteAttachments:  (STATE.noteAttachments || []).map(stripAtt),
+  };
+}
+function saveState() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    try {
+      const json = JSON.stringify(buildPersistPayload());
+      localStorage.setItem(PERSIST_KEY, json);
+      lastSavedAt = new Date();
+      // refresh just the saved indicator in the strip
+      const strip = document.getElementById('status-strip');
+      if (strip) renderStatusStrip();
+    } catch (err) {
+      console.error('Persist save failed:', err);
+      if (err && (err.name === 'QuotaExceededError' || err.code === 22)) {
+        toast('Local storage full. Use Manual → Export Data, then Reset to free space.');
+      }
+    }
+  }, PERSIST_DEBOUNCE_MS);
+}
+function loadState() {
+  try {
+    const json = localStorage.getItem(PERSIST_KEY);
+    if (!json) return false;
+    const data = JSON.parse(json);
+    if (data.schema !== 1) {
+      console.warn('Saved data has unknown schema version:', data.schema, '— ignoring.');
+      return false;
+    }
+    if (Array.isArray(data.incidents))      STATE.incidents = data.incidents;
+    if (data.responses)                     STATE.responses = data.responses;
+    if (Array.isArray(data.crisisLog))      STATE.crisisLog = data.crisisLog;
+    if (Array.isArray(data.roomMessages))   STATE.roomMessages = data.roomMessages;
+    if (Array.isArray(data.userTemplates))  STATE.userTemplates = data.userTemplates;
+    if (Array.isArray(data.customLocations))STATE.customLocations = data.customLocations;
+    if (Array.isArray(data.expandedOffices))STATE.expandedOffices = new Set(data.expandedOffices);
+    if (data.incidentListFilter)            STATE.incidentListFilter = data.incidentListFilter;
+    if (data.draft) {
+      STATE.selectedOffices  = data.draft.selectedOffices  || [];
+      STATE.channels         = data.draft.channels         || STATE.channels;
+      STATE.template         = data.draft.template         || '';
+      STATE.customMessage    = data.draft.customMessage    || '';
+      STATE.subject          = data.draft.subject          || '';
+      if (typeof data.draft.responseRequired === 'boolean') STATE.responseRequired = data.draft.responseRequired;
+      STATE.reminderInterval = data.draft.reminderInterval || '15m';
+      STATE.attachments      = data.draft.attachments      || [];
+      STATE.linkedIncidentId = data.draft.linkedIncidentId || null;
+    }
+    if (Array.isArray(data.noteAttachments)) STATE.noteAttachments = data.noteAttachments;
+    if (data.savedAt) lastSavedAt = new Date(data.savedAt);
+    return true;
+  } catch (err) {
+    console.error('Persist load failed:', err);
+    return false;
+  }
+}
+function exportData() {
+  const payload = buildPersistPayload();
+  payload.exportedAt = new Date().toISOString();
+  payload.app = 'NR Safety Alerts — CMT Dashboard';
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `safety-alerts-export-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Data exported.');
+}
+function resetData() {
+  showModal(`<h3>Reset all local data?</h3>
+    <p style="font-size:12px;color:var(--muted);line-height:1.5">
+      This permanently clears all incidents, sent messages, room thread, custom templates, custom locations, and the current draft from this browser.
+      <br><br>
+      The mock alert/office data will reload as if you opened the app fresh. <b>This cannot be undone.</b>
+      <br><br>
+      Consider <b>Export Data</b> first.
+    </p>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="modal-cancel">Cancel</button>
+      <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px;background:var(--red);color:#fff" id="modal-confirm">Yes, reset everything</button>
+    </div>`);
+  document.getElementById('modal-cancel').onclick = closeModal;
+  document.getElementById('modal-confirm').onclick = () => {
+    try { localStorage.removeItem(PERSIST_KEY); } catch(_) {}
+    closeModal();
+    toast('Local data cleared. Reloading…');
+    setTimeout(() => location.reload(), 600);
+  };
+}
+
+/* ---------- 17e. Status Strip ---------- */
 let lastRefreshAt = new Date();
 
 function renderStatusStrip() {
@@ -3180,9 +3337,9 @@ function renderStatusStrip() {
       </div>
     </button>
     <div class="ss-chip ss-spacer"></div>
-    <div class="ss-chip timestamp" title="Last data refresh">
-      <span class="ss-saved-dot" aria-hidden="true"></span>
-      <span>Refreshed ${relTime(lastRefreshAt.toISOString())} ago</span>
+    <div class="ss-chip timestamp" title="Last save · last data refresh">
+      <span class="ss-saved-dot" aria-hidden="true" style="${lastSavedAt ? '' : 'background:var(--muted);box-shadow:none'}"></span>
+      <span>${lastSavedAt ? `💾 saved ${relTime(lastSavedAt.toISOString())} ago` : 'No saves yet'}</span>
     </div>
   `;
 
@@ -3227,12 +3384,17 @@ function renderAll() {
   renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards();
   renderFeed(); renderCC(); renderIncidents();
   renderStatusStrip();
+  saveState();   // debounced
 }
 
 /* ---------- 19. Boot ---------- */
+const _restored = loadState();
 buildLayerControls();
 setupDraw();
 renderAll();
+if (_restored) {
+  setTimeout(() => toast(`Restored from local save${lastSavedAt?` (${relTime(lastSavedAt.toISOString())} ago)`:''}.`), 400);
+}
 /* Fit map to show all offices, with padding for the rails/header */
 map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
 let resizeTimer;
