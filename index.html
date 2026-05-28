@@ -288,10 +288,19 @@ button { cursor: pointer; }
 
 /* ============ MAP TOOL OVERLAYS =================================== */
 .layers-dropdown, .geofence-dropdown {
-  position: absolute; z-index: 700; top: 60px; right: 14px; width: 320px;
+  position: fixed; z-index: 700; top: 112px; right: 14px; width: 320px;
   background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0,0,0,.5); padding: 12px; display: none;
-  max-height: calc(100vh - 100px); overflow-y: auto;
+  max-height: calc(100vh - 132px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.layers-dropdown::after, .geofence-dropdown::after {
+  /* tiny notch pointing up at the header button */
+  content: ''; position: absolute; top: -7px; right: 14px;
+  width: 12px; height: 12px; background: var(--bg2);
+  border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+  transform: rotate(45deg);
 }
 .layers-dropdown.open, .geofence-dropdown.open { display: block; }
 .layers-dropdown h4, .geofence-dropdown h4 { font-size: 11px; text-transform: uppercase;
