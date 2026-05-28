@@ -870,14 +870,18 @@ function officePopup(o) {
     <div style="margin-top:6px">
       ${a.slice(0,3).map(al=>`<div style="font-size:11px;border-top:1px solid var(--border);padding-top:4px;margin-top:4px">
         <span class="sev-pill ${al.sev}">${SEV_NAME[al.sev]}</span>
-        <span class="src-pill">${al.source}</span>
-        <div style="margin-top:2px">${al.title}</div>
-        <button class="btn-ghost" style="font-size:10px;padding:2px 6px;margin-top:3px" onclick="App.showAlertDetails('${al.id}')">Details</button>
+        <span class="src-pill">${esc(al.source)}</span>
+        <div style="margin-top:2px">${esc(al.title)}</div>
+        <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">
+          <button class="btn-ghost" style="font-size:10px;padding:2px 6px" onclick="App.showAlertDetails('${esc(al.id)}')">Details</button>
+          <button class="btn-ghost" style="font-size:10px;padding:2px 6px;background:rgba(28,231,131,.15);border-color:rgba(28,231,131,.4);color:var(--green)" onclick="App.crisisFromAlert('${esc(al.id)}')">📣 Crisis</button>
+        </div>
       </div>`).join('')}
+      ${a.length > 3 ? `<div style="font-size:10px;color:var(--muted);margin-top:6px;text-align:center">+${a.length-3} more — open the Alert Feed for full list</div>` : ''}
     </div>
     <div class="pop-actions">
-      <button class="btn-ghost" onclick="App.targetOffice('${o.id}')">Crisis</button>
-      <button class="btn-ghost" onclick="App.zoomOffice('${o.id}')">Zoom</button>
+      <button class="btn-ghost" onclick="App.targetOffice('${esc(o.id)}')">📣 Crisis (office-wide)</button>
+      <button class="btn-ghost" onclick="App.zoomOffice('${esc(o.id)}')">Zoom</button>
     </div>`;
 }
 
@@ -2156,6 +2160,22 @@ window.App = {
   removeOffice(id) {
     STATE.selectedOffices = STATE.selectedOffices.filter(x => x !== id);
     renderCC();
+  },
+  crisisFromAlert(alertId) {
+    const a = ALERTS.find(x => x.id === alertId); if (!a) return;
+    if (a.officeId && !STATE.selectedOffices.includes(a.officeId)) {
+      STATE.selectedOffices = [a.officeId];
+    }
+    // Pre-fill subject with alert context, only if currently empty
+    if (!STATE.subject) {
+      const o = a.officeId ? OFFICE_BY_ID[a.officeId] : null;
+      STATE.subject = `[${SEV_NAME[a.sev]}] ${a.title}${o?` — ${o.name}`:''}`;
+    }
+    map.closePopup();
+    openPanel('crisis');
+    setCcTab('compose');
+    renderCC();
+    toast(`Pre-loaded Crisis Comms for "${a.title.slice(0,40)}${a.title.length>40?'…':''}"`);
   },
   exportFenceCSV, fenceToCrisis, closeModal,
   showAlertDetails,
