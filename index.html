@@ -357,7 +357,7 @@ button { cursor: pointer; }
     <!-- LEFT ZONE: Alert Feed -->
     <div class="left-zone">
       <div class="rail alert" id="rail-alerts" title="Alert Feed"><span class="rail-icon">🔔 Alerts</span><span class="badge" id="rail-alerts-count">0</span></div>
-      <aside class="panel" id="panel-alerts">
+      <aside class="panel collapsed" id="panel-alerts">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-emerald">🔔</span> Alert Feed</div>
           <button class="btn-ghost" id="btn-collapse-alerts">«</button>
@@ -456,7 +456,7 @@ button { cursor: pointer; }
     <div class="right-zone">
       <!-- Crisis Comms -->
       <div class="rail crisis" id="rail-crisis" title="Crisis Comms"><span class="rail-icon">📣 Crisis</span></div>
-      <aside class="panel" id="panel-crisis" style="width: 360px;">
+      <aside class="panel collapsed" id="panel-crisis" style="width: 360px;">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-teal">📣</span> Crisis Comms</div>
           <button class="btn-ghost" id="btn-collapse-crisis">»</button>
@@ -471,7 +471,7 @@ button { cursor: pointer; }
 
       <!-- Incidents -->
       <div class="rail incident" id="rail-incident" title="Incidents"><span class="rail-icon">🚨 Incidents</span><span class="badge live" id="incident-active-badge">0</span></div>
-      <aside class="panel" id="panel-incident" style="width: 360px;">
+      <aside class="panel collapsed" id="panel-incident" style="width: 360px;">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-red">🚨</span> Incidents</div>
           <div style="display:flex;gap:6px;">
@@ -690,7 +690,7 @@ const STATE = {
   incidentTab: 'details',
   msgFilter: 'all',
   responses: {},  // { incidentId: { employeeId: { status: 'ok'|'help'|'no', when, by } } }
-  panels: { alerts:true, crisis:true, incident:true },
+  panels: { alerts:false, crisis:false, incident:false },
   fence: null,             // {layer, shape, mode, results: {offices, employees, travelers}}
   fenceMode: 'highlight',
   hazards: { fire:false, flood:false, quake:false, unrest:false, precip:false, aqi:false },
