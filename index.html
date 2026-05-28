@@ -7,8 +7,8 @@
   default-src 'self';
   script-src 'self' 'unsafe-inline' https://unpkg.com;
   style-src 'self' 'unsafe-inline' https://unpkg.com;
-  img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org;
-  connect-src 'self' https://*.basemaps.cartocdn.com;
+  img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://*.rainviewer.com https://mesonet.agron.iastate.edu;
+  connect-src 'self' https://*.basemaps.cartocdn.com https://api.rainviewer.com;
   font-src 'self' data:;
   frame-ancestors 'none';
   base-uri 'self';
@@ -490,8 +490,8 @@ button { cursor: pointer; }
         <div class="toggle-row"><label><span class="swatch" style="background:var(--yellow)"></span>Civil Unrest Zones</label><input type="checkbox" data-overlay="unrest"/></div>
 
         <h4>Live Overlays</h4>
-        <div class="toggle-row"><label>OpenWeather Precipitation</label><input type="checkbox" data-overlay="precip"/></div>
-        <div class="toggle-row"><label>Air Quality (OpenAQ)</label><input type="checkbox" data-overlay="aqi"/></div>
+        <div class="toggle-row"><label>🌧 Precipitation Radar (RainViewer)</label><input type="checkbox" data-overlay="precip"/></div>
+        <div class="toggle-row"><label>🫁 Air Quality (OpenAQ stations)</label><input type="checkbox" data-overlay="aqi"/></div>
 
         <h4>Severity Filter</h4>
         <div class="sev-segments" id="sev-segments">
@@ -1021,8 +1021,12 @@ function renderTravelers() {
 /* ---------- 9. Hazard overlays (mock) ---------- */
 const HAZARD_ZONES = {
   fire: {
-    label: '🔥 Wildfire Zone',
+    label: '🔥 Wildfire Zones',
     color: '#f87171',
+    source: 'NASA EONET',
+    sourceName: 'Earth Observatory Natural Event Tracker',
+    sourceUrl: 'https://eonet.gsfc.nasa.gov/',
+    description: 'Active wildfire events tracked by NASA Earth Observatory and partner agencies (NIFC, GeoMAC).',
     zones: [
       { lat: 38.5, lng: -122.5, radiusKm: 280, label: 'Northern California' },
       { lat: 34.0, lng: -118.2, radiusKm: 220, label: 'Southern California' },
@@ -1034,6 +1038,10 @@ const HAZARD_ZONES = {
   flood: {
     label: '💧 Flood Risk',
     color: '#1e90ff',
+    source: 'GDACS',
+    sourceName: 'Global Disaster Alert and Coordination System',
+    sourceUrl: 'https://www.gdacs.org/',
+    description: 'Flood risk zones from GDACS, NWS forecasts, and historical FEMA flood plain data.',
     zones: [
       { lat: 12.97, lng: 77.6, radiusKm: 60, label: 'Bengaluru low-lying areas' },
       { lat: 41.39, lng: 2.17, radiusKm: 50, label: 'Catalonia coast' },
@@ -1045,6 +1053,10 @@ const HAZARD_ZONES = {
   quake: {
     label: '🌍 Seismic Risk',
     color: '#fb923c',
+    source: 'USGS',
+    sourceName: 'US Geological Survey — Earthquake Hazards',
+    sourceUrl: 'https://earthquake.usgs.gov/hazards/',
+    description: 'Seismic hazard zones based on USGS National Seismic Hazard Model and EMSC fault data.',
     zones: [
       { lat: 35.68, lng: 139.65, radiusKm: 320, label: 'Kanto plain' },
       { lat: 37.78, lng: -122.42, radiusKm: 180, label: 'San Andreas Fault' },
@@ -1056,6 +1068,10 @@ const HAZARD_ZONES = {
   unrest: {
     label: '⚠ Civil Unrest',
     color: '#facc15',
+    source: 'ACLED',
+    sourceName: 'Armed Conflict Location & Event Data Project',
+    sourceUrl: 'https://acleddata.com/dashboard/',
+    description: 'Recent civil unrest hotspots from ACLED, supplemented by GDELT event clustering.',
     zones: [
       { lat: 12.97, lng: 77.6, radiusKm: 12, label: 'Bengaluru Whitefield' },
       { lat: 51.51, lng: -0.12, radiusKm: 6, label: 'Westminster' },
@@ -1063,19 +1079,13 @@ const HAZARD_ZONES = {
       { lat: 6.5, lng: 3.4, radiusKm: 14, label: 'Lagos central' },
     ],
   },
-  precip: {
-    label: '🌧 Heavy Precipitation',
-    color: '#3b82f6',
-    zones: [
-      { lat: 41.39, lng: 2.17, radiusKm: 120, label: 'Catalonia storm cell' },
-      { lat: 12.97, lng: 77.6, radiusKm: 90, label: 'Bengaluru monsoon' },
-      { lat: 45.5, lng: -122.6, radiusKm: 110, label: 'Pacific Northwest' },
-      { lat: 35.68, lng: 139.65, radiusKm: 160, label: 'Tokyo region' },
-    ],
-  },
   aqi: {
     label: '🫁 Poor Air Quality',
     color: '#a855f7',
+    source: 'OpenAQ',
+    sourceName: 'OpenAQ — Open Air Quality Data',
+    sourceUrl: 'https://openaq.org/',
+    description: 'Locations with current AQI > 100 (Unhealthy for sensitive groups) from OpenAQ stations.',
     zones: [
       { lat: 38.5, lng: -122.5, radiusKm: 220, label: 'NorCal AQI 165' },
       { lat: 28.6, lng: 77.2, radiusKm: 180, label: 'Delhi AQI 240' },
@@ -1083,49 +1093,121 @@ const HAZARD_ZONES = {
       { lat: 17.4, lng: 78.5, radiusKm: 80,  label: 'Hyderabad AQI 130' },
     ],
   },
+  // precip is a real tile overlay (RainViewer) — see TILE_OVERLAYS
 };
 
-function renderHazards() {
+/** Live tile-based overlays — actual real-time data when available. */
+const TILE_OVERLAYS = {
+  precip: {
+    label: '🌧 Live Precipitation Radar',
+    source: 'RainViewer',
+    sourceName: 'RainViewer global weather radar',
+    sourceUrl: 'https://www.rainviewer.com/',
+    description: 'Real-time global precipitation radar updated every 10 minutes. Click anywhere outside a zone for source.',
+  },
+};
+
+/* Tile layers cached after first activation. */
+const tileOverlayLayers = { precip: null };
+let tileOverlayLoading = {};
+
+async function ensurePrecipTileLayer() {
+  if (tileOverlayLayers.precip) return tileOverlayLayers.precip;
+  if (tileOverlayLoading.precip) return null;
+  tileOverlayLoading.precip = true;
+  try {
+    const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const data = await resp.json();
+    const past = data.radar?.past || [];
+    const latest = past[past.length - 1];
+    if (!latest) throw new Error('No radar data');
+    const url = `${data.host}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`;
+    tileOverlayLayers.precip = L.tileLayer(url, {
+      opacity: 0.65, attribution: '© RainViewer', maxZoom: 12,
+    });
+    return tileOverlayLayers.precip;
+  } catch (err) {
+    console.error('RainViewer load failed', err);
+    toast('Precipitation radar unavailable (network blocked or RainViewer offline).');
+    return null;
+  } finally {
+    tileOverlayLoading.precip = false;
+  }
+}
+
+/** HTML for a hazard-zone popup, including clickable source link. */
+function hazardPopupHTML(def, z) {
+  return `
+    <h4>${esc(def.label)}</h4>
+    <div class="addr">${esc(z.label)} · ${z.radiusKm} km radius</div>
+    <div style="font-size:11px;line-height:1.4;color:var(--text);margin-bottom:6px">${esc(def.description)}</div>
+    <div class="pop-row" style="border-top:1px solid var(--border);padding-top:6px">
+      <span style="color:var(--muted)">Source</span>
+      <b>${esc(def.source)}</b>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(def.sourceName)}</div>
+    <div class="pop-actions">
+      <a class="btn-ghost" href="${def.sourceUrl}" target="_blank" rel="noopener">View at source ↗</a>
+    </div>`;
+}
+
+/** Render polygon hazard zones (fire, flood, quake, unrest, aqi). */
+function renderHazardZones() {
   layers.hazards.clearLayers();
   const active = [];
-  Object.entries(STATE.hazards).forEach(([key, on]) => {
-    if (!on) return;
-    const def = HAZARD_ZONES[key];
-    if (!def) return;
-    active.push(def);
+  Object.entries(HAZARD_ZONES).forEach(([key, def]) => {
+    if (!STATE.hazards[key]) return;
+    active.push({ key, def });
     def.zones.forEach(z => {
-      // Filled outer halo
-      L.circle([z.lat, z.lng], {
+      const halo = L.circle([z.lat, z.lng], {
         radius: z.radiusKm * 1000,
-        color: def.color,
-        weight: 2,
-        opacity: 0.85,
-        fillColor: def.color,
-        fillOpacity: 0.18,
-        dashArray: '6 4',
-      })
-        .addTo(layers.hazards)
-        .bindTooltip(`<b>${def.label}</b><br>${z.label} · ${z.radiusKm} km`, { direction: 'top', sticky: true });
-      // Inner solid pulse marker
-      L.circleMarker([z.lat, z.lng], {
-        radius: 5,
-        color: def.color,
-        fillColor: def.color,
-        fillOpacity: 0.95,
-        weight: 2,
+        color: def.color, weight: 2, opacity: 0.85,
+        fillColor: def.color, fillOpacity: 0.18, dashArray: '6 4',
       }).addTo(layers.hazards);
+      halo.bindTooltip(`<b>${esc(def.label)}</b> — ${esc(z.label)}`, { direction: 'top', sticky: true });
+      halo.bindPopup(hazardPopupHTML(def, z), { maxWidth: 320 });
+      // Solid center marker (also clickable)
+      const dot = L.circleMarker([z.lat, z.lng], {
+        radius: 5, color: def.color, fillColor: def.color, fillOpacity: 0.95, weight: 2,
+      }).addTo(layers.hazards);
+      dot.bindPopup(hazardPopupHTML(def, z), { maxWidth: 320 });
     });
   });
-  // update legend
-  const leg = document.getElementById('hazard-legend');
-  if (leg) {
-    if (!active.length) { leg.style.display = 'none'; leg.innerHTML = ''; }
-    else {
-      leg.style.display = '';
-      leg.innerHTML = `<div class="leg-title">Hazard layers active</div>` +
-        active.map(d => `<div class="leg-row"><span class="leg-dot" style="background:${d.color}"></span>${esc(d.label)} <span style="color:var(--muted);font-size:10px;margin-left:auto">${d.zones.length}</span></div>`).join('');
-    }
+  return active;
+}
+
+/** Manage live tile overlays (precip). */
+async function applyTileOverlays() {
+  // Precipitation radar — RainViewer
+  if (STATE.hazards.precip) {
+    const layer = await ensurePrecipTileLayer();
+    if (layer && STATE.hazards.precip && !map.hasLayer(layer)) layer.addTo(map);
+  } else if (tileOverlayLayers.precip && map.hasLayer(tileOverlayLayers.precip)) {
+    map.removeLayer(tileOverlayLayers.precip);
   }
+}
+
+/** Update the legend with all active overlays. */
+function updateHazardLegend(active) {
+  const leg = document.getElementById('hazard-legend');
+  if (!leg) return;
+  const entries = [...active.map(({def}) => ({ label: def.label, color: def.color, count: def.zones.length, source: def.source, sourceUrl: def.sourceUrl }))];
+  if (STATE.hazards.precip) entries.push({ label: TILE_OVERLAYS.precip.label, color: '#3b82f6', count: 'live', source: TILE_OVERLAYS.precip.source, sourceUrl: TILE_OVERLAYS.precip.sourceUrl });
+  if (!entries.length) { leg.style.display = 'none'; leg.innerHTML = ''; return; }
+  leg.style.display = '';
+  leg.innerHTML = `<div class="leg-title">Map overlays active</div>` +
+    entries.map(d => `<div class="leg-row">
+      <span class="leg-dot" style="background:${d.color}"></span>
+      <span style="flex:1">${esc(d.label)} <span style="color:var(--muted);font-size:10px">(${d.count})</span></span>
+      <a href="${d.sourceUrl}" target="_blank" rel="noopener" title="${esc(d.source)} ↗" style="color:var(--blue);font-size:10px">↗</a>
+    </div>`).join('');
+}
+
+/** Master hazard render — called on every toggle. */
+function renderHazards() {
+  const active = renderHazardZones();
+  applyTileOverlays();
+  updateHazardLegend(active);
 }
 
 /* ---------- 10. ALERT FEED render ---------- */
@@ -2061,9 +2143,14 @@ function buildLayerControls() {
     STATE.hazards[key] = e.target.checked;
     renderHazards();
     if (e.target.checked) {
-      const def = HAZARD_ZONES[key];
-      const count = def?.zones?.length || 0;
-      toast(`${def?.label||key} layer enabled · ${count} zone${count===1?'':'s'} on map.`);
+      const def = HAZARD_ZONES[key] || TILE_OVERLAYS[key];
+      if (def) {
+        const detail = def.zones ? `${def.zones.length} zone${def.zones.length===1?'':'s'}` : 'live data';
+        toast(`${def.label} enabled · ${detail}.`);
+      }
+    } else {
+      const def = HAZARD_ZONES[key] || TILE_OVERLAYS[key];
+      if (def) toast(`${def.label} disabled.`);
     }
   }));
   document.querySelectorAll('.sev-seg').forEach(s => s.addEventListener('click', () => {
