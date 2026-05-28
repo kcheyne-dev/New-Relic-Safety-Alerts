@@ -29,7 +29,7 @@ button, input, select, textarea { font-family: inherit; color: inherit; }
 button { cursor: pointer; }
 
 /* ============ LAYOUT ============================================== */
-.app { display: grid; grid-template-rows: 52px 1fr; height: 100vh; }
+.app { display: grid; grid-template-rows: 64px 1fr; height: 100vh; }
 .main { display: grid; grid-template-columns: auto 1fr auto; min-height: 0; }
 
 /* ============ HEADER ============================================== */
@@ -37,12 +37,14 @@ button { cursor: pointer; }
   display: flex; align-items: center; gap: 14px;
   padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
 }
-.brand { display: flex; align-items: center; gap: 10px; min-width: 220px; }
-.logo { width: 30px; height: 30px; background: var(--green); border-radius: 7px;
-  display: grid; place-items: center; font-weight: 900; color:#000; font-size: 13px; }
-.brand-title { font-weight: 700; color: var(--text); font-size: 14px; line-height: 1.1; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 280px; }
+.logo { width: 40px; height: 40px; background: var(--green); border-radius: 9px;
+  display: grid; place-items: center; font-weight: 900; color:#000; font-size: 16px;
+  box-shadow: 0 2px 8px rgba(28,231,131,.25); }
+.brand-title { font-weight: 700; color: var(--text); font-size: 17px; line-height: 1.1; letter-spacing: -0.01em; }
 .brand-title span { color: var(--green); }
-.brand-sub { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; margin-top: 1px; }
+.brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin-top: 3px; }
+.brand-sub .cmt { color: var(--green); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .h-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .htn { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
   padding: 6px 10px; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
@@ -357,7 +359,7 @@ button { cursor: pointer; }
       <div class="logo">NR</div>
       <div>
         <div class="brand-title">New Relic <span>Safety Alerts</span></div>
-        <div class="brand-sub">Physical Security · GSOC</div>
+        <div class="brand-sub"><span class="cmt">CMT Dashboard</span> · Physical Security · GSOC</div>
       </div>
     </div>
     <div class="h-tools">
