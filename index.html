@@ -777,6 +777,15 @@ function passesFilter(a) {
 function visibleAlerts() { return ALERTS.filter(passesFilter); }
 function travelersAtOffice(id) { return TRAVELERS.filter(t => t.atOffice === id); }
 function uid() { return 'i_'+Math.random().toString(36).slice(2,9); }
+/** Escape user-provided strings before injecting into HTML. */
+function esc(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+/** Check if a modal is currently open. */
+function isModalOpen() { return !!document.getElementById('modal-back'); }
 
 /* ---------- 6. Office markers + popups ---------- */
 const OFFICE_MARKERS = {};
@@ -845,7 +854,7 @@ function renderEmployees() {
     const lng = STATE.empMode === 'zip' ? e.lng : e.officeLng;
     const icon = L.divIcon({ html:'<div class="emp-mk"></div>', className:'', iconSize:[10,10] });
     const m = L.marker([lat, lng], { icon });
-    m.bindPopup(`<h4>${e.name}</h4><div class="addr">${e.role} · ${OFFICE_BY_ID[e.office].name}</div>`);
+    m.bindPopup(`<h4>${esc(e.name)}</h4><div class="addr">${esc(e.role)} · ${esc(OFFICE_BY_ID[e.office]?.name||'')}</div>`);
     layers.emp.addLayer(m);
   });
   document.getElementById('emp-count').textContent = `${EMPLOYEES.length.toLocaleString()} employees loaded`;
@@ -858,7 +867,7 @@ function renderTravelers() {
     const symbol = t.type === 'flight' ? '✈️' : '🏨';
     const icon = L.divIcon({ html:`<div class="trav-mk">${symbol}</div>`, className:'', iconSize:[20,20] });
     const m = L.marker([t.lat, t.lng], { icon });
-    m.bindPopup(`<h4>${t.name}</h4><div class="addr">Home: ${OFFICE_BY_ID[t.home]?.name || t.home} · ${t.destCity}</div>
+    m.bindPopup(`<h4>${esc(t.name)}</h4><div class="addr">Home: ${esc(OFFICE_BY_ID[t.home]?.name || t.home)} · ${esc(t.destCity)}</div>
       <div class="pop-row"><span>Booking</span><b>${t.type==='flight'?'✈ air':'🏨 hotel'}</b></div>`);
     layers.trav.addLayer(m);
   });
@@ -1050,7 +1059,7 @@ function renderComposeForm() {
       <select id="cc-office-pick" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px;margin-bottom:6px">
         <option value="">Select an office...</option>
         ${OFFICES.filter(o=>!STATE.selectedOffices.includes(o.id)).map(o=>`<option value="${o.id}">${o.id} · ${o.name} · ${o.headcount.toLocaleString()}</option>`).join('')}
-        ${STATE.customLocations.filter(c=>!STATE.selectedOffices.includes(c.id)).map(c=>`<option value="${c.id}">${c.id} · ${c.name} (custom)</option>`).join('')}
+        ${STATE.customLocations.filter(c=>!STATE.selectedOffices.includes(c.id)).map(c=>`<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)} (custom)</option>`).join('')}
       </select>
       <div style="display:flex;gap:4px;margin-bottom:6px">
         <input type="text" id="cc-new-loc" placeholder="Add new location..." style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px"/>
@@ -1059,7 +1068,7 @@ function renderComposeForm() {
       <div class="chip-list" id="chip-list" style="border:0;background:transparent;padding:0">
         ${STATE.selectedOffices.map(id=>{
           const t = targetById(id);
-          return `<span class="chip" data-id="${id}">${t?t.name:id}<x onclick="App.removeOffice('${id}')">×</x></span>`;
+          return `<span class="chip" data-id="${esc(id)}">${esc(t?t.name:id)}<x onclick="App.removeOffice('${esc(id)}')">×</x></span>`;
         }).join('')}
       </div>
     </div>
@@ -1089,7 +1098,7 @@ function renderComposeForm() {
       <div style="display:flex;gap:4px">
         <select id="cc-tpl-pick" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px">
           <option value="">— select —</option>
-          ${allTemplates().map(t=>`<option value="${t.id}" ${STATE.template===t.id?'selected':''}>${t.name}${t.builtin?'':' (custom)'}</option>`).join('')}
+          ${allTemplates().map(t=>`<option value="${esc(t.id)}" ${STATE.template===t.id?'selected':''}>${esc(t.name)}${t.builtin?'':' (custom)'}</option>`).join('')}
         </select>
         <button class="btn-ghost" id="cc-tpl-add" title="Add custom template">+</button>
       </div>
@@ -1097,7 +1106,7 @@ function renderComposeForm() {
 
     <div class="field">
       <label>Subject</label>
-      <input type="text" id="cc-subject" value="${STATE.subject.replace(/"/g,'&quot;')}" placeholder="[Severity] Safety Alert — ..."/>
+      <input type="text" id="cc-subject" value="${esc(STATE.subject)}" placeholder="[Severity] Safety Alert — ..."/>
     </div>
 
     <div class="field">
@@ -1105,7 +1114,7 @@ function renderComposeForm() {
         <label style="margin-bottom:0">Message</label>
         <a href="#" id="cc-clear-msg" style="font-size:10px;color:var(--muted)">Clear</a>
       </div>
-      <textarea id="msg-body" placeholder="Compose the safety message...">${message}</textarea>
+      <textarea id="msg-body" placeholder="Compose the safety message...">${esc(message)}</textarea>
     </div>
 
     <div class="field" style="margin-bottom:6px">
@@ -1146,7 +1155,7 @@ function renderCCLog() {
 }
 function renderRoom() {
   return `<div class="room-thread" id="room-thread">
-    ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${m.from}</span><span class="when">${relTime(m.when)} ago</span><div>${m.body}</div></div>`).join('')}
+    ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${esc(m.from)}</span><span class="when">${relTime(m.when)} ago</span><div>${esc(m.body)}</div></div>`).join('')}
   </div>
   <div class="room-input">
     <input id="room-input" placeholder="Post to GSOC situation room..." />
@@ -1255,12 +1264,24 @@ function bindCCHandlers() {
   if (clearBtn && !clearBtn.dataset.bound) {
     clearBtn.dataset.bound = '1';
     clearBtn.onclick = () => {
-      if (!confirm('Clear the current draft? Selected offices, subject, and message will be reset.')) return;
-      STATE.selectedOffices = [];
-      STATE.template = ''; STATE.customMessage = ''; STATE.subject = '';
-      STATE.channels = { slack:true, email:false, sms:false };
-      renderCC();
-      toast('Draft cleared.');
+      showModal(`<h3>Clear draft?</h3>
+        <p style="font-size:12px;color:var(--muted);line-height:1.5">
+          This will reset selected offices, subject, message, template, and channels back to defaults.
+          The Crisis Log and any sent messages are not affected.
+        </p>
+        <div class="modal-actions">
+          <button class="btn-ghost" id="modal-cancel">Cancel</button>
+          <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px;background:var(--red);color:#fff" id="modal-confirm">Clear draft</button>
+        </div>`);
+      document.getElementById('modal-cancel').onclick = closeModal;
+      document.getElementById('modal-confirm').onclick = () => {
+        STATE.selectedOffices = [];
+        STATE.template = ''; STATE.customMessage = ''; STATE.subject = '';
+        STATE.channels = { slack:true, email:false, sms:false };
+        closeModal();
+        renderCC();
+        toast('Draft cleared.');
+      };
     };
   }
 }
@@ -1275,14 +1296,14 @@ function confirmSend() {
     <h3>Confirm send</h3>
     <p style="font-size:12px;color:var(--muted)">Review before dispatching to GSOC.</p>
     <div class="reach-preview" style="margin-top:8px">
-      <div><b>Offices:</b> ${STATE.selectedOffices.map(id=>targetById(id)?.name||id).join(', ')}</div>
+      <div><b>Offices:</b> ${esc(STATE.selectedOffices.map(id=>targetById(id)?.name||id).join(', '))}</div>
       <div><b>Channels:</b> ${channels.map(c=>c.toUpperCase()).join(' + ')}</div>
       <div><b>Recipients:</b> ~${reach.toLocaleString()}</div>
-      <div><b>Template:</b> ${tplName}</div>
-      ${STATE.subject?`<div><b>Subject:</b> ${STATE.subject}</div>`:''}
+      <div><b>Template:</b> ${esc(tplName)}</div>
+      ${STATE.subject?`<div><b>Subject:</b> ${esc(STATE.subject)}</div>`:''}
       ${STATE.responseRequired?'<div><b>Response tracking:</b> on (creates new incident)</div>':''}
     </div>
-    <div style="font-size:11px;background:var(--bg3);border-radius:5px;padding:6px;margin-top:8px;line-height:1.4">${body}</div>
+    <div style="font-size:11px;background:var(--bg3);border-radius:5px;padding:6px;margin-top:8px;line-height:1.4">${esc(body)}</div>
     <div class="modal-actions">
       <button class="btn-ghost" id="modal-cancel">Cancel</button>
       <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px" id="modal-confirm">Confirm Send</button>
@@ -1304,14 +1325,16 @@ function dispatchSend(body, channels, reach) {
   STATE.crisisLog.push(msg);
   let inc = null;
   if (STATE.responseRequired) {
+    const tpl = allTemplates().find(t => t.id === STATE.template);
+    const tplName = tpl?.name || 'Custom message';
     inc = createIncident({
-      title: `${TEMPLATES[STATE.template].name} — ${STATE.selectedOffices.join(', ')}`,
+      title: `${tplName} — ${STATE.selectedOffices.join(', ')}`,
       offices: STATE.selectedOffices.slice(),
       severity: STATE.template==='evac' || STATE.template==='shelter' ? 'high' : 'mod',
       description: 'Auto-created on dispatch with Response Required.',
       messageId: msg.id,
     });
-    addIncidentLog(inc.id, 'comm', `Sent <b>${TEMPLATES[STATE.template].name}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
+    addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
   }
   toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}`);
   STATE.customMessage = '';
@@ -1364,12 +1387,12 @@ function renderIncidents() {
 }
 function renderIncidentList() {
   return `<div class="incident-list">${STATE.incidents.map(i => `
-    <div class="incident-row ${STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${i.id}">
-      <div class="i-title">${i.title}</div>
+    <div class="incident-row ${STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${esc(i.id)}">
+      <div class="i-title">${esc(i.title)}</div>
       <div class="i-meta">
         <span class="sev-pill ${i.severity}">${SEV_NAME[i.severity]}</span>
         <span>${relTime(i.opened)} ago</span>
-        <span>${i.offices.join(', ')}</span>
+        <span>${esc(i.offices.join(', '))}</span>
         <span style="margin-left:auto;color:${i.status==='open'?'var(--red)':'var(--muted)'}">${i.status}</span>
       </div>
     </div>`).join('')}</div>`;
@@ -1389,10 +1412,10 @@ function renderIncidentDetailHTML() {
   const pct = total ? Math.round(((ok+help)/total)*100) : 0;
   return `<div class="incident-detail" style="border-top:2px solid var(--border)">
     <div class="incident-meta">
-      <h3>${inc.title}</h3>
+      <h3>${esc(inc.title)}</h3>
       <div class="meta-row">
         <span class="sev-pill ${inc.severity}">${SEV_NAME[inc.severity]}</span>
-        <span>${inc.offices.join(', ')}</span>
+        <span>${esc(inc.offices.join(', '))}</span>
         <span>${new Date(inc.opened).toLocaleString()}</span>
         <span>${inc.status}</span>
       </div>
@@ -1406,7 +1429,7 @@ function renderIncidentDetailHTML() {
 function renderIncidentTab(inc, ok, help, no, total, pct) {
   if (STATE.incidentTab === 'details') {
     return `<div style="padding:12px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${inc.description}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${esc(inc.description)}</div>
       <div class="tally">
         <div class="tally-cell ok"><div class="n">${ok}</div><div class="l">OK</div></div>
         <div class="tally-cell help"><div class="n">${help}</div><div class="l">Needs Help</div></div>
@@ -1448,7 +1471,7 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
       <input id="note-input" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px" placeholder="Add a note..."/>
       <button class="btn-ghost" id="note-add">Add</button>
     </div>
-    ${inc.notes.length ? inc.notes.slice().reverse().map(n=>`<div class="note-entry"><div class="meta">${new Date(n.when).toLocaleString()} · ${n.by}</div><div>${n.body}</div></div>`).join('') : '<div class="empty">No notes yet.</div>'}`;
+    ${inc.notes.length ? inc.notes.slice().reverse().map(n=>`<div class="note-entry"><div class="meta">${new Date(n.when).toLocaleString()} · ${esc(n.by)}</div><div>${esc(n.body)}</div></div>`).join('') : '<div class="empty">No notes yet.</div>'}`;
   }
   if (STATE.incidentTab === 'log') {
     return `${inc.log.length ? inc.log.slice().reverse().map(l=>`<div class="log-entry-i kind-${l.kind}"><span class="when">${new Date(l.when).toLocaleString()} · ${l.by}</span><div>${l.body}</div></div>`).join('') : '<div class="empty">No activity logged.</div>'}`;
@@ -1456,9 +1479,9 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
 }
 function msgRowHTML(r, inc) {
   return `<div class="msg-row">
-    <div><div class="name">${r.name}</div><div class="who">${r.who}</div></div>
-    <button class="act ok" data-eid="${r.eid}" data-st="ok">✓ OK</button>
-    <button class="act help" data-eid="${r.eid}" data-st="help">⚠ Help</button>
+    <div><div class="name">${esc(r.name)}</div><div class="who">${esc(r.who)}</div></div>
+    <button class="act ok" data-eid="${esc(r.eid)}" data-st="ok">✓ OK</button>
+    <button class="act help" data-eid="${esc(r.eid)}" data-st="help">⚠ Help</button>
     <span class="status-pill ${r.status==='no'?'no':r.status}" style="grid-column:1/-1">${r.status==='no'?'no response':r.status==='ok'?'ok':'needs help'}</span>
   </div>`;
 }
@@ -1472,7 +1495,7 @@ function bindIncidentDetailHandlers() {
     const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
     const eid = b.dataset.eid; const st = b.dataset.st;
     STATE.responses[inc.id][eid] = { ...STATE.responses[inc.id][eid], status: st, when: new Date().toISOString(), by: 'Admin' };
-    addIncidentLog(inc.id, 'msg', `Status logged for <b>${eid}</b>: ${st}`);
+    addIncidentLog(inc.id, 'msg', `Status logged for <b>${esc(eid)}</b>: ${esc(st)}`);
     renderIncidentDetail();
   }));
   document.getElementById('note-add')?.addEventListener('click', () => {
@@ -1480,7 +1503,7 @@ function bindIncidentDetailHandlers() {
     const inp = document.getElementById('note-input');
     if (!inp.value.trim()) return;
     inc.notes.push({ when: new Date().toISOString(), by:'cowork-3p', body: inp.value });
-    addIncidentLog(inc.id, 'note', `Note added: ${inp.value.slice(0,80)}${inp.value.length>80?'…':''}`);
+    addIncidentLog(inc.id, 'note', `Note added: ${esc(inp.value.slice(0,80))}${inp.value.length>80?'…':''}`);
     inp.value=''; renderIncidentDetail();
   });
   document.getElementById('btn-simulate')?.addEventListener('click', () => {
@@ -1509,7 +1532,7 @@ function bindIncidentDetailHandlers() {
       inc.status='closed';
       inc.closedNote = document.getElementById('close-note').value || 'No closure note.';
       inc.closedAt = new Date().toISOString();
-      addIncidentLog(inc.id, 'close', `Incident closed. ${inc.closedNote}`);
+      addIncidentLog(inc.id, 'close', `Incident closed. ${esc(inc.closedNote)}`);
       closeModal();
       toast('Incident closed and sealed.');
       renderIncidents();
@@ -1562,50 +1585,74 @@ function loadEmpCSV(file) {
   if (!file) return;
   const r = new FileReader();
   r.onload = () => {
-    const lines = r.result.split(/\r?\n/).filter(Boolean);
-    const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
-    const idx = (k) => headers.indexOf(k);
-    const rows = lines.map(l => l.split(','));
-    const out = [];
-    rows.forEach((c, i) => {
-      const office = (c[idx('office')]||c[idx('office_code')]||'').trim().toUpperCase();
-      const o = OFFICE_BY_ID[office];
-      if (!o) return;
-      const lat = parseFloat(c[idx('lat')]); const lng = parseFloat(c[idx('lng')]);
-      out.push({
-        id:'csv-'+i, name: c[idx('name')]||randomName(), office,
-        role: c[idx('role')]||'',
-        lat: isFinite(lat)?lat:o.lat+(Math.random()-.5)*.18,
-        lng: isFinite(lng)?lng:o.lng+(Math.random()-.5)*.22,
-        officeLat:o.lat, officeLng:o.lng,
+    try {
+      const lines = String(r.result).split(/\r?\n/).filter(Boolean);
+      if (!lines.length) { toast('CSV is empty.'); return; }
+      const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
+      // Require at least one of the two office identifiers + a name column
+      if (headers.indexOf('office') === -1 && headers.indexOf('office_code') === -1) {
+        toast('CSV missing required column: "office" (or "office_code").'); return;
+      }
+      if (headers.indexOf('name') === -1) {
+        toast('CSV missing required column: "name".'); return;
+      }
+      const idx = (k) => headers.indexOf(k);
+      const rows = lines.map(l => l.split(','));
+      const out = []; let skipped = 0;
+      rows.forEach((c, i) => {
+        const office = ((idx('office') >= 0 ? c[idx('office')] : '') || (idx('office_code') >= 0 ? c[idx('office_code')] : '') || '').trim().toUpperCase();
+        const o = OFFICE_BY_ID[office];
+        if (!o) { skipped++; return; }
+        const lat = parseFloat(c[idx('lat')]); const lng = parseFloat(c[idx('lng')]);
+        out.push({
+          id:'csv-'+i, name: (c[idx('name')]||'').trim()||randomName(), office,
+          role: (idx('role') >= 0 ? c[idx('role')] : '')||'',
+          lat: isFinite(lat)?lat:o.lat+(Math.random()-.5)*.18,
+          lng: isFinite(lng)?lng:o.lng+(Math.random()-.5)*.22,
+          officeLat:o.lat, officeLng:o.lng,
+        });
       });
-    });
-    EMPLOYEES = out;
-    renderEmployees();
-    toast(`${out.length} employees loaded from CSV.`);
+      EMPLOYEES = out;
+      renderEmployees();
+      toast(`${out.length} employees loaded${skipped?` · ${skipped} skipped (unknown office)`:''}.`);
+    } catch(err) {
+      toast('Failed to parse CSV. Check the file format.');
+      console.error(err);
+    }
   };
+  r.onerror = () => toast('Failed to read CSV file.');
   r.readAsText(file);
 }
 function loadTravCSV(file) {
   if (!file) return;
   const r = new FileReader();
   r.onload = () => {
-    const lines = r.result.split(/\r?\n/).filter(Boolean);
-    const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
-    const idx = k => headers.indexOf(k);
-    const rows = lines.map(l => l.split(','));
-    const out = rows.map((c,i) => ({
-      id:'tcsv-'+i, name: c[idx('name')]||randomName(),
-      home: (c[idx('home_office')]||'').toUpperCase(),
-      destCity: c[idx('destination')]||'Unknown',
-      type: c[idx('booking_type')]||'hotel',
-      lat: parseFloat(c[idx('lat')])||0, lng: parseFloat(c[idx('lng')])||0,
-      atOffice: (c[idx('at_office')]||'').toUpperCase()||null,
-    }));
-    TRAVELERS = out;
-    renderTravelers(); renderOffices();
-    toast(`${out.length} travelers loaded.`);
+    try {
+      const lines = String(r.result).split(/\r?\n/).filter(Boolean);
+      if (!lines.length) { toast('CSV is empty.'); return; }
+      const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
+      if (headers.indexOf('name') === -1) { toast('Traveler CSV missing required column: "name".'); return; }
+      const idx = k => headers.indexOf(k);
+      const safe = (i) => i >= 0 ? c[i] : '';
+      const rows = lines.map(l => l.split(','));
+      const out = rows.map((c,i) => ({
+        id:'tcsv-'+i, name: (c[idx('name')]||'').trim()||randomName(),
+        home: ((idx('home_office') >= 0 ? c[idx('home_office')] : '')||'').trim().toUpperCase(),
+        destCity: (idx('destination') >= 0 ? c[idx('destination')] : '')||'Unknown',
+        type: (idx('booking_type') >= 0 ? c[idx('booking_type')] : '')||'hotel',
+        lat: parseFloat(idx('lat') >= 0 ? c[idx('lat')] : 0)||0,
+        lng: parseFloat(idx('lng') >= 0 ? c[idx('lng')] : 0)||0,
+        atOffice: ((idx('at_office') >= 0 ? c[idx('at_office')] : '')||'').trim().toUpperCase()||null,
+      }));
+      TRAVELERS = out;
+      renderTravelers(); renderOffices();
+      toast(`${out.length} travelers loaded.`);
+    } catch(err) {
+      toast('Failed to parse traveler CSV.');
+      console.error(err);
+    }
   };
+  r.onerror = () => toast('Failed to read CSV file.');
   r.readAsText(file);
 }
 
@@ -1772,15 +1819,34 @@ document.querySelectorAll('[data-cc-tab]').forEach(t => t.addEventListener('clic
 document.getElementById('feed-search').addEventListener('input', e => { STATE.search = e.target.value; renderFeed(); });
 
 document.getElementById('btn-reset-view').onclick = () => App.resetView();
-document.addEventListener('keydown', e => { if (e.key === 'Escape') App.resetView(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (isModalOpen()) { closeModal(); return; }   // close modal first
+  // then drop any open dropdowns
+  const layersOpen = document.getElementById('layers-dropdown').classList.contains('open');
+  const fenceOpen  = document.getElementById('geofence-dropdown').classList.contains('open');
+  if (layersOpen || fenceOpen) {
+    document.getElementById('layers-dropdown').classList.remove('open');
+    document.getElementById('geofence-dropdown').classList.remove('open');
+    return;
+  }
+  App.resetView();
+});
 
-document.getElementById('btn-style').onclick = () => {
-  STATE.theme = STATE.theme==='dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', STATE.theme);
-  document.getElementById('btn-style').textContent = STATE.theme==='dark' ? '🌙' : '☀️';
+function applyTheme(theme) {
+  STATE.theme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('btn-style').textContent = theme === 'dark' ? '🌙' : '☀️';
   TILES.dark.remove(); TILES.light.remove();
-  TILES[STATE.theme].addTo(map);
-};
+  TILES[theme].addTo(map);
+  try { localStorage.setItem('nrsa-theme', theme); } catch(_) {}
+}
+document.getElementById('btn-style').onclick = () => applyTheme(STATE.theme === 'dark' ? 'light' : 'dark');
+// restore saved theme on boot
+try {
+  const saved = localStorage.getItem('nrsa-theme');
+  if (saved === 'light' || saved === 'dark') applyTheme(saved);
+} catch(_) {}
 
 document.getElementById('btn-freshness').onclick = () => {
   showModal(`<h3>Data Sources Freshness</h3>
@@ -1976,14 +2042,21 @@ setupDraw();
 renderAll();
 /* Fit map to show all offices, with padding for the rails/header */
 map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
+let resizeTimer;
 window.addEventListener('resize', () => {
-  map.invalidateSize();
-  map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    map.invalidateSize();
+    // only re-fit if user hasn't drilled into a specific selection
+    if (!STATE.selectedAlertId && !STATE.selectedIncidentId && !STATE.fence) {
+      map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
+    }
+  }, 120);
 });
 function tick() {
   document.getElementById('last-updated').textContent = `Last updated ${fmtClock()}`;
 }
-tick(); setInterval(tick, 1000);
+tick(); setInterval(tick, 30000);
 
 /* Map opens at global view — no auto-selection */
 </script>
