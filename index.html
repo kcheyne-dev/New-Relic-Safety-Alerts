@@ -1222,7 +1222,7 @@ function bindCCHandlers() {
   document.getElementById('msg-body')?.addEventListener('input', e => STATE.customMessage = e.target.value);
   document.getElementById('cc-clear-msg')?.addEventListener('click', e => {
     e.preventDefault();
-    STATE.customMessage = ''; STATE.template = '';
+    STATE.customMessage = ''; STATE.template = ''; STATE.subject = '';
     renderCC();
   });
   document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
