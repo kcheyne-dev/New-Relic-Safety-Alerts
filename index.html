@@ -1,0 +1,1666 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>New Relic Safety Alerts</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+<style>
+/* ============ THEME =============================================== */
+:root {
+  --bg:#18181b; --bg2:#1c1c1f; --bg3:#27272a;
+  --border:#3f3f46; --text:#e4e4e7; --muted:#a1a1aa;
+  --green:#1ce783; --blue:#1e90ff; --orange:#fb923c;
+  --red:#f87171; --yellow:#facc15; --teal:#2dd4bf;
+  --emerald:#10b981;
+  --sev-low:#4ade80; --sev-mod:#facc15; --sev-high:#fb923c; --sev-ext:#f87171;
+  --rail-w: 36px;
+  font-size: 14px;
+}
+[data-theme="light"] {
+  --bg:#fafafa; --bg2:#ffffff; --bg3:#f4f4f5;
+  --border:#d4d4d8; --text:#18181b; --muted:#52525b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, system-ui, sans-serif; overflow: hidden; }
+button, input, select, textarea { font-family: inherit; color: inherit; }
+button { cursor: pointer; }
+
+/* ============ LAYOUT ============================================== */
+.app { display: grid; grid-template-rows: 52px 1fr; height: 100vh; }
+.main { display: grid; grid-template-columns: auto 1fr auto; min-height: 0; }
+
+/* ============ HEADER ============================================== */
+.header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+.logo { width: 30px; height: 30px; background: var(--green); border-radius: 7px;
+  display: grid; place-items: center; font-weight: 900; color:#000; font-size: 13px; }
+.brand-title { font-weight: 700; color: var(--text); font-size: 14px; line-height: 1.1; }
+.brand-title span { color: var(--green); }
+.brand-sub { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; margin-top: 1px; }
+.h-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.htn { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 10px; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.htn:hover { border-color: var(--green); }
+.htn.active { background: rgba(28,231,131,.12); border-color: var(--green); color: var(--green); }
+.htn .dot { width: 8px; height: 8px; border-radius: 50%; }
+.htn .dot.green { background: var(--green); } .htn .dot.yellow { background: var(--yellow); } .htn .dot.red { background: var(--red); }
+.last-updated { font-size: 11px; color: var(--muted); }
+
+/* ============ RAILS & PANELS ====================================== */
+.left-zone, .right-zone { display: flex; }
+.right-zone { flex-direction: row; }
+.rail { width: var(--rail-w); background: var(--bg2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px; cursor: pointer; }
+.right-zone .rail { border-right: 0; border-left: 1px solid var(--border); }
+.rail .rail-icon { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px;
+  color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.rail.alert { border-left: 3px solid var(--emerald); }
+.rail.crisis { border-right: 3px solid var(--teal); }
+.rail.incident { border-right: 3px solid var(--red); }
+.rail .badge {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+  padding: 2px 6px; font-size: 10px; min-width: 18px; text-align: center;
+}
+.rail .badge.live { background: var(--red); color: #fff; border-color: var(--red); animation: pulse 1.5s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
+
+.panel { width: 340px; background: var(--bg2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; min-height: 0; }
+.right-zone .panel { border-right: 0; border-left: 1px solid var(--border); }
+.panel.collapsed { display: none; }
+.panel-head { padding: 10px 12px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; }
+.panel-title { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.panel-title .accent-emerald { color: var(--emerald); }
+.panel-title .accent-teal { color: var(--teal); }
+.panel-title .accent-red { color: var(--red); }
+.panel-body { flex: 1; overflow-y: auto; }
+
+/* tabs */
+.tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.tab { flex: 1; text-align: center; padding: 8px 6px; font-size: 11px;
+  color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: 0.05em; }
+.tab.active { color: var(--text); border-bottom-color: var(--green); background: var(--bg3); }
+.tab .count { background: var(--bg3); color: var(--text); padding: 1px 5px; border-radius: 8px;
+  font-size: 10px; margin-left: 4px; border: 1px solid var(--border); }
+
+/* ============ ALERT FEED ========================================== */
+.feed-search { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.feed-search input { width: 100%; background: var(--bg3); border: 1px solid var(--border);
+  padding: 6px 8px; border-radius: 5px; font-size: 12px; }
+.office-group { border-bottom: 1px solid var(--border); padding: 8px 10px; }
+.office-group-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.office-group-head .sev-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.office-group-head .name { color: var(--blue); font-weight: 600; font-size: 13px; }
+.office-group-head .pill {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1px 7px; font-size: 10px; margin-left: auto; }
+.office-group-head .more { color: var(--muted); font-size: 11px; }
+.alert-cards { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.alert-card {
+  background: var(--bg3); border: 1px solid var(--border); border-left-width: 3px;
+  border-radius: 5px; padding: 6px 8px; font-size: 11px; cursor: pointer;
+}
+.alert-card:hover { border-color: var(--green); }
+.alert-card.selected { outline: 1px solid var(--green); }
+.alert-card.s-low    { border-left-color: var(--sev-low); }
+.alert-card.s-mod    { border-left-color: var(--sev-mod); }
+.alert-card.s-high   { border-left-color: var(--sev-high); }
+.alert-card.s-ext    { border-left-color: var(--sev-ext); }
+.alert-card .top-row { display: flex; gap: 6px; align-items: center; }
+.alert-card .a-title { font-weight: 600; color: var(--text); flex: 1; line-height: 1.3; }
+.alert-card .a-sub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.alert-card .crisis-btn { background: rgba(28,231,131,.15); border: 1px solid rgba(28,231,131,.4);
+  color: var(--green); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }
+.alert-card .crisis-btn:hover { background: var(--green); color: #000; }
+.sev-pill { padding: 1px 6px; border-radius: 3px; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; }
+.sev-pill.low { background: rgba(74,222,128,.15); color: var(--sev-low); }
+.sev-pill.mod { background: rgba(250,204,21,.15); color: var(--sev-mod); }
+.sev-pill.high { background: rgba(251,146,60,.15); color: var(--sev-high); }
+.sev-pill.ext { background: rgba(248,113,113,.15); color: var(--sev-ext); }
+.src-pill { background: var(--bg2); border: 1px solid var(--border); padding: 1px 5px;
+  border-radius: 3px; font-size: 9px; color: var(--muted); }
+.empty { color: var(--muted); padding: 20px; text-align: center; font-size: 12px; }
+
+/* ============ MAP ================================================= */
+.map-wrap { position: relative; flex: 1; min-width: 0; }
+#map { width: 100%; height: 100%; background: var(--bg); }
+.map-overlay { position: absolute; z-index: 600; }
+.map-fence-bottom {
+  bottom: 0; left: 0; right: 0; background: rgba(24,24,27,.95);
+  border-top: 1px solid var(--border); padding: 6px 12px;
+  display: flex; align-items: center; gap: 12px; font-size: 11px; color: var(--text);
+  flex-wrap: wrap;
+}
+.map-fence-bottom .count-emp { color: var(--sev-low); font-weight: 700; }
+.map-fence-bottom .count-trav { color: var(--orange); font-weight: 700; }
+.map-fence-bottom .chip { background: var(--bg3); border: 1px solid var(--border);
+  padding: 2px 7px; border-radius: 10px; font-size: 10px; }
+.map-fence-bottom .chip.emp { background: rgba(74,222,128,.12); color: var(--sev-low); border-color: rgba(74,222,128,.3); }
+.map-fence-bottom .chip.trav { background: rgba(251,146,60,.12); color: var(--orange); border-color: rgba(251,146,60,.3); }
+.map-fence-bottom button { margin-left: auto; }
+/* office marker */
+.office-mk { display: flex; align-items: center; gap: 4px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 3px 8px; font-size: 10px; color: var(--text); white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.office-mk .sev-dot { width: 8px; height: 8px; border-radius: 50%; }
+.office-mk .sev-dot.s-none { background: var(--muted); }
+.office-mk .sev-dot.s-low  { background: var(--sev-low); }
+.office-mk .sev-dot.s-mod  { background: var(--sev-mod); }
+.office-mk .sev-dot.s-high { background: var(--sev-high); animation: blink 1.4s infinite; }
+.office-mk .sev-dot.s-ext  { background: var(--sev-ext); animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.45} }
+.office-mk .v-badge { background: var(--orange); color:#000; border-radius: 8px;
+  padding: 0 5px; font-size: 9px; font-weight: 700; }
+/* travelers */
+.trav-mk { font-size: 16px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+.cluster-mk { background: var(--orange); color:#000; border-radius: 50%;
+  width: 26px; height: 26px; display: grid; place-items: center; font-weight: 700; font-size: 11px;
+  border: 2px solid var(--bg2); }
+.emp-mk { width: 10px; height: 10px; background: var(--green); border-radius: 50%;
+  border: 2px solid var(--bg2); box-shadow: 0 0 4px rgba(0,0,0,.5); }
+.emp-cluster { background: var(--green); color:#000; border-radius: 50%;
+  width: 28px; height: 28px; display:grid; place-items:center; font-weight: 700; font-size: 11px;
+  border: 2px solid var(--bg2); }
+/* leaflet */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+.leaflet-popup-content { margin: 10px 12px; font-size: 12px; min-width: 220px; max-width: 300px; }
+.leaflet-popup-content h4 { margin-bottom: 2px; font-size: 13px; }
+.leaflet-popup-content .addr { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+.leaflet-popup-content .pop-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.leaflet-popup-content .pop-actions { display: flex; gap: 6px; margin-top: 8px; }
+.leaflet-popup-content .pop-actions button { font-size: 10px; padding: 3px 7px; }
+.leaflet-control-zoom a, .leaflet-bar a {
+  background: var(--bg2) !important; color: var(--text) !important; border-color: var(--border) !important; }
+
+/* ============ MAP TOOL OVERLAYS =================================== */
+.layers-dropdown, .geofence-dropdown {
+  position: absolute; z-index: 700; top: 60px; right: 14px; width: 320px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5); padding: 12px; display: none;
+  max-height: calc(100vh - 100px); overflow-y: auto;
+}
+.layers-dropdown.open, .geofence-dropdown.open { display: block; }
+.layers-dropdown h4, .geofence-dropdown h4 { font-size: 11px; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--green); margin: 8px 0 6px 0; }
+.layers-dropdown h4:first-child, .geofence-dropdown h4:first-child { margin-top: 0; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; padding: 4px 0; }
+.toggle-row label { display: flex; align-items: center; gap: 6px; flex: 1; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; }
+.sev-segments { display: flex; gap: 4px; margin-top: 4px; }
+.sev-seg { flex: 1; padding: 4px; text-align: center; font-size: 10px; font-weight: 700;
+  border: 1px solid var(--border); border-radius: 4px; background: var(--bg3); cursor: pointer;
+  text-transform: uppercase; }
+.sev-seg.active.low { background: rgba(74,222,128,.2); color: var(--sev-low); border-color: var(--sev-low); }
+.sev-seg.active.mod { background: rgba(250,204,21,.2); color: var(--sev-mod); border-color: var(--sev-mod); }
+.sev-seg.active.high { background: rgba(251,146,60,.2); color: var(--sev-high); border-color: var(--sev-high); }
+.sev-seg.active.ext { background: rgba(248,113,113,.2); color: var(--sev-ext); border-color: var(--sev-ext); }
+.layer-section { padding: 8px 0; border-top: 1px solid var(--border); }
+.layer-section:first-of-type { border-top: 0; }
+.shape-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 4px; }
+.shape-buttons button { padding: 8px 4px; font-size: 11px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--text); }
+.shape-buttons button.active { background: rgba(28,231,131,.15); border-color: var(--green); color: var(--green); }
+.fence-results { margin-top: 8px; max-height: 180px; overflow-y: auto;
+  background: var(--bg3); border-radius: 5px; padding: 6px; font-size: 11px; }
+.fence-row { display: flex; justify-content: space-between; padding: 3px 4px; border-bottom: 1px dotted var(--border); }
+.fence-row:last-child { border-bottom: 0; }
+
+/* ============ CRISIS COMMS ======================================== */
+.compose-form { padding: 12px; }
+.field { margin-bottom: 10px; }
+.field label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+.field textarea, .field input, .field select { width: 100%; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 5px; padding: 7px 8px; font-size: 12px; }
+.field textarea { min-height: 76px; resize: vertical; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; min-height: 30px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; cursor: text; }
+.chip-list .chip { background: rgba(28,231,131,.12); border: 1px solid var(--green); color: var(--green);
+  border-radius: 10px; padding: 1px 6px 1px 8px; font-size: 11px; display: inline-flex; gap: 4px; align-items: center; }
+.chip-list .chip x { cursor: pointer; opacity: .8; }
+.office-picker {
+  max-height: 130px; overflow-y: auto; border: 1px solid var(--border); border-radius: 5px;
+  padding: 4px 8px; background: var(--bg3); }
+.office-picker label { display: flex; gap: 6px; align-items: center; padding: 3px 0; font-size: 12px; cursor: pointer; }
+.template-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.template-row button { padding: 6px 4px; font-size: 10px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); }
+.template-row button.active { background: rgba(28,231,131,.15); border-color: var(--green); color: var(--green); }
+.channel-row { display: flex; gap: 6px; }
+.channel-pill { display: flex; align-items: center; gap: 4px; padding: 5px 9px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 14px; font-size: 11px; cursor: pointer; }
+.channel-pill.on { background: rgba(28,231,131,.12); border-color: var(--green); color: var(--green); }
+.channel-pill.disabled { opacity: .4; cursor: not-allowed; }
+.reach-preview { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+  padding: 8px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+.reach-preview b { color: var(--text); }
+.btn-primary { width: 100%; background: var(--green); color: #000; padding: 9px; border-radius: 6px; border: 0;
+  font-weight: 700; font-size: 13px; margin-top: 8px; }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-ghost { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  border-radius: 5px; padding: 5px 10px; font-size: 11px; }
+.btn-ghost.danger { color: var(--red); border-color: var(--red); }
+.crisis-log-entry { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.crisis-log-entry .when { color: var(--muted); font-size: 10px; }
+.crisis-log-entry .who { color: var(--blue); font-size: 10px; }
+.crisis-log-entry .body { margin-top: 3px; line-height: 1.4; }
+.crisis-log-entry .meta { display: flex; gap: 6px; margin-top: 3px; flex-wrap: wrap; }
+.room-thread { padding: 10px 12px; }
+.room-msg { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 8px; margin-bottom: 6px; font-size: 11px; }
+.room-msg .from { color: var(--green); font-weight: 600; font-size: 10px; }
+.room-msg .when { color: var(--muted); font-size: 10px; margin-left: 6px; }
+.room-input { display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border); }
+.room-input input { flex: 1; }
+
+/* ============ INCIDENTS =========================================== */
+.incident-list { padding: 6px 0; }
+.incident-row { padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.incident-row:hover { background: var(--bg3); }
+.incident-row.selected { background: var(--bg3); border-left: 3px solid var(--red); }
+.incident-row .i-title { font-size: 12px; font-weight: 600; }
+.incident-row .i-meta { font-size: 10px; color: var(--muted); margin-top: 2px; display: flex; gap: 6px; }
+.incident-row.closed { opacity: .55; }
+.incident-detail { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.incident-meta { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.incident-meta h3 { font-size: 14px; margin-bottom: 4px; }
+.incident-meta .meta-row { display: flex; gap: 10px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+.tally { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 8px; }
+.tally-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 6px; text-align: center; }
+.tally-cell .n { font-weight: 800; font-size: 16px; }
+.tally-cell .l { font-size: 10px; color: var(--muted); }
+.tally-cell.ok .n { color: var(--sev-low); } .tally-cell.help .n { color: var(--red); }
+.tally-cell.no .n { color: var(--muted); }
+.progress { height: 4px; background: var(--bg3); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.progress > span { display: block; height: 100%; background: var(--green); }
+.msg-filter { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.msg-filter button { background: var(--bg3); border: 1px solid var(--border); color: var(--muted);
+  border-radius: 4px; padding: 3px 8px; font-size: 10px; }
+.msg-filter button.active { background: var(--green); color: #000; border-color: var(--green); }
+.msg-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center;
+  padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.msg-row .name { font-weight: 600; }
+.msg-row .who { color: var(--muted); font-size: 10px; }
+.msg-row .status-pill { font-size: 9px; padding: 1px 6px; border-radius: 3px; font-weight: 700; text-transform: uppercase; }
+.msg-row .status-pill.ok { background: rgba(74,222,128,.15); color: var(--sev-low); }
+.msg-row .status-pill.help { background: rgba(248,113,113,.15); color: var(--red); }
+.msg-row .status-pill.no { background: rgba(161,161,170,.15); color: var(--muted); }
+.msg-row button.act { font-size: 10px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg3); color: var(--text); }
+.msg-row button.act.ok { color: var(--sev-low); border-color: var(--sev-low); }
+.msg-row button.act.help { color: var(--red); border-color: var(--red); }
+.section-h { font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--green); padding: 8px 12px 2px 12px; }
+.note-entry { background: var(--bg3); border-left: 2px solid var(--yellow);
+  padding: 6px 10px; margin: 4px 12px; border-radius: 0 4px 4px 0; font-size: 11px; }
+.note-entry .meta { color: var(--muted); font-size: 10px; }
+.log-entry-i { padding: 6px 10px; margin: 4px 12px; border-left: 2px solid var(--teal);
+  border-radius: 0 4px 4px 0; background: var(--bg3); font-size: 11px; }
+.log-entry-i.kind-comm { border-left-color: var(--blue); }
+.log-entry-i.kind-note { border-left-color: var(--yellow); }
+.log-entry-i.kind-msg { border-left-color: var(--green); }
+.log-entry-i.kind-close { border-left-color: var(--red); }
+.log-entry-i .when { color: var(--muted); font-size: 10px; }
+
+/* ============ MODALS ============================================== */
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 2000;
+  display: grid; place-items: center; }
+.modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  width: 480px; max-width: 90vw; max-height: 85vh; overflow-y: auto; padding: 18px; }
+.modal h3 { margin-bottom: 8px; }
+.modal-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
+
+/* ============ TOAST =============================================== */
+.toast-wrap { position: fixed; bottom: 16px; right: 16px; z-index: 3000; display: flex; flex-direction: column; gap: 6px; }
+.toast { background: var(--bg2); border: 1px solid var(--green); padding: 8px 12px; border-radius: 6px;
+  font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.5); max-width: 280px; }
+.toast.fade { opacity: 0; transition: opacity .4s; }
+
+/* ============ SCROLLBAR =========================================== */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="header">
+    <div class="brand">
+      <div class="logo">NR</div>
+      <div>
+        <div class="brand-title">New Relic <span>Safety Alerts</span></div>
+        <div class="brand-sub">Physical Security · GSOC</div>
+      </div>
+    </div>
+    <div class="h-tools">
+      <span class="last-updated" id="last-updated">Last updated —</span>
+      <button class="htn" id="btn-freshness" title="Data freshness">
+        <span class="dot green" id="freshness-dot"></span>Sources <span id="freshness-count">12/15</span>
+      </button>
+      <button class="htn" id="btn-layers">⚙ Layers</button>
+      <button class="htn" id="btn-fence">✏︎ Geo-fence <span id="fence-badge"></span></button>
+      <button class="htn" id="btn-style" title="Toggle theme">🌙</button>
+      <button class="htn" id="btn-help">? Manual</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- LEFT ZONE: Alert Feed -->
+    <div class="left-zone">
+      <div class="rail alert" id="rail-alerts" title="Alert Feed"><span class="rail-icon">🔔 Alerts</span><span class="badge" id="rail-alerts-count">0</span></div>
+      <aside class="panel" id="panel-alerts">
+        <div class="panel-head">
+          <div class="panel-title"><span class="accent-emerald">🔔</span> Alert Feed</div>
+          <button class="btn-ghost" id="btn-collapse-alerts">«</button>
+        </div>
+        <div class="tabs">
+          <div class="tab active" data-feed-tab="office">By Office</div>
+          <div class="tab" data-feed-tab="time">Timeline</div>
+        </div>
+        <div class="feed-search">
+          <input type="text" id="feed-search" placeholder="Search alerts..." />
+        </div>
+        <div class="panel-body" id="feed-body"></div>
+      </aside>
+    </div>
+
+    <!-- CENTER: MAP -->
+    <div class="map-wrap">
+      <div id="map"></div>
+
+      <!-- LAYERS DROPDOWN -->
+      <div class="layers-dropdown" id="layers-dropdown">
+        <h4>Hazard Overlays</h4>
+        <div class="toggle-row"><label><span class="swatch" style="background:var(--sev-ext)"></span>Active Wildfire Zones</label><input type="checkbox" data-overlay="fire"/></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:var(--blue)"></span>Flood Risk Zones</label><input type="checkbox" data-overlay="flood"/></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:var(--orange)"></span>Seismic Risk</label><input type="checkbox" data-overlay="quake"/></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:var(--yellow)"></span>Civil Unrest Zones</label><input type="checkbox" data-overlay="unrest"/></div>
+
+        <h4>Live Overlays</h4>
+        <div class="toggle-row"><label>OpenWeather Precipitation</label><input type="checkbox" data-overlay="precip"/></div>
+        <div class="toggle-row"><label>Air Quality (OpenAQ)</label><input type="checkbox" data-overlay="aqi"/></div>
+
+        <h4>Severity Filter</h4>
+        <div class="sev-segments" id="sev-segments">
+          <div class="sev-seg low active" data-sev="low">Low+</div>
+          <div class="sev-seg mod" data-sev="mod">Mod+</div>
+          <div class="sev-seg high" data-sev="high">High+</div>
+          <div class="sev-seg ext" data-sev="ext">Ext</div>
+        </div>
+
+        <h4>Office Visibility</h4>
+        <div id="office-toggle-list"></div>
+
+        <h4>Alert Type Filters</h4>
+        <div id="alert-type-list"></div>
+
+        <h4>👤 Employees</h4>
+        <div class="toggle-row"><label>Show on map</label><input type="checkbox" id="toggle-employees" checked /></div>
+        <div class="toggle-row">
+          <label><input type="radio" name="emp-mode" value="office" checked /> By Office</label>
+          <label><input type="radio" name="emp-mode" value="zip" /> By ZIP</label>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn-ghost" id="btn-load-emp">Load CSV</button>
+          <button class="btn-ghost" id="btn-clear-emp">Clear</button>
+          <input type="file" id="emp-file" style="display:none" accept=".csv"/>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;" id="emp-count">— employees loaded</div>
+
+        <h4>✈ Travelers</h4>
+        <div class="toggle-row"><label>Show on map</label><input type="checkbox" id="toggle-travelers" checked /></div>
+        <div style="display:flex;gap:6px;margin-top:6px;">
+          <button class="btn-ghost" id="btn-load-trav">Load Navan Export</button>
+          <button class="btn-ghost" id="btn-clear-trav">Clear</button>
+          <input type="file" id="trav-file" style="display:none" accept=".csv"/>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;" id="trav-count">— travelers loaded</div>
+      </div>
+
+      <!-- GEO-FENCE DROPDOWN -->
+      <div class="geofence-dropdown" id="geofence-dropdown">
+        <h4>Draw Shape</h4>
+        <div class="shape-buttons">
+          <button data-shape="circle">Circle</button>
+          <button data-shape="rectangle">Rectangle</button>
+          <button data-shape="polygon">Polygon</button>
+        </div>
+        <h4>Mode</h4>
+        <div class="shape-buttons" style="grid-template-columns:1fr 1fr;">
+          <button data-mode="highlight" class="active">Highlight</button>
+          <button data-mode="filter">Filter</button>
+        </div>
+        <h4>Results <span id="fence-result-summary" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:10px;"></span></h4>
+        <div class="fence-results" id="fence-results"><div class="empty">Draw a shape to see results.</div></div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <button class="btn-ghost" id="btn-fence-clear">Clear Fence</button>
+          <button class="btn-ghost" id="btn-fence-export">Export CSV</button>
+          <button class="btn-primary" style="margin-top:0;flex:1;" id="btn-fence-crisis">Crisis</button>
+        </div>
+      </div>
+
+      <!-- BOTTOM BAR for fence counts -->
+      <div class="map-overlay map-fence-bottom" id="fence-bottom" style="display:none;"></div>
+    </div>
+
+    <!-- RIGHT ZONE: Crisis + Incidents stacked -->
+    <div class="right-zone">
+      <!-- Crisis Comms -->
+      <div class="rail crisis" id="rail-crisis" title="Crisis Comms"><span class="rail-icon">📣 Crisis</span></div>
+      <aside class="panel" id="panel-crisis" style="width: 360px;">
+        <div class="panel-head">
+          <div class="panel-title"><span class="accent-teal">📣</span> Crisis Comms</div>
+          <button class="btn-ghost" id="btn-collapse-crisis">»</button>
+        </div>
+        <div class="tabs">
+          <div class="tab active" data-cc-tab="compose">Compose</div>
+          <div class="tab" data-cc-tab="log">Log <span class="count" id="cc-log-count">0</span></div>
+          <div class="tab" data-cc-tab="room">Room</div>
+        </div>
+        <div class="panel-body" id="cc-body"></div>
+      </aside>
+
+      <!-- Incidents -->
+      <div class="rail incident" id="rail-incident" title="Incidents"><span class="rail-icon">🚨 Incidents</span><span class="badge live" id="incident-active-badge">0</span></div>
+      <aside class="panel" id="panel-incident" style="width: 360px;">
+        <div class="panel-head">
+          <div class="panel-title"><span class="accent-red">🚨</span> Incidents</div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-ghost" id="btn-new-incident">+ New</button>
+            <button class="btn-ghost" id="btn-collapse-incident">»</button>
+          </div>
+        </div>
+        <div class="panel-body" id="incident-body"></div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script>
+/* ============================================================
+   New Relic Safety Alerts — single-file prototype (v2, faithful)
+   ============================================================ */
+
+/* ---------- 1. Static reference data ---------- */
+const SEVERITY = ['low','mod','high','ext'];
+const SEV_RANK = { low:1, mod:2, high:3, ext:4 };
+const SEV_NAME = { low:'Low', mod:'Moderate', high:'High', ext:'Extreme' };
+const SEV_COLOR = { low:'#4ade80', mod:'#facc15', high:'#fb923c', ext:'#f87171' };
+
+const ALERT_TYPES = ['Natural Disaster','Civil Unrest','Public Safety','Travel Advisory'];
+
+const SOURCES = [
+  { id:'NWS',         name:'National Weather Service',       type:'Natural Disaster', status:'ok' },
+  { id:'USGS',        name:'US Geological Survey',           type:'Natural Disaster', status:'ok' },
+  { id:'EMSC',        name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok' },
+  { id:'NASA EONET',  name:'Earth Observatory',              type:'Natural Disaster', status:'ok' },
+  { id:'GDACS',       name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok' },
+  { id:'ACLED',       name:'Armed Conflict Location Data',   type:'Civil Unrest',     status:'stale' },
+  { id:'GDELT',       name:'Global Database of Events',      type:'Civil Unrest',     status:'ok' },
+  { id:'Flashalert',  name:'PDX/OR Emergency Notifications', type:'Public Safety',    status:'ok' },
+  { id:'Socrata',     name:'SF Open Data — Police',          type:'Public Safety',    status:'ok' },
+  { id:'ArcGIS APD',  name:'Atlanta Police Department',      type:'Public Safety',    status:'ok' },
+  { id:'FEMA IPAWS',  name:'FEMA Public Alert System',       type:'Public Safety',    status:'error' },
+  { id:'State Dept',  name:'US Travel Advisory',             type:'Travel Advisory',  status:'ok' },
+  { id:'MeteoAlarm',  name:'European Weather Warnings',      type:'Natural Disaster', status:'ok' },
+  { id:'OpenWeatherMap', name:'Live Weather',                type:'Natural Disaster', status:'ok' },
+  { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale' },
+];
+
+const OFFICES = [
+  { id:'SFO', name:'San Francisco', country:'USA',  lat:37.7898, lng:-122.3942, headcount:412,
+    address:'188 Spear St, San Francisco, CA 94105' },
+  { id:'PDX', name:'Portland',      country:'USA',  lat:45.5152, lng:-122.6784, headcount:188,
+    address:'111 SW 5th Ave, Portland, OR 97204' },
+  { id:'ATL', name:'Atlanta',       country:'USA',  lat:33.7837, lng:-84.3833,  headcount:262,
+    address:'1100 Peachtree St NE, Atlanta, GA 30309' },
+  { id:'BCN', name:'Barcelona',     country:'Spain',lat:41.3996, lng:2.1944,    headcount:142,
+    address:'Carrer de Roc Boronat 78, 08005 Barcelona' },
+  { id:'DUB', name:'Dublin',        country:'Ireland', lat:53.3470, lng:-6.2486, headcount:217,
+    address:'One Spencer Dock, North Wall Quay, Dublin 1' },
+  { id:'LON', name:'London',        country:'UK',   lat:51.5145, lng:-0.1037,   headcount:305,
+    address:'35 New Bridge St, London EC4V 6BW' },
+  { id:'TYO', name:'Tokyo',         country:'Japan',lat:35.6762, lng:139.6503,  headcount:96,
+    address:'Yotsuya Tower, Shinjuku-ku, Tokyo' },
+  { id:'BLR', name:'Bengaluru',     country:'India',lat:12.9716, lng:77.5946,   headcount:512,
+    address:'Knowledge City, Bellandur, Bengaluru' },
+  { id:'HYD', name:'Hyderabad',     country:'India',lat:17.4435, lng:78.3772,   headcount:484,
+    address:'Salarpuria Sattva Knowledge City, Raidurg' },
+];
+const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
+
+/* ---------- 2. Mock data generators ---------- */
+function nowMinus(min) { return new Date(Date.now() - min*60000).toISOString(); }
+function rand(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
+function randomName() {
+  const F = ['Alex','Maya','Sam','Jordan','Priya','Wei','Noah','Sofia','Liam','Aisha','Ravi','Kim','Ben','Yui','Olu','Mia','Theo','Eve','Hana','Diego','Zara','Ana','Ravi','Tomas','Naomi','Imran','Chen','Kai'];
+  const L = ['Patel','Garcia','Lee','Smith','Khan','Nguyen','Brown','Tanaka','OConnor','Müller','Costa','Iyer','Reed','Sato','Park','Davis','Singh','Chen','Yamamoto','Rossi','Adams','Kumar','Wong','Fitzgerald','Romano','Banerjee','Olsen','Cooper','Walsh','Sharma'];
+  return rand(F)+' '+rand(L);
+}
+
+const ALERTS = [
+  { id:'a1',  sev:'high', type:'Civil Unrest',     source:'GDELT',      title:'Planned protest near Westminster — possible road closures',
+    location:'London, UK', officeId:'LON', lat:51.501, lng:-0.124, radiusKm:5,
+    summary:'Multiple groups gathering at Parliament Square 14:00 local. MPS advising avoidance of Whitehall.', issued: nowMinus(95) },
+  { id:'a2',  sev:'high', type:'Public Safety',    source:'Socrata',    title:'Armed robbery reported — Mission District (within 0.4mi of office)',
+    location:'San Francisco', officeId:'SFO', lat:37.762, lng:-122.418, radiusKm:1,
+    summary:'SFPD: armed robbery at Mission & 16th. Suspect at large.', issued: nowMinus(7) },
+  { id:'a3',  sev:'mod',  type:'Natural Disaster', source:'NWS',        title:'SIGMET — Severe convective turbulence near ATL',
+    location:'Atlanta, GA', officeId:'ATL', lat:33.7, lng:-84.4, radiusKm:120,
+    summary:'Line of thunderstorms moving E at 35kt. Tops to FL450.', issued: nowMinus(18) },
+  { id:'a4',  sev:'mod',  type:'Natural Disaster', source:'MeteoAlarm', title:'Severe rain & flood watch — Catalonia',
+    location:'Barcelona', officeId:'BCN', lat:41.385, lng:2.17, radiusKm:80,
+    summary:'Orange-level alert for heavy precipitation through 22:00 local.', issued: nowMinus(42) },
+  { id:'a5',  sev:'ext',  type:'Natural Disaster', source:'USGS',       title:'M5.8 earthquake — 65km E of Tokyo, depth 38km',
+    location:'Tokyo', officeId:'TYO', lat:35.68, lng:140.4, radiusKm:200,
+    summary:'Strong shaking reported. No tsunami warning.', issued: nowMinus(3) },
+  { id:'a6',  sev:'high', type:'Natural Disaster', source:'EMSC',       title:'Aftershock M4.6 near Tokyo Bay',
+    location:'Tokyo Bay', officeId:'TYO', lat:35.6, lng:140.0, radiusKm:80,
+    summary:'Aftershock following earlier M5.8.', issued: nowMinus(1) },
+  { id:'a7',  sev:'low',  type:'Travel Advisory',  source:'State Dept', title:'Smart Traveler Advisory L2 — Mexico (1 traveler)',
+    location:'Mexico (nationwide)', officeId:null, lat:23.63, lng:-102.55, radiusKm:0,
+    summary:'Exercise increased caution. Affects 1 employee.', issued: nowMinus(360) },
+  { id:'a8',  sev:'high', type:'Natural Disaster', source:'MeteoAlarm', title:'Heavy monsoon flooding — multiple zones',
+    location:'Bengaluru', officeId:'BLR', lat:12.97, lng:77.59, radiusKm:30,
+    summary:'IMD red alert. Outer Ring Road impassable.', issued: nowMinus(28) },
+  { id:'a9',  sev:'mod',  type:'Natural Disaster', source:'NWS',        title:'Heat advisory — humidity index ≥47°C',
+    location:'Hyderabad', officeId:'HYD', lat:17.385, lng:78.486, radiusKm:50,
+    summary:'Heat index above 47°C for 3 days.', issued: nowMinus(180) },
+  { id:'a10', sev:'low',  type:'Public Safety',    source:'Flashalert', title:'Petty crime uptick — Pioneer Square',
+    location:'Portland', officeId:'PDX', lat:45.518, lng:-122.679, radiusKm:3,
+    summary:'+18% property crime month-over-month. Awareness only.', issued: nowMinus(1500) },
+  { id:'a11', sev:'mod',  type:'Natural Disaster', source:'NASA EONET', title:'Wildfire smoke — air quality declining',
+    location:'Northern California', officeId:'SFO', lat:38.5, lng:-122.5, radiusKm:200,
+    summary:'AQI 165 (Unhealthy). N95s recommended.', issued: nowMinus(220) },
+  { id:'a12', sev:'high', type:'Public Safety',    source:'GDELT',      title:'Suspicious package — Liffey Quay (cordon active)',
+    location:'Dublin', officeId:'DUB', lat:53.347, lng:-6.247, radiusKm:1,
+    summary:'AGS bomb squad on scene. Roads closed.', issued: nowMinus(11) },
+  { id:'a13', sev:'low',  type:'Travel Advisory',  source:'State Dept', title:'Travel advisory — UAE (1 traveler)',
+    location:'UAE', officeId:null, lat:25.276, lng:55.296, radiusKm:0,
+    summary:'Routine advisory. R. Chen lodged in Dubai.', issued: nowMinus(5000) },
+  { id:'a14', sev:'mod',  type:'Natural Disaster', source:'MeteoAlarm', title:'Severe winds — gusts to 95 km/h',
+    location:'Greater London', officeId:'LON', lat:51.51, lng:-0.13, radiusKm:50,
+    summary:'Yellow wind warning. Possible transit disruption.', issued: nowMinus(140) },
+  { id:'a15', sev:'ext',  type:'Civil Unrest',     source:'ACLED',      title:'Civil unrest — escalation reported, multiple injuries',
+    location:'Bengaluru', officeId:'BLR', lat:12.972, lng:77.595, radiusKm:5,
+    summary:'Demonstrations turned confrontational in Whitefield.', issued: nowMinus(22) },
+  { id:'a16', sev:'low',  type:'Public Safety',    source:'ArcGIS APD', title:'Routine safety bulletin — flu activity moderate',
+    location:'Atlanta', officeId:'ATL', lat:33.749, lng:-84.388, radiusKm:0,
+    summary:'CDC ILI activity moderate Region 4. No action.', issued: nowMinus(2880) },
+  { id:'a17', sev:'mod',  type:'Public Safety',    source:'Flashalert', title:'Power grid advisory — rolling brownouts',
+    location:'Hyderabad', officeId:'HYD', lat:17.385, lng:78.487, radiusKm:25,
+    summary:'14:00–18:00 IST. UPS verified.', issued: nowMinus(60) },
+  { id:'a18', sev:'low',  type:'Public Safety',    source:'GDELT',      title:'Dublin Bus & Luas service reductions',
+    location:'Dublin', officeId:'DUB', lat:53.349, lng:-6.26, radiusKm:8,
+    summary:'Industrial action Tue–Thu. Recommend remote-first.', issued: nowMinus(720) },
+  { id:'a19', sev:'mod',  type:'Civil Unrest',     source:'ACLED',      title:'Demonstration permit issued — march route through City',
+    location:'London', officeId:'LON', lat:51.515, lng:-0.09, radiusKm:3,
+    summary:'Saturday march; estimated 5k participants.', issued: nowMinus(540) },
+  { id:'a20', sev:'low',  type:'Natural Disaster', source:'GDACS',      title:'Tropical storm watch — distant approach',
+    location:'Tokyo', officeId:'TYO', lat:35.68, lng:139.65, radiusKm:300,
+    summary:'72h monitoring. No immediate impact.', issued: nowMinus(1800) },
+];
+
+/* employees: ~headcount/3 each, By-Office plot at office; By-ZIP plot scattered */
+function buildEmployees() {
+  const list = [];
+  OFFICES.forEach(o => {
+    const n = Math.min(60, Math.max(8, Math.round(o.headcount/8)));
+    for (let i=0;i<n;i++) {
+      const dLat = (Math.random()-.5)*.18; const dLng = (Math.random()-.5)*.22;
+      list.push({
+        id: o.id+'-e'+i,
+        name: randomName(),
+        office: o.id,
+        role: rand(['Engineer','Sales','Marketing','Customer Success','Recruiter','Finance','Legal','IT','Security','Eng Mgr','PM']),
+        lat: o.lat + dLat, lng: o.lng + dLng,
+        officeLat: o.lat, officeLng: o.lng,
+      });
+    }
+  });
+  return list;
+}
+let EMPLOYEES = buildEmployees();
+
+const TRAVELERS_INIT = [
+  { id:'t1', name:'A. Patel',    home:'BLR', destCity:'Singapore',  type:'hotel',  lat:1.3521, lng:103.8198, atOffice:null },
+  { id:'t2', name:'M. Diaz',     home:'SFO', destCity:'Mexico City',type:'hotel',  lat:19.4326, lng:-99.1332, atOffice:null },
+  { id:'t3', name:'R. Chen',     home:'LON', destCity:'Dubai',      type:'hotel',  lat:25.2048, lng:55.2708, atOffice:null },
+  { id:'t4', name:'L. Okafor',   home:'DUB', destCity:'Paris',      type:'hotel',  lat:48.8566, lng:2.3522, atOffice:null },
+  { id:'t5', name:'J. Park',     home:'TYO', destCity:'Seoul',      type:'hotel',  lat:37.5665, lng:126.978, atOffice:null },
+  { id:'t6', name:'S. Nakamura', home:'TYO', destCity:'San Francisco',type:'office',lat:OFFICE_BY_ID.SFO.lat, lng:OFFICE_BY_ID.SFO.lng, atOffice:'SFO' },
+  { id:'t7', name:'V. Romano',   home:'BCN', destCity:'London',     type:'office', lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, atOffice:'LON' },
+  { id:'t8', name:'P. Banerjee', home:'BLR', destCity:'Berlin',     type:'hotel',  lat:52.52, lng:13.405, atOffice:null },
+  { id:'t9', name:'K. Liu',      home:'PDX', destCity:'JFK→LHR',    type:'flight', lat:30.0, lng:-40.0, atOffice:null },
+  { id:'t10',name:'O. Adeyemi',  home:'LON', destCity:'Dublin',     type:'office', lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, atOffice:'DUB' },
+  { id:'t11',name:'H. Tanaka',   home:'TYO', destCity:'Bengaluru',  type:'office', lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, atOffice:'BLR' },
+  { id:'t12',name:'N. Walsh',    home:'DUB', destCity:'Reykjavik',  type:'hotel',  lat:64.1466, lng:-21.9426, atOffice:null },
+];
+let TRAVELERS = TRAVELERS_INIT.slice();
+
+/* ---------- 3. App state ---------- */
+const TEMPLATES = {
+  check:    { name:'Safety Check',    body:'A safety alert has been issued in your area. Please confirm your status. Reply OK if you are safe, HELP if you need assistance.' },
+  shelter:  { name:'Shelter in Place',body:'IMMEDIATE: A safety incident has been reported. Shelter in place inside the office. Move away from windows. Do not exit until you receive an all-clear. Reply OK / HELP.' },
+  evac:     { name:'Evacuation',      body:'IMMEDIATE: Evacuate the office now via the nearest safe exit. Proceed to the muster point. Do not use elevators. Reply OK once you are at muster.' },
+  allclear: { name:'All Clear',       body:'All clear. The earlier safety incident has been resolved. You may resume normal activity.' },
+  custom:   { name:'Custom',          body:'' },
+};
+
+const STATE = {
+  feedTab: 'office',
+  search: '',
+  selectedAlertId: null,
+  selectedOffices: [],
+  filterMinSev: 'low',
+  visibleOffices: OFFICES.map(o => o.id),
+  visibleAlertTypes: ALERT_TYPES.slice(),
+  showEmployees: true,
+  empMode: 'office',
+  showTravelers: true,
+  ccTab: 'compose',
+  channels: { slack:true, email:true, sms:false },
+  template: 'check',
+  customMessage: '',
+  responseRequired: true,
+  reminderInterval: '15m',
+  crisisLog: [],
+  roomMessages: [
+    { from:'GSOC', when: nowMinus(20), body:'Monitoring multiple regions. SF/TYO/BLR active.' },
+    { from:'cowork-3p', when: nowMinus(2), body:'On shift. Reviewing TYO seismic.' },
+  ],
+  incidents: [],
+  selectedIncidentId: null,
+  incidentTab: 'details',
+  msgFilter: 'all',
+  responses: {},  // { incidentId: { employeeId: { status: 'ok'|'help'|'no', when, by } } }
+  panels: { alerts:true, crisis:true, incident:true },
+  fence: null,             // {layer, shape, mode, results: {offices, employees, travelers}}
+  fenceMode: 'highlight',
+  hazards: { fire:false, flood:false, quake:false, unrest:false, precip:false, aqi:false },
+  theme: 'dark',
+};
+
+/* ---------- 4. Map setup ---------- */
+const map = L.map('map', { worldCopyJump: true, minZoom: 2, maxZoom: 14, zoomControl: true })
+  .setView([28, 5], 2.4);
+
+const TILES = {
+  dark:  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
+  light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
+};
+TILES.dark.addTo(map);
+
+const layers = {
+  offices:  L.layerGroup().addTo(map),
+  alerts:   L.layerGroup().addTo(map),
+  hazards:  L.layerGroup().addTo(map),
+  emp:      L.markerClusterGroup({ disableClusteringAtZoom: 7, iconCreateFunction: c => L.divIcon({ html:`<div class="emp-cluster">${c.getChildCount()}</div>`, className:'', iconSize:[28,28] }) }).addTo(map),
+  trav:     L.markerClusterGroup({ disableClusteringAtZoom: 5, iconCreateFunction: c => L.divIcon({ html:`<div class="cluster-mk">${c.getChildCount()}</div>`, className:'', iconSize:[26,26] }) }).addTo(map),
+  fence:    L.featureGroup().addTo(map),
+};
+
+/* ---------- 5. Helpers ---------- */
+function relTime(iso) {
+  const m = Math.floor((Date.now()-new Date(iso).getTime())/60000);
+  if (m < 1) return 'just now'; if (m < 60) return m+'m'; const h = Math.floor(m/60); if (h < 24) return h+'h'; return Math.floor(h/24)+'d';
+}
+function fmtClock(d=new Date()) { return d.toUTCString().slice(17,22)+' UTC'; }
+function maxSevForOffice(officeId) {
+  const a = activeAlertsForOffice(officeId);
+  if (!a.length) return null;
+  return SEVERITY[Math.max(...a.map(x => SEV_RANK[x.sev]-1))];
+}
+function activeAlertsForOffice(id) {
+  return ALERTS.filter(a => a.officeId === id && passesFilter(a));
+}
+function passesFilter(a) {
+  if (SEV_RANK[a.sev] < SEV_RANK[STATE.filterMinSev]) return false;
+  if (!STATE.visibleAlertTypes.includes(a.type)) return false;
+  if (a.officeId && !STATE.visibleOffices.includes(a.officeId)) return false;
+  if (STATE.search && !(a.title+' '+a.location+' '+a.summary).toLowerCase().includes(STATE.search.toLowerCase())) return false;
+  return true;
+}
+function visibleAlerts() { return ALERTS.filter(passesFilter); }
+function travelersAtOffice(id) { return TRAVELERS.filter(t => t.atOffice === id); }
+function uid() { return 'i_'+Math.random().toString(36).slice(2,9); }
+
+/* ---------- 6. Office markers + popups ---------- */
+function renderOffices() {
+  layers.offices.clearLayers();
+  OFFICES.forEach(o => {
+    if (!STATE.visibleOffices.includes(o.id)) return;
+    const sev = maxSevForOffice(o.id);
+    const sevClass = sev ? 's-'+sev : 's-none';
+    const visitors = travelersAtOffice(o.id).length;
+    const html = `<div class="office-mk"><span class="sev-dot ${sevClass}"></span>${o.id} ${o.headcount}${visitors?`<span class="v-badge">${visitors}✈</span>`:''}</div>`;
+    const icon = L.divIcon({ html, className:'', iconSize:[100,22], iconAnchor:[50,11] });
+    const m = L.marker([o.lat, o.lng], { icon }).addTo(layers.offices);
+    m.bindPopup(officePopup(o));
+  });
+}
+function officePopup(o) {
+  const a = activeAlertsForOffice(o.id);
+  const visitors = travelersAtOffice(o.id);
+  const sevCounts = SEVERITY.map(s => a.filter(x => x.sev===s).length);
+  return `
+    <h4>${o.name}, ${o.country}</h4>
+    <div class="addr">${o.address}</div>
+    <div class="pop-row"><span>Employees</span><b>${o.headcount}</b></div>
+    <div class="pop-row"><span>Active alerts</span><b>${a.length}</b></div>
+    <div class="pop-row" style="gap:4px;flex-wrap:wrap">
+      ${SEVERITY.map((s,i)=>sevCounts[i]?`<span class="sev-pill ${s}">${SEV_NAME[s]}: ${sevCounts[i]}</span>`:'').join('')}
+    </div>
+    ${visitors.length?`<div class="pop-row" style="margin-top:6px"><span>Visiting</span><b>${visitors.length} ✈</b></div>`:''}
+    <div style="margin-top:6px">
+      ${a.slice(0,3).map(al=>`<div style="font-size:11px;border-top:1px solid var(--border);padding-top:4px;margin-top:4px">
+        <span class="sev-pill ${al.sev}">${SEV_NAME[al.sev]}</span>
+        <span class="src-pill">${al.source}</span>
+        <div style="margin-top:2px">${al.title}</div>
+      </div>`).join('')}
+    </div>
+    <div class="pop-actions">
+      <button class="btn-ghost" onclick="App.targetOffice('${o.id}')">Crisis</button>
+      <button class="btn-ghost" onclick="App.zoomOffice('${o.id}')">Zoom</button>
+    </div>`;
+}
+
+/* ---------- 7. Alert dots ---------- */
+function renderAlertDots() {
+  layers.alerts.clearLayers();
+  visibleAlerts().forEach(a => {
+    if (a.radiusKm > 0) {
+      L.circle([a.lat, a.lng], { radius: a.radiusKm*1000, color: SEV_COLOR[a.sev], weight: 1, fillOpacity: 0.08 })
+        .addTo(layers.alerts).on('click', () => selectAlert(a.id));
+    }
+    L.circleMarker([a.lat, a.lng], { radius:5, color: SEV_COLOR[a.sev], fillColor: SEV_COLOR[a.sev], fillOpacity:.9, weight:2 })
+      .addTo(layers.alerts).bindTooltip(`<b>${SEV_NAME[a.sev]}</b> · ${a.title}`,{direction:'top'})
+      .on('click', () => selectAlert(a.id));
+  });
+}
+
+/* ---------- 8. Employees & travelers ---------- */
+function renderEmployees() {
+  layers.emp.clearLayers();
+  if (!STATE.showEmployees) return;
+  EMPLOYEES.forEach(e => {
+    const lat = STATE.empMode === 'zip' ? e.lat : e.officeLat;
+    const lng = STATE.empMode === 'zip' ? e.lng : e.officeLng;
+    const icon = L.divIcon({ html:'<div class="emp-mk"></div>', className:'', iconSize:[10,10] });
+    const m = L.marker([lat, lng], { icon });
+    m.bindPopup(`<h4>${e.name}</h4><div class="addr">${e.role} · ${OFFICE_BY_ID[e.office].name}</div>`);
+    layers.emp.addLayer(m);
+  });
+  document.getElementById('emp-count').textContent = `${EMPLOYEES.length.toLocaleString()} employees loaded`;
+}
+function renderTravelers() {
+  layers.trav.clearLayers();
+  if (!STATE.showTravelers) return;
+  TRAVELERS.forEach(t => {
+    if (t.atOffice) return; // shown as office badge
+    const symbol = t.type === 'flight' ? '✈️' : '🏨';
+    const icon = L.divIcon({ html:`<div class="trav-mk">${symbol}</div>`, className:'', iconSize:[20,20] });
+    const m = L.marker([t.lat, t.lng], { icon });
+    m.bindPopup(`<h4>${t.name}</h4><div class="addr">Home: ${OFFICE_BY_ID[t.home]?.name || t.home} · ${t.destCity}</div>
+      <div class="pop-row"><span>Booking</span><b>${t.type==='flight'?'✈ air':'🏨 hotel'}</b></div>`);
+    layers.trav.addLayer(m);
+  });
+  document.getElementById('trav-count').textContent = `${TRAVELERS.length} travelers loaded`;
+}
+
+/* ---------- 9. Hazard overlays (mock) ---------- */
+function renderHazards() {
+  layers.hazards.clearLayers();
+  if (STATE.hazards.fire) {
+    [[38.5,-122.6,180],[34.0,-118.2,250]].forEach(([la,ln,r])=>L.circle([la,ln],{radius:r*1000,color:SEV_COLOR.ext,fillOpacity:.08,weight:1,dashArray:'4'}).addTo(layers.hazards));
+  }
+  if (STATE.hazards.flood) {
+    [[12.97,77.6,40],[41.39,2.17,30]].forEach(([la,ln,r])=>L.circle([la,ln],{radius:r*1000,color:'#1e90ff',fillOpacity:.1,weight:1,dashArray:'4'}).addTo(layers.hazards));
+  }
+  if (STATE.hazards.quake) {
+    [[35.68,139.65,260]].forEach(([la,ln,r])=>L.circle([la,ln],{radius:r*1000,color:SEV_COLOR.high,fillOpacity:.08,weight:1,dashArray:'4'}).addTo(layers.hazards));
+  }
+  if (STATE.hazards.unrest) {
+    [[12.97,77.6,8],[51.51,-0.13,4]].forEach(([la,ln,r])=>L.circle([la,ln],{radius:r*1000,color:SEV_COLOR.mod,fillOpacity:.08,weight:1,dashArray:'4'}).addTo(layers.hazards));
+  }
+}
+
+/* ---------- 10. ALERT FEED render ---------- */
+function renderFeed() {
+  const body = document.getElementById('feed-body');
+  const alerts = visibleAlerts();
+  document.getElementById('rail-alerts-count').textContent = alerts.length;
+  if (!alerts.length) { body.innerHTML = '<div class="empty">No alerts match the current filter.</div>'; return; }
+  if (STATE.feedTab === 'office') {
+    const groups = {};
+    alerts.forEach(a => {
+      const key = a.officeId || '—';
+      (groups[key] = groups[key] || []).push(a);
+    });
+    body.innerHTML = Object.entries(groups).map(([oid, list]) => {
+      const o = OFFICE_BY_ID[oid];
+      const sev = list.reduce((m,a)=>SEV_RANK[a.sev]>m?SEV_RANK[a.sev]:m,0);
+      const sevName = SEVERITY[sev-1];
+      const visible = list.slice(0,5);
+      const more = list.length - visible.length;
+      return `<div class="office-group">
+        <div class="office-group-head" onclick="App.zoomOffice('${oid}')">
+          <span class="sev-dot" style="background:${SEV_COLOR[sevName]||'var(--muted)'}"></span>
+          <span class="name">${o ? o.name : 'Travel / Region'}</span>
+          <span class="pill">${list.length}</span>
+        </div>
+        <div class="alert-cards">
+          ${visible.map(a=>alertCardHTML(a)).join('')}
+          ${more>0?`<div class="more">+${more} more</div>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  } else {
+    const sorted = alerts.slice().sort((a,b)=>new Date(b.issued)-new Date(a.issued)).slice(0,20);
+    body.innerHTML = `<div style="padding:8px 10px;display:flex;flex-direction:column;gap:5px">${sorted.map(alertCardHTML).join('')}</div>`;
+  }
+  body.querySelectorAll('.alert-card').forEach(el => el.addEventListener('click', e => {
+    if (e.target.closest('.crisis-btn')) return;
+    selectAlert(el.dataset.id);
+  }));
+  body.querySelectorAll('.crisis-btn').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    const a = ALERTS.find(x => x.id === el.dataset.id);
+    if (a && a.officeId) {
+      STATE.selectedOffices = [a.officeId];
+      openPanel('crisis'); setCcTab('compose'); renderCC();
+      toast(`${a.officeId} pre-loaded in Crisis Comms.`);
+    }
+  }));
+}
+function alertCardHTML(a) {
+  const sel = STATE.selectedAlertId === a.id ? 'selected' : '';
+  return `<div class="alert-card s-${a.sev} ${sel}" data-id="${a.id}">
+    <div class="top-row">
+      <span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span>
+      <span class="src-pill">${a.source}</span>
+      <span class="a-title">${a.title}</span>
+      ${a.officeId?`<button class="crisis-btn" data-id="${a.id}">Crisis</button>`:''}
+    </div>
+    <div class="a-sub">
+      <span>${a.location}</span>·<span>${relTime(a.issued)}</span>·<span>${a.type}</span>
+    </div>
+  </div>`;
+}
+function selectAlert(id) {
+  STATE.selectedAlertId = id;
+  const a = ALERTS.find(x => x.id === id); if (!a) return;
+  map.setView([a.lat, a.lng], Math.max(map.getZoom(), 5));
+  renderFeed();
+  toast(`${SEV_NAME[a.sev]} · ${a.title}`);
+}
+
+/* ---------- 11. CRISIS COMMS render ---------- */
+function setCcTab(t) { STATE.ccTab = t;
+  document.querySelectorAll('[data-cc-tab]').forEach(el => el.classList.toggle('active', el.dataset.ccTab===t));
+  renderCC();
+}
+function renderCC() {
+  const body = document.getElementById('cc-body');
+  document.getElementById('cc-log-count').textContent = STATE.crisisLog.length;
+  if (STATE.ccTab === 'compose') body.innerHTML = renderComposeForm();
+  else if (STATE.ccTab === 'log') body.innerHTML = renderCCLog();
+  else body.innerHTML = renderRoom();
+  bindCCHandlers();
+}
+function renderComposeForm() {
+  const reachOffices = STATE.selectedOffices.length;
+  const reachEmps = STATE.selectedOffices.reduce((s,id)=>s+(OFFICE_BY_ID[id]?.headcount||0),0);
+  const reachTrav = TRAVELERS.filter(t => STATE.selectedOffices.includes(t.atOffice)).length;
+  const message = STATE.template === 'custom' ? STATE.customMessage : (STATE.customMessage || TEMPLATES[STATE.template].body);
+  return `<div class="compose-form">
+    <div class="field">
+      <label>Target Offices <button class="btn-ghost" id="aud-all" style="float:right;font-size:10px;padding:2px 6px">All offices</button></label>
+      <div class="chip-list" id="chip-list">
+        ${STATE.selectedOffices.map(id=>`<span class="chip" data-id="${id}">${id}<x onclick="App.removeOffice('${id}')">×</x></span>`).join('')}
+      </div>
+      <div class="office-picker" style="margin-top:6px">
+        ${OFFICES.map(o => `<label><input type="checkbox" data-office="${o.id}" ${STATE.selectedOffices.includes(o.id)?'checked':''}/> ${o.id} · ${o.name} <span style="color:var(--muted);margin-left:auto;font-size:10px">${o.headcount}</span></label>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>Channels</label>
+      <div class="channel-row">
+        <div class="channel-pill ${STATE.channels.slack?'on':''}" data-ch="slack">💬 Slack</div>
+        <div class="channel-pill ${STATE.channels.email?'on':''}" data-ch="email">✉️ Email</div>
+        <div class="channel-pill disabled" data-ch="sms">📱 SMS <span style="font-size:9px;color:var(--muted)">soon</span></div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Template</label>
+      <div class="template-row">
+        ${Object.entries(TEMPLATES).map(([k,t])=>`<button class="${STATE.template===k?'active':''}" data-tpl="${k}">${t.name}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>Message</label>
+      <textarea id="msg-body">${message}</textarea>
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="resp-required" ${STATE.responseRequired?'checked':''}/>
+        Response required (track per-employee status in incident)
+      </label>
+    </div>
+    <div class="field">
+      <label>Reminder interval</label>
+      <select id="reminder">
+        <option value="15m" ${STATE.reminderInterval==='15m'?'selected':''}>15 minutes</option>
+        <option value="1h" ${STATE.reminderInterval==='1h'?'selected':''}>1 hour</option>
+        <option value="1d" ${STATE.reminderInterval==='1d'?'selected':''}>1 day</option>
+      </select>
+    </div>
+    <div class="reach-preview">
+      Reach: <b>${reachOffices}</b> office${reachOffices===1?'':'s'} ·
+      ~<b>${reachEmps.toLocaleString()}</b> employees${reachTrav?` · <b>${reachTrav}</b> visiting travelers`:''}
+    </div>
+    <button class="btn-primary" id="btn-send" ${reachOffices&&Object.values(STATE.channels).some(Boolean)?'':'disabled'}>
+      Send to ${reachOffices} office${reachOffices===1?'':'s'} ▶
+    </button>
+  </div>`;
+}
+function renderCCLog() {
+  if (!STATE.crisisLog.length) return '<div class="empty">No messages sent yet.</div>';
+  return STATE.crisisLog.slice().reverse().map(e => `
+    <div class="crisis-log-entry">
+      <div><span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${e.by}</span></div>
+      <div class="body">${e.body}</div>
+      <div class="meta">
+        ${e.offices.map(o=>`<span class="src-pill">${o}</span>`).join('')}
+        ${e.channels.map(c=>`<span class="src-pill">${c}</span>`).join('')}
+        <span class="src-pill">${e.recipients} recipients</span>
+        ${e.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
+      </div>
+    </div>`).join('');
+}
+function renderRoom() {
+  return `<div class="room-thread" id="room-thread">
+    ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${m.from}</span><span class="when">${relTime(m.when)} ago</span><div>${m.body}</div></div>`).join('')}
+  </div>
+  <div class="room-input">
+    <input id="room-input" placeholder="Post to GSOC situation room..." />
+    <button class="btn-ghost" id="room-send">Post</button>
+  </div>`;
+}
+function bindCCHandlers() {
+  document.querySelectorAll('[data-tpl]').forEach(b => b.addEventListener('click', () => {
+    STATE.template = b.dataset.tpl;
+    STATE.customMessage = '';
+    renderCC();
+  }));
+  document.querySelectorAll('[data-ch]').forEach(c => c.addEventListener('click', () => {
+    const k = c.dataset.ch;
+    if (k === 'sms') return;
+    STATE.channels[k] = !STATE.channels[k];
+    renderCC();
+  }));
+  document.querySelectorAll('[data-office]').forEach(c => c.addEventListener('change', e => {
+    const id = e.target.dataset.office;
+    if (e.target.checked) { if (!STATE.selectedOffices.includes(id)) STATE.selectedOffices.push(id); }
+    else STATE.selectedOffices = STATE.selectedOffices.filter(x => x !== id);
+    renderCC();
+  }));
+  document.getElementById('aud-all')?.addEventListener('click', e => {
+    e.stopPropagation();
+    STATE.selectedOffices = STATE.selectedOffices.length === OFFICES.length ? [] : OFFICES.map(o => o.id);
+    renderCC();
+  });
+  document.getElementById('msg-body')?.addEventListener('input', e => STATE.customMessage = e.target.value);
+  document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
+  document.getElementById('reminder')?.addEventListener('change', e => STATE.reminderInterval = e.target.value);
+  document.getElementById('btn-send')?.addEventListener('click', confirmSend);
+  document.getElementById('room-send')?.addEventListener('click', () => {
+    const inp = document.getElementById('room-input');
+    if (!inp.value.trim()) return;
+    STATE.roomMessages.push({ from:'cowork-3p', when:new Date().toISOString(), body:inp.value });
+    inp.value=''; renderCC();
+  });
+}
+function confirmSend() {
+  const channels = Object.entries(STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
+  if (!channels.length || !STATE.selectedOffices.length) return;
+  const body = STATE.template === 'custom' ? STATE.customMessage : (STATE.customMessage || TEMPLATES[STATE.template].body);
+  const reach = STATE.selectedOffices.reduce((s,id)=>s+(OFFICE_BY_ID[id]?.headcount||0),0);
+  showModal(`
+    <h3>Confirm send</h3>
+    <p style="font-size:12px;color:var(--muted)">Review before dispatching to GSOC.</p>
+    <div class="reach-preview" style="margin-top:8px">
+      <div><b>Offices:</b> ${STATE.selectedOffices.join(', ')}</div>
+      <div><b>Channels:</b> ${channels.map(c=>c.toUpperCase()).join(' + ')}</div>
+      <div><b>Recipients:</b> ~${reach.toLocaleString()}</div>
+      <div><b>Template:</b> ${TEMPLATES[STATE.template].name}</div>
+      ${STATE.responseRequired?'<div><b>Response tracking:</b> on (creates new incident)</div>':''}
+    </div>
+    <div style="font-size:11px;background:var(--bg3);border-radius:5px;padding:6px;margin-top:8px;line-height:1.4">${body}</div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="modal-cancel">Cancel</button>
+      <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px" id="modal-confirm">Confirm Send</button>
+    </div>`);
+  document.getElementById('modal-cancel').onclick = closeModal;
+  document.getElementById('modal-confirm').onclick = () => {
+    closeModal();
+    dispatchSend(body, channels, reach);
+  };
+}
+function dispatchSend(body, channels, reach) {
+  const msg = {
+    id: uid(), when: new Date().toISOString(), by:'cowork-3p',
+    offices: STATE.selectedOffices.slice(), channels: channels.slice(),
+    body, recipients: reach, responseRequired: STATE.responseRequired,
+    template: STATE.template, reminder: STATE.reminderInterval,
+  };
+  STATE.crisisLog.push(msg);
+  let inc = null;
+  if (STATE.responseRequired) {
+    inc = createIncident({
+      title: `${TEMPLATES[STATE.template].name} — ${STATE.selectedOffices.join(', ')}`,
+      offices: STATE.selectedOffices.slice(),
+      severity: STATE.template==='evac' || STATE.template==='shelter' ? 'high' : 'mod',
+      description: 'Auto-created on dispatch with Response Required.',
+      messageId: msg.id,
+    });
+    addIncidentLog(inc.id, 'comm', `Sent <b>${TEMPLATES[STATE.template].name}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
+  }
+  toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}`);
+  STATE.customMessage = '';
+  setCcTab('log');
+  renderIncidents();
+  if (inc) selectIncident(inc.id);
+}
+
+/* ---------- 12. INCIDENTS render ---------- */
+function createIncident({ title, offices, severity, description, messageId }) {
+  const inc = {
+    id: uid(), title, offices, severity, description, messageId,
+    opened: new Date().toISOString(), status:'open', closedNote:null, closedAt:null,
+    notes: [], log: [],
+  };
+  STATE.incidents.unshift(inc);
+  STATE.responses[inc.id] = {};
+  // build response shells from employees
+  offices.forEach(oid => {
+    EMPLOYEES.filter(e => e.office === oid).forEach(e => {
+      STATE.responses[inc.id][e.id] = { status:'no', when:null, by:null };
+    });
+    travelersAtOffice(oid).forEach(t => {
+      STATE.responses[inc.id]['T-'+t.id] = { status:'no', when:null, by:null, traveler:true };
+    });
+  });
+  addIncidentLog(inc.id, 'create', `Incident <b>${title}</b> opened.`);
+  return inc;
+}
+function addIncidentLog(id, kind, body) {
+  const inc = STATE.incidents.find(x=>x.id===id); if (!inc) return;
+  inc.log.push({ when: new Date().toISOString(), by:'cowork-3p', kind, body });
+}
+function setIncidentTab(t) { STATE.incidentTab = t; renderIncidentDetail(); }
+function selectIncident(id) {
+  STATE.selectedIncidentId = id;
+  STATE.incidentTab = 'details';
+  renderIncidents();
+}
+function renderIncidents() {
+  const body = document.getElementById('incident-body');
+  const open = STATE.incidents.filter(i => i.status === 'open');
+  document.getElementById('incident-active-badge').textContent = open.length;
+  if (!STATE.incidents.length) { body.innerHTML = '<div class="empty">No incidents. Click <b>+ New</b> to create one or send a Crisis message with Response Required.</div>'; return; }
+  if (!STATE.selectedIncidentId || !STATE.incidents.find(x => x.id === STATE.selectedIncidentId)) {
+    body.innerHTML = renderIncidentList(); bindIncidentListHandlers(); return;
+  }
+  body.innerHTML = renderIncidentList() + renderIncidentDetailHTML();
+  bindIncidentListHandlers(); bindIncidentDetailHandlers();
+}
+function renderIncidentList() {
+  return `<div class="incident-list">${STATE.incidents.map(i => `
+    <div class="incident-row ${STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${i.id}">
+      <div class="i-title">${i.title}</div>
+      <div class="i-meta">
+        <span class="sev-pill ${i.severity}">${SEV_NAME[i.severity]}</span>
+        <span>${relTime(i.opened)} ago</span>
+        <span>${i.offices.join(', ')}</span>
+        <span style="margin-left:auto;color:${i.status==='open'?'var(--red)':'var(--muted)'}">${i.status}</span>
+      </div>
+    </div>`).join('')}</div>`;
+}
+function renderIncidentDetail() {
+  document.getElementById('incident-body').innerHTML = renderIncidentList() + renderIncidentDetailHTML();
+  bindIncidentListHandlers(); bindIncidentDetailHandlers();
+}
+function renderIncidentDetailHTML() {
+  const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return '';
+  const resp = STATE.responses[inc.id] || {};
+  const rs = Object.values(resp);
+  const ok = rs.filter(r=>r.status==='ok').length;
+  const help = rs.filter(r=>r.status==='help').length;
+  const no = rs.filter(r=>r.status==='no').length;
+  const total = rs.length;
+  const pct = total ? Math.round(((ok+help)/total)*100) : 0;
+  return `<div class="incident-detail" style="border-top:2px solid var(--border)">
+    <div class="incident-meta">
+      <h3>${inc.title}</h3>
+      <div class="meta-row">
+        <span class="sev-pill ${inc.severity}">${SEV_NAME[inc.severity]}</span>
+        <span>${inc.offices.join(', ')}</span>
+        <span>${new Date(inc.opened).toLocaleString()}</span>
+        <span>${inc.status}</span>
+      </div>
+    </div>
+    <div class="tabs">
+      ${['details','messages','notes','log'].map(t=>`<div class="tab ${STATE.incidentTab===t?'active':''}" data-i-tab="${t}">${t}${t==='messages'?` <span class="count">${total}</span>`:''}</div>`).join('')}
+    </div>
+    <div style="flex:1; overflow-y:auto">${renderIncidentTab(inc, ok, help, no, total, pct)}</div>
+  </div>`;
+}
+function renderIncidentTab(inc, ok, help, no, total, pct) {
+  if (STATE.incidentTab === 'details') {
+    return `<div style="padding:12px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${inc.description}</div>
+      <div class="tally">
+        <div class="tally-cell ok"><div class="n">${ok}</div><div class="l">OK</div></div>
+        <div class="tally-cell help"><div class="n">${help}</div><div class="l">Needs Help</div></div>
+        <div class="tally-cell no"><div class="n">${no}</div><div class="l">No Response</div></div>
+      </div>
+      <div class="progress"><span style="width:${pct}%"></span></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">${pct}% responded · ${total} total recipients</div>
+      <div style="display:flex;gap:6px;margin-top:14px">
+        ${inc.status==='open'?'<button class="btn-ghost" id="btn-simulate">Simulate Replies</button><button class="btn-ghost danger" id="btn-close-inc">End Incident</button>':''}
+      </div>
+    </div>`;
+  }
+  if (STATE.incidentTab === 'messages') {
+    const resp = STATE.responses[inc.id] || {};
+    const empRows = []; const travRows = [];
+    Object.entries(resp).forEach(([eid, r]) => {
+      if (r.traveler) {
+        const t = TRAVELERS.find(x => 'T-'+x.id === eid);
+        if (t) travRows.push({ eid, name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} · visiting`, status: r.status });
+      } else {
+        const e = EMPLOYEES.find(x => x.id === eid);
+        if (e) empRows.push({ eid, name: e.name, who: e.role, status: r.status });
+      }
+    });
+    const filt = STATE.msgFilter;
+    const f = (rows) => filt==='all' ? rows : rows.filter(r => (filt==='no'?r.status==='no': r.status===filt));
+    return `<div class="msg-filter">
+      ${['all','no','ok','help'].map(k=>{
+        const n = k==='all' ? empRows.length+travRows.length : [...empRows,...travRows].filter(r => k==='no'?r.status==='no':r.status===k).length;
+        return `<button class="${filt===k?'active':''}" data-mfilter="${k}">${k==='no'?'No response':k.toUpperCase()} ${n}</button>`;
+      }).join('')}
+    </div>
+    <div class="section-h">Employees (${empRows.length})</div>
+    ${f(empRows).map(r => msgRowHTML(r,inc)).join('') || '<div class="empty">None</div>'}
+    ${travRows.length ? `<div class="section-h">✈ Visiting Travelers (${travRows.length})</div>${f(travRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}`;
+  }
+  if (STATE.incidentTab === 'notes') {
+    return `<div style="padding:8px 12px;display:flex;gap:6px;border-bottom:1px solid var(--border)">
+      <input id="note-input" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px" placeholder="Add a note..."/>
+      <button class="btn-ghost" id="note-add">Add</button>
+    </div>
+    ${inc.notes.length ? inc.notes.slice().reverse().map(n=>`<div class="note-entry"><div class="meta">${new Date(n.when).toLocaleString()} · ${n.by}</div><div>${n.body}</div></div>`).join('') : '<div class="empty">No notes yet.</div>'}`;
+  }
+  if (STATE.incidentTab === 'log') {
+    return `${inc.log.length ? inc.log.slice().reverse().map(l=>`<div class="log-entry-i kind-${l.kind}"><span class="when">${new Date(l.when).toLocaleString()} · ${l.by}</span><div>${l.body}</div></div>`).join('') : '<div class="empty">No activity logged.</div>'}`;
+  }
+}
+function msgRowHTML(r, inc) {
+  return `<div class="msg-row">
+    <div><div class="name">${r.name}</div><div class="who">${r.who}</div></div>
+    <button class="act ok" data-eid="${r.eid}" data-st="ok">✓ OK</button>
+    <button class="act help" data-eid="${r.eid}" data-st="help">⚠ Help</button>
+    <span class="status-pill ${r.status==='no'?'no':r.status}" style="grid-column:1/-1">${r.status==='no'?'no response':r.status==='ok'?'ok':'needs help'}</span>
+  </div>`;
+}
+function bindIncidentListHandlers() {
+  document.querySelectorAll('.incident-row').forEach(el => el.addEventListener('click', () => selectIncident(el.dataset.id)));
+}
+function bindIncidentDetailHandlers() {
+  document.querySelectorAll('[data-i-tab]').forEach(el => el.addEventListener('click', () => setIncidentTab(el.dataset.iTab)));
+  document.querySelectorAll('[data-mfilter]').forEach(el => el.addEventListener('click', () => { STATE.msgFilter = el.dataset.mfilter; renderIncidentDetail(); }));
+  document.querySelectorAll('[data-eid]').forEach(b => b.addEventListener('click', () => {
+    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    const eid = b.dataset.eid; const st = b.dataset.st;
+    STATE.responses[inc.id][eid] = { ...STATE.responses[inc.id][eid], status: st, when: new Date().toISOString(), by: 'Admin' };
+    addIncidentLog(inc.id, 'msg', `Status logged for <b>${eid}</b>: ${st}`);
+    renderIncidentDetail();
+  }));
+  document.getElementById('note-add')?.addEventListener('click', () => {
+    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    const inp = document.getElementById('note-input');
+    if (!inp.value.trim()) return;
+    inc.notes.push({ when: new Date().toISOString(), by:'cowork-3p', body: inp.value });
+    addIncidentLog(inc.id, 'note', `Note added: ${inp.value.slice(0,80)}${inp.value.length>80?'…':''}`);
+    inp.value=''; renderIncidentDetail();
+  });
+  document.getElementById('btn-simulate')?.addEventListener('click', () => {
+    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    let n=0;
+    Object.entries(STATE.responses[inc.id]).forEach(([k,r]) => {
+      if (r.status==='no' && Math.random() < 0.55) {
+        STATE.responses[inc.id][k] = { ...r, status: Math.random()<.92?'ok':'help', when:new Date().toISOString(), by:'auto' };
+        n++;
+      }
+    });
+    addIncidentLog(inc.id, 'msg', `${n} replies received via Slack/Email.`);
+    toast(`${n} replies received.`);
+    renderIncidentDetail();
+  });
+  document.getElementById('btn-close-inc')?.addEventListener('click', () => {
+    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    showModal(`<h3>Close Incident</h3>
+      <p style="font-size:12px;color:var(--muted)">Add a closure note for the permanent record.</p>
+      <textarea id="close-note" style="width:100%;min-height:80px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px;font-size:12px;margin-top:6px"
+        placeholder="e.g. All-clear confirmed by building security at 14:30. No injuries."></textarea>
+      <div class="modal-actions"><button class="btn-ghost" id="modal-cancel">Cancel</button>
+      <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px" id="modal-confirm">Confirm</button></div>`);
+    document.getElementById('modal-cancel').onclick = closeModal;
+    document.getElementById('modal-confirm').onclick = () => {
+      inc.status='closed';
+      inc.closedNote = document.getElementById('close-note').value || 'No closure note.';
+      inc.closedAt = new Date().toISOString();
+      addIncidentLog(inc.id, 'close', `Incident closed. ${inc.closedNote}`);
+      closeModal();
+      toast('Incident closed and sealed.');
+      renderIncidents();
+    };
+  });
+}
+
+/* ---------- 13. Layers panel + filters ---------- */
+function buildLayerControls() {
+  document.getElementById('office-toggle-list').innerHTML = OFFICES.map(o => `
+    <div class="toggle-row"><label><span style="color:var(--muted);font-size:11px">${o.id}</span> ${o.name}</label>
+      <input type="checkbox" data-vis-office="${o.id}" checked /></div>`).join('');
+  document.getElementById('alert-type-list').innerHTML = ALERT_TYPES.map(t => `
+    <div class="toggle-row"><label>${t}</label><input type="checkbox" data-vis-type="${t}" checked/></div>`).join('');
+  document.querySelectorAll('[data-vis-office]').forEach(c => c.addEventListener('change', e => {
+    const id = e.target.dataset.visOffice;
+    STATE.visibleOffices = e.target.checked
+      ? [...new Set([...STATE.visibleOffices, id])]
+      : STATE.visibleOffices.filter(x => x !== id);
+    renderAll();
+  }));
+  document.querySelectorAll('[data-vis-type]').forEach(c => c.addEventListener('change', e => {
+    const t = e.target.dataset.visType;
+    STATE.visibleAlertTypes = e.target.checked
+      ? [...new Set([...STATE.visibleAlertTypes, t])]
+      : STATE.visibleAlertTypes.filter(x => x !== t);
+    renderAll();
+  }));
+  document.querySelectorAll('[data-overlay]').forEach(c => c.addEventListener('change', e => {
+    STATE.hazards[e.target.dataset.overlay] = e.target.checked;
+    renderHazards();
+  }));
+  document.querySelectorAll('.sev-seg').forEach(s => s.addEventListener('click', () => {
+    document.querySelectorAll('.sev-seg').forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+    STATE.filterMinSev = s.dataset.sev;
+    renderAll();
+  }));
+  document.getElementById('toggle-employees').addEventListener('change', e => { STATE.showEmployees = e.target.checked; renderEmployees(); });
+  document.getElementById('toggle-travelers').addEventListener('change', e => { STATE.showTravelers = e.target.checked; renderTravelers(); });
+  document.querySelectorAll('input[name="emp-mode"]').forEach(r => r.addEventListener('change', e => { STATE.empMode = e.target.value; renderEmployees(); }));
+  document.getElementById('btn-load-emp').addEventListener('click', () => document.getElementById('emp-file').click());
+  document.getElementById('btn-clear-emp').addEventListener('click', () => { EMPLOYEES = []; renderEmployees(); toast('Employees cleared.'); });
+  document.getElementById('emp-file').addEventListener('change', e => loadEmpCSV(e.target.files[0]));
+  document.getElementById('btn-load-trav').addEventListener('click', () => document.getElementById('trav-file').click());
+  document.getElementById('btn-clear-trav').addEventListener('click', () => { TRAVELERS = []; renderTravelers(); renderOffices(); toast('Travelers cleared.'); });
+  document.getElementById('trav-file').addEventListener('change', e => loadTravCSV(e.target.files[0]));
+}
+function loadEmpCSV(file) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const lines = r.result.split(/\r?\n/).filter(Boolean);
+    const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
+    const idx = (k) => headers.indexOf(k);
+    const rows = lines.map(l => l.split(','));
+    const out = [];
+    rows.forEach((c, i) => {
+      const office = (c[idx('office')]||c[idx('office_code')]||'').trim().toUpperCase();
+      const o = OFFICE_BY_ID[office];
+      if (!o) return;
+      const lat = parseFloat(c[idx('lat')]); const lng = parseFloat(c[idx('lng')]);
+      out.push({
+        id:'csv-'+i, name: c[idx('name')]||randomName(), office,
+        role: c[idx('role')]||'',
+        lat: isFinite(lat)?lat:o.lat+(Math.random()-.5)*.18,
+        lng: isFinite(lng)?lng:o.lng+(Math.random()-.5)*.22,
+        officeLat:o.lat, officeLng:o.lng,
+      });
+    });
+    EMPLOYEES = out;
+    renderEmployees();
+    toast(`${out.length} employees loaded from CSV.`);
+  };
+  r.readAsText(file);
+}
+function loadTravCSV(file) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const lines = r.result.split(/\r?\n/).filter(Boolean);
+    const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
+    const idx = k => headers.indexOf(k);
+    const rows = lines.map(l => l.split(','));
+    const out = rows.map((c,i) => ({
+      id:'tcsv-'+i, name: c[idx('name')]||randomName(),
+      home: (c[idx('home_office')]||'').toUpperCase(),
+      destCity: c[idx('destination')]||'Unknown',
+      type: c[idx('booking_type')]||'hotel',
+      lat: parseFloat(c[idx('lat')])||0, lng: parseFloat(c[idx('lng')])||0,
+      atOffice: (c[idx('at_office')]||'').toUpperCase()||null,
+    }));
+    TRAVELERS = out;
+    renderTravelers(); renderOffices();
+    toast(`${out.length} travelers loaded.`);
+  };
+  r.readAsText(file);
+}
+
+/* ---------- 14. Geo-fence ---------- */
+const drawHandlers = {};
+function setupDraw() {
+  drawHandlers.circle    = new L.Draw.Circle(map,    { shapeOptions: { color: SEV_COLOR.high, weight: 2, fillOpacity: .1 } });
+  drawHandlers.rectangle = new L.Draw.Rectangle(map, { shapeOptions: { color: SEV_COLOR.high, weight: 2, fillOpacity: .1 } });
+  drawHandlers.polygon   = new L.Draw.Polygon(map,   { shapeOptions: { color: SEV_COLOR.high, weight: 2, fillOpacity: .1 } });
+  document.querySelectorAll('[data-shape]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-shape]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    if (STATE.fence) clearFence();
+    drawHandlers[b.dataset.shape].enable();
+    toast('Click on the map to draw.');
+  }));
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    STATE.fenceMode = b.dataset.mode;
+    if (STATE.fence) computeFenceResults();
+  }));
+  map.on(L.Draw.Event.CREATED, e => {
+    const layer = e.layer; layers.fence.addLayer(layer);
+    STATE.fence = { layer, shape: e.layerType };
+    computeFenceResults();
+  });
+  document.getElementById('btn-fence-clear').onclick = clearFence;
+  document.getElementById('btn-fence-export').onclick = exportFenceCSV;
+  document.getElementById('btn-fence-crisis').onclick = fenceToCrisis;
+}
+function clearFence() {
+  layers.fence.clearLayers();
+  STATE.fence = null;
+  document.getElementById('fence-bottom').style.display = 'none';
+  document.getElementById('fence-results').innerHTML = '<div class="empty">Draw a shape to see results.</div>';
+  document.getElementById('fence-result-summary').textContent = '';
+  document.getElementById('fence-badge').textContent = '';
+  renderAll();
+}
+function pointInFence(lat, lng) {
+  if (!STATE.fence) return false;
+  const layer = STATE.fence.layer;
+  if (layer.getRadius) {
+    const c = layer.getLatLng();
+    return map.distance([lat,lng], [c.lat, c.lng]) <= layer.getRadius();
+  }
+  if (layer.getBounds && STATE.fence.shape === 'rectangle') {
+    return layer.getBounds().contains([lat, lng]);
+  }
+  if (STATE.fence.shape === 'polygon') {
+    const pts = layer.getLatLngs()[0];
+    let inside = false;
+    for (let i=0,j=pts.length-1;i<pts.length;j=i++) {
+      const xi=pts[i].lat, yi=pts[i].lng, xj=pts[j].lat, yj=pts[j].lng;
+      const intersect = ((yi>lng)!==(yj>lng)) && (lat < (xj-xi)*(lng-yi)/(yj-yi)+xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+  return false;
+}
+function computeFenceResults() {
+  if (!STATE.fence) return;
+  const offIn = OFFICES.filter(o => pointInFence(o.lat, o.lng));
+  const empIn = EMPLOYEES.filter(e => pointInFence(STATE.empMode==='zip'?e.lat:e.officeLat, STATE.empMode==='zip'?e.lng:e.officeLng));
+  const travIn = TRAVELERS.filter(t => pointInFence(t.lat, t.lng));
+  const alertIn = ALERTS.filter(a => pointInFence(a.lat, a.lng));
+  STATE.fence.results = { offices: offIn, employees: empIn, travelers: travIn, alerts: alertIn };
+  // dropdown
+  const drop = document.getElementById('fence-results');
+  drop.innerHTML = `
+    <div class="fence-row"><b>Offices</b><span>${offIn.length}</span></div>
+    ${offIn.map(o=>`<div class="fence-row"><span>${o.id} · ${o.name}</span><span>${o.headcount} emp</span></div>`).join('')}
+    <div class="fence-row" style="margin-top:6px"><b>Alerts</b><span>${alertIn.length}</span></div>
+    ${alertIn.slice(0,5).map(a=>`<div class="fence-row"><span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span><span>${a.title.slice(0,40)}…</span></div>`).join('')}
+  `;
+  document.getElementById('fence-result-summary').textContent = `${empIn.length} emp · ${travIn.length} trav`;
+  // bottom bar
+  const bar = document.getElementById('fence-bottom');
+  bar.style.display = 'flex';
+  const empByOffice = {}; empIn.forEach(e => empByOffice[e.office] = (empByOffice[e.office]||0)+1);
+  const travByDest = {}; travIn.forEach(t => travByDest[t.destCity] = (travByDest[t.destCity]||0)+1);
+  bar.innerHTML = `
+    <span class="count-emp">● ${empIn.length} employees in geofence</span>
+    <span class="count-trav">● ${travIn.length} travelers in geofence</span>
+    ${Object.entries(empByOffice).map(([k,v])=>`<span class="chip emp">${k} ${v}</span>`).join('')}
+    ${Object.entries(travByDest).slice(0,4).map(([k,v])=>`<span class="chip trav">✈ ${k} ${v}</span>`).join('')}
+    <button class="btn-ghost" onclick="App.exportFenceCSV()">Export CSV</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:6px 12px" onclick="App.fenceToCrisis()">Crisis →</button>
+  `;
+  // Fence badge
+  const maxSev = alertIn.reduce((m,a)=>Math.max(m, SEV_RANK[a.sev]),0);
+  const badge = document.getElementById('fence-badge');
+  if (maxSev) badge.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${SEV_COLOR[SEVERITY[maxSev-1]]};margin-left:4px"></span>`;
+  // Filter mode hides things outside
+  if (STATE.fenceMode === 'filter') {
+    // dim non-fenced offices visually (re-render with subset)
+    STATE.visibleOffices = offIn.map(o => o.id);
+    document.querySelectorAll('[data-vis-office]').forEach(c => c.checked = STATE.visibleOffices.includes(c.dataset.visOffice));
+    renderAll();
+  }
+}
+function exportFenceCSV() {
+  if (!STATE.fence?.results) return;
+  const r = STATE.fence.results;
+  const rows = [['Type','Name','Office','Role/Dest','Lat','Lng']];
+  r.employees.forEach(e => rows.push(['home', e.name, e.office, e.role||'', e.lat, e.lng]));
+  r.travelers.forEach(t => rows.push(['traveler', t.name, t.home, t.destCity, t.lat, t.lng]));
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='geofence-export.csv'; a.click();
+  URL.revokeObjectURL(url);
+  toast('Geofence exported.');
+}
+function fenceToCrisis() {
+  if (!STATE.fence?.results) return;
+  STATE.selectedOffices = STATE.fence.results.offices.map(o => o.id);
+  openPanel('crisis'); setCcTab('compose'); renderCC();
+  toast(`${STATE.selectedOffices.length} office(s) pre-selected.`);
+}
+
+/* ---------- 15. Panels & dropdown management ---------- */
+function openPanel(p) {
+  STATE.panels[p] = true;
+  document.getElementById('panel-'+p).classList.remove('collapsed');
+}
+function closePanel(p) {
+  STATE.panels[p] = false;
+  document.getElementById('panel-'+p).classList.add('collapsed');
+}
+document.getElementById('rail-alerts').onclick = () => STATE.panels.alerts ? closePanel('alerts') : openPanel('alerts');
+document.getElementById('rail-crisis').onclick = () => STATE.panels.crisis ? closePanel('crisis') : openPanel('crisis');
+document.getElementById('rail-incident').onclick = () => STATE.panels.incident ? closePanel('incident') : openPanel('incident');
+document.getElementById('btn-collapse-alerts').onclick = () => closePanel('alerts');
+document.getElementById('btn-collapse-crisis').onclick = () => closePanel('crisis');
+document.getElementById('btn-collapse-incident').onclick = () => closePanel('incident');
+
+document.getElementById('btn-layers').onclick = (e) => {
+  e.stopPropagation();
+  document.getElementById('geofence-dropdown').classList.remove('open');
+  document.getElementById('layers-dropdown').classList.toggle('open');
+};
+document.getElementById('btn-fence').onclick = (e) => {
+  e.stopPropagation();
+  document.getElementById('layers-dropdown').classList.remove('open');
+  document.getElementById('geofence-dropdown').classList.toggle('open');
+};
+document.addEventListener('click', e => {
+  if (!e.target.closest('.layers-dropdown') && !e.target.closest('#btn-layers'))
+    document.getElementById('layers-dropdown').classList.remove('open');
+  if (!e.target.closest('.geofence-dropdown') && !e.target.closest('#btn-fence'))
+    document.getElementById('geofence-dropdown').classList.remove('open');
+});
+
+document.querySelectorAll('[data-feed-tab]').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('[data-feed-tab]').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+  STATE.feedTab = t.dataset.feedTab;
+  renderFeed();
+}));
+document.querySelectorAll('[data-cc-tab]').forEach(t => t.addEventListener('click', () => setCcTab(t.dataset.ccTab)));
+document.getElementById('feed-search').addEventListener('input', e => { STATE.search = e.target.value; renderFeed(); });
+
+document.getElementById('btn-style').onclick = () => {
+  STATE.theme = STATE.theme==='dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', STATE.theme);
+  document.getElementById('btn-style').textContent = STATE.theme==='dark' ? '🌙' : '☀️';
+  TILES.dark.remove(); TILES.light.remove();
+  TILES[STATE.theme].addTo(map);
+};
+
+document.getElementById('btn-freshness').onclick = () => {
+  showModal(`<h3>Data Sources Freshness</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">${SOURCES.filter(s=>s.status==='ok').length}/${SOURCES.length} sources healthy. 15-min refresh cycle, 24-hour TTL.</p>
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr><th align="left">Source</th><th align="left">Type</th><th>Status</th></tr></thead>
+      <tbody>${SOURCES.map(s=>`<tr style="border-top:1px solid var(--border)"><td><b>${s.id}</b><div style="font-size:10px;color:var(--muted)">${s.name}</div></td><td>${s.type}</td><td align="center">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.status==='ok'?'var(--green)':s.status==='stale'?'var(--yellow)':'var(--red)'}"></span>
+        <span style="font-size:10px;margin-left:4px">${s.status}</span>
+      </td></tr>`).join('')}</tbody>
+    </table>
+    <div class="modal-actions"><button class="btn-ghost" onclick="App.closeModal()">Close</button></div>`);
+};
+
+document.getElementById('btn-help').onclick = () => {
+  showModal(`<h3>Quick Reference</h3>
+    <ol style="font-size:12px;line-height:1.6;padding-left:18px">
+      <li><b>Monitor</b> — Office markers turn yellow/orange/red as severity rises. Click any marker for headcount and active alerts.</li>
+      <li><b>Assess</b> — Click an alert card to zoom; hit the inline <span class="sev-pill" style="background:rgba(28,231,131,.12);color:var(--green);border:1px solid var(--green);padding:1px 5px;border-radius:3px">Crisis</span> button to pre-load Crisis Comms.</li>
+      <li><b>Geo-fence</b> — Header → ✏︎ Geo-fence → pick a shape → draw. Results appear in the dropdown plus the bottom bar.</li>
+      <li><b>Compose</b> — Pick offices, channels, template, then Send. With Response Required, a new incident is auto-created.</li>
+      <li><b>Track</b> — Incident Messages tab tracks each employee. Filter by All / No Response / OK / Help.</li>
+      <li><b>Document & Close</b> — Notes tab for situation updates. Log tab for the auto-generated timeline. End Incident to seal.</li>
+    </ol>
+    <h4 style="margin-top:14px">Severity</h4>
+    <div style="display:flex;gap:6px;font-size:11px">
+      ${SEVERITY.map(s=>`<span class="sev-pill ${s}">${SEV_NAME[s]}</span>`).join('')}
+    </div>
+    <h4 style="margin-top:12px">Sources active</h4>
+    <p style="font-size:11px;color:var(--muted)">${SOURCES.map(s=>s.id).join(' · ')}</p>
+    <div class="modal-actions"><button class="btn-ghost" onclick="App.closeModal()">Close</button></div>`);
+};
+
+document.getElementById('btn-new-incident').onclick = () => {
+  showModal(`<h3>New Incident</h3>
+    <div class="field"><label>Title</label><input id="ni-title" placeholder="e.g. Office Lockdown — SFO"/></div>
+    <div class="field"><label>Severity</label>
+      <select id="ni-sev">${SEVERITY.map(s=>`<option value="${s}">${SEV_NAME[s]}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Affected Offices</label>
+      <div class="office-picker">${OFFICES.map(o=>`<label><input type="checkbox" data-ni-office="${o.id}"/> ${o.id} · ${o.name}</label>`).join('')}</div>
+    </div>
+    <div class="field"><label>Description</label><textarea id="ni-desc" placeholder="Brief situation summary..."></textarea></div>
+    <div class="modal-actions"><button class="btn-ghost" id="modal-cancel">Cancel</button>
+    <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px" id="modal-confirm">Create Incident</button></div>`);
+  document.getElementById('modal-cancel').onclick = closeModal;
+  document.getElementById('modal-confirm').onclick = () => {
+    const title = document.getElementById('ni-title').value || 'Untitled incident';
+    const sev = document.getElementById('ni-sev').value;
+    const desc = document.getElementById('ni-desc').value || '';
+    const offices = [...document.querySelectorAll('[data-ni-office]:checked')].map(c => c.dataset.niOffice);
+    if (!offices.length) { toast('Select at least one office.'); return; }
+    const inc = createIncident({ title, offices, severity: sev, description: desc });
+    closeModal();
+    selectIncident(inc.id);
+  };
+};
+
+/* ---------- 16. Modals + toast ---------- */
+function showModal(html) {
+  const back = document.createElement('div');
+  back.className = 'modal-back'; back.id='modal-back';
+  back.innerHTML = `<div class="modal">${html}</div>`;
+  back.addEventListener('click', e => { if (e.target===back) closeModal(); });
+  document.body.appendChild(back);
+}
+function closeModal() { document.getElementById('modal-back')?.remove(); }
+function toast(msg) {
+  const wrap = document.getElementById('toast-wrap');
+  const t = document.createElement('div'); t.className='toast'; t.textContent = msg;
+  wrap.appendChild(t);
+  setTimeout(()=>t.classList.add('fade'), 2400);
+  setTimeout(()=>t.remove(), 3000);
+}
+
+/* ---------- 17. Public hooks for popup buttons ---------- */
+window.App = {
+  targetOffice(id) {
+    if (!STATE.selectedOffices.includes(id)) STATE.selectedOffices.push(id);
+    openPanel('crisis'); setCcTab('compose'); renderCC();
+    toast(`${id} added to Crisis Comms.`);
+  },
+  zoomOffice(id) {
+    const o = OFFICE_BY_ID[id]; if (!o) return;
+    map.setView([o.lat, o.lng], 7);
+  },
+  removeOffice(id) {
+    STATE.selectedOffices = STATE.selectedOffices.filter(x => x !== id);
+    renderCC();
+  },
+  exportFenceCSV, fenceToCrisis, closeModal,
+};
+
+/* ---------- 18. Master render ---------- */
+function renderAll() {
+  renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards(); renderFeed(); renderCC(); renderIncidents();
+}
+
+/* ---------- 19. Boot ---------- */
+buildLayerControls();
+setupDraw();
+renderAll();
+function tick() {
+  document.getElementById('last-updated').textContent = `Last updated ${fmtClock()}`;
+}
+tick(); setInterval(tick, 1000);
+
+/* Pre-select highest severity alert + a couple of comms targets for demo */
+const highest = ALERTS.filter(passesFilter).sort((a,b)=>SEV_RANK[b.sev]-SEV_RANK[a.sev])[0];
+if (highest && highest.officeId) {
+  STATE.selectedOffices = [highest.officeId];
+  selectAlert(highest.id);
+}
+renderCC();
+</script>
+</body>
+</html>

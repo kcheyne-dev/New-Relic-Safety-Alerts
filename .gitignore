@@ -1,0 +1,7 @@
+.DS_Store
+*.log
+node_modules/
+.env
+user-manual.html
+quick-reference.html
+New Relic Safety Alerts.pdf
