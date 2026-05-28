@@ -2292,6 +2292,12 @@ function exportIncidentReport(incidentId) {
   const dashRoot = location.href.split('#')[0];
   const dashLink = `${dashRoot}#incident/${inc.id}`;
 
+  // Related alerts: any active alert in any affected office (excluding origAlert which has its own section)
+  const relatedAlerts = ALERTS.filter(a =>
+    a.officeId && inc.offices.includes(a.officeId) &&
+    (!origAlert || a.id !== origAlert.id)
+  );
+
   // build per-office response table
   const employeeRows = []; const travelerRows = [];
   Object.entries(resp).forEach(([eid, r]) => {
@@ -2384,7 +2390,9 @@ function exportIncidentReport(incidentId) {
     <tr><th>Response tracking</th><td>${total ? `${ok} OK · ${help} need help · ${no} no response (${pct}% responded)` : 'No tracked responses'}</td></tr>
     <tr><th>Notes recorded</th><td>${notes.length}</td></tr>
     <tr><th>Activity log entries</th><td>${log.length}</td></tr>
-    <tr><th>Originating source</th><td>${origAlert ? `Alert <code>${esc(origAlert.id)}</code> — ${esc(origAlert.title)}` : 'Manually created'}</td></tr>
+    <tr><th>Originating source</th><td>${origAlert
+      ? `Alert <code>${esc(origAlert.id)}</code> — ${esc(origAlert.title)} <span class="pill">${esc(origAlert.source)}</span>${origSrc?.url ? ` <a href="${origSrc.url}" target="_blank" rel="noopener">View source ↗</a>` : ''}${origAlert.sourceUrl ? ` · <a href="${origAlert.sourceUrl}" target="_blank" rel="noopener">View this alert at source ↗</a>` : ''}`
+      : 'Manually created'}</td></tr>
     <tr><th>Incident ID</th><td><code>${esc(inc.id)}</code></td></tr>
     <tr><th>Dashboard link</th><td><a href="${dashLink}" target="_blank" rel="noopener">${dashLink} ↗</a></td></tr>
   </table>
@@ -2412,6 +2420,27 @@ function exportIncidentReport(incidentId) {
       <tr><th>Alert ID</th><td><code>${esc(origAlert.id)}</code> · <a href="${dashRoot}#alert/${esc(origAlert.id)}" target="_blank" rel="noopener">Full alert page ↗</a></td></tr>
     </table>
   </div>` : ''}
+
+  ${relatedAlerts.length ? `<h2>Related Alerts (${relatedAlerts.length})</h2>
+  <p style="font-size:11px;color:#71717a;margin-bottom:8px">Other active alerts in the affected offices at time of report.</p>
+  <table>
+    <tr><th>Severity</th><th>Source</th><th>Title</th><th>Office</th><th>Issued</th><th>Links</th></tr>
+    ${relatedAlerts.map(a => {
+      const aSrc = SOURCES.find(s => s.id === a.source);
+      return `<tr>
+        <td><span class="sev" style="background:${SEV_COLOR[a.sev]}22;color:${SEV_COLOR[a.sev]};border-color:${SEV_COLOR[a.sev]};font-size:10px;padding:2px 6px">${SEV_NAME[a.sev]}</span></td>
+        <td><b>${esc(a.source)}</b>${aSrc?.url ? `<br><a href="${aSrc.url}" target="_blank" rel="noopener" style="font-size:10px">View source ↗</a>` : ''}</td>
+        <td>${esc(a.title)}</td>
+        <td>${esc(a.officeId||'—')}</td>
+        <td>${new Date(a.issued).toLocaleString()}</td>
+        <td>
+          <a href="${dashRoot}#alert/${esc(a.id)}" target="_blank" rel="noopener">Alert page ↗</a>
+          ${a.sourceUrl ? `<br><a href="${a.sourceUrl}" target="_blank" rel="noopener">At source ↗</a>` : ''}
+          <br><a href="https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}" target="_blank" rel="noopener">Map ↗</a>
+        </td>
+      </tr>`;
+    }).join('')}
+  </table>` : ''}
 
   <h2>Affected Offices</h2>
   <table>
@@ -2488,13 +2517,24 @@ function exportIncidentReport(incidentId) {
     ${log.map(l=>`<div class="log-row"><div class="log-when">${new Date(l.when).toLocaleString()} · ${esc(l.by)} · ${esc(l.kind)}</div><div>${l.body}</div></div>`).join('')}
   </div>
 
-  <h2>References</h2>
+  <h2>References & Source Links</h2>
   <table>
-    <tr><th style="width:160px">Item</th><th>Link</th></tr>
+    <tr><th style="width:200px">Item</th><th>Link</th></tr>
     <tr><td>Dashboard permalink</td><td><a href="${dashLink}" target="_blank" rel="noopener">${dashLink}</a></td></tr>
     ${origAlert ? `<tr><td>Originating alert</td><td><a href="${dashRoot}#alert/${esc(origAlert.id)}" target="_blank" rel="noopener">Alert ${esc(origAlert.id)} — ${esc(origAlert.title)} ↗</a></td></tr>` : ''}
-    ${origSrc?.url ? `<tr><td>Data source</td><td><a href="${origSrc.url}" target="_blank" rel="noopener">${esc(origSrc.id||origAlert.source)} — ${esc(origSrc.name)} ↗</a></td></tr>` : ''}
-    ${offices.map(o => `<tr><td>${o.id} office</td><td><a href="https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lng}" target="_blank" rel="noopener">${esc(o.address)} ↗</a></td></tr>`).join('')}
+    ${origSrc?.url ? `<tr><td>Originating data source</td><td><b>${esc(origSrc.id||origAlert.source)}</b> — ${esc(origSrc.name)} · <a href="${origSrc.url}" target="_blank" rel="noopener">${origSrc.url} ↗</a></td></tr>` : ''}
+    ${origAlert?.sourceUrl ? `<tr><td>Originating alert at source</td><td><a href="${origAlert.sourceUrl}" target="_blank" rel="noopener">${origAlert.sourceUrl} ↗</a></td></tr>` : ''}
+    ${(() => {
+      // Unique sources from related alerts
+      const sources = {};
+      relatedAlerts.forEach(a => {
+        const s = SOURCES.find(x => x.id === a.source);
+        if (s?.url && !sources[s.id]) sources[s.id] = s;
+      });
+      return Object.values(sources).map(s => `<tr><td>Related data source</td><td><b>${esc(s.id)}</b> — ${esc(s.name)} · <a href="${s.url}" target="_blank" rel="noopener">${s.url} ↗</a></td></tr>`).join('');
+    })()}
+    ${relatedAlerts.map(a => `<tr><td>Related alert</td><td><a href="${dashRoot}#alert/${esc(a.id)}" target="_blank" rel="noopener">Alert ${esc(a.id)} — ${esc(a.title)} ↗</a>${a.sourceUrl ? ` · <a href="${a.sourceUrl}" target="_blank" rel="noopener">at source ↗</a>` : ''}</td></tr>`).join('')}
+    ${offices.map(o => `<tr><td>${o.id} office location</td><td>${esc(o.address)} · <a href="https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lng}" target="_blank" rel="noopener">View on Google Maps ↗</a></td></tr>`).join('')}
   </table>
 
   <div class="footer">
@@ -2509,8 +2549,15 @@ function exportIncidentReport(incidentId) {
       opened: inc.opened, closedAt: inc.closedAt, closedNote: inc.closedNote,
       offices: inc.offices, officeDetails: offices,
       description: inc.description,
-      alertId: inc.alertId, originatingAlert: origAlert || null,
-      sourceUrl: origSrc?.url || null,
+      alertId: inc.alertId,
+      originatingAlert: origAlert || null,
+      originatingSource: origSrc || null,
+      relatedAlerts: relatedAlerts.map(a => ({
+        ...a,
+        sourceMeta: SOURCES.find(s => s.id === a.source) || null,
+        dashboardLink: `${dashRoot}#alert/${a.id}`,
+        mapsLink: `https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}`,
+      })),
       dashboardLink: dashLink,
       messages, notes, log: inc.log, responses: resp,
       reopens: inc.reopens || [],
