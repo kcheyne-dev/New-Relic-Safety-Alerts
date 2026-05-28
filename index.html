@@ -3,7 +3,18 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>New Relic Safety Alerts</title>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline' https://unpkg.com;
+  style-src 'self' 'unsafe-inline' https://unpkg.com;
+  img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org;
+  connect-src 'self' https://*.basemaps.cartocdn.com;
+  font-src 'self' data:;
+  frame-ancestors 'none';
+  base-uri 'self';
+" />
+<meta name="description" content="New Relic Safety Alerts — CMT Dashboard for global threat monitoring and crisis communications." />
+<title>New Relic Safety Alerts — CMT Dashboard</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
 <style>
@@ -118,6 +129,9 @@ button { cursor: pointer; }
   background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
   padding: 1px 7px; font-size: 10px; margin-left: auto; }
 .office-group-head .more { color: var(--muted); font-size: 11px; }
+.more-btn { background: var(--bg2); border: 1px dashed var(--border); color: var(--muted);
+  border-radius: 4px; padding: 5px 8px; font-size: 11px; width: 100%; cursor: pointer; margin-top: 2px; }
+.more-btn:hover { color: var(--green); border-color: var(--green); }
 .alert-cards { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
 .alert-card {
   background: var(--bg3); border: 1px solid var(--border); border-left-width: 3px;
@@ -165,6 +179,12 @@ button { cursor: pointer; }
 .map-fence-bottom .chip.emp { background: rgba(74,222,128,.12); color: var(--sev-low); border-color: rgba(74,222,128,.3); }
 .map-fence-bottom .chip.trav { background: rgba(251,146,60,.12); color: var(--orange); border-color: rgba(251,146,60,.3); }
 .map-fence-bottom button { margin-left: auto; }
+.reset-view-btn { position: absolute; top: 80px; left: 10px; z-index: 600;
+  background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 10px; border-radius: 5px; font-size: 12px;
+  display: flex; align-items: center; gap: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4); cursor: pointer; }
+.reset-view-btn:hover { border-color: var(--green); }
 /* office marker */
 .office-mk { display: flex; align-items: center; gap: 4px;
   background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
@@ -346,6 +366,27 @@ button { cursor: pointer; }
   font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.5); max-width: 280px; }
 .toast.fade { opacity: 0; transition: opacity .4s; }
 
+/* ============ UTILITY CLASSES ===================================== */
+.row { display: flex; align-items: center; }
+.row-between { display: flex; align-items: center; justify-content: space-between; }
+.row-end { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.row-gap { gap: 6px; }
+.row-gap-sm { gap: 4px; }
+.muted-sm { font-size: 11px; color: var(--muted); }
+.muted-xs { font-size: 10px; color: var(--muted); }
+.label-min { margin-bottom: 0; }
+.btn-icon { background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+  padding: 6px 10px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+.btn-icon:hover { border-color: var(--green); }
+/* clickable links inside form sections (Add all / Clear) */
+.field-action { font-size: 10px; color: var(--green); cursor: pointer; }
+.field-action.muted { color: var(--muted); }
+.field-action.muted:hover { color: var(--green); }
+
+/* visually-hidden label for screen readers */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
 /* ============ SCROLLBAR =========================================== */
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 4px; }
@@ -363,22 +404,22 @@ button { cursor: pointer; }
       </div>
     </div>
     <div class="h-tools">
-      <span class="last-updated" id="last-updated">Last updated —</span>
-      <button class="htn" id="btn-freshness" title="Data freshness">
-        <span class="dot green" id="freshness-dot"></span>Sources <span id="freshness-count">12/15</span>
+      <span class="last-updated" id="last-updated" aria-live="polite">Last updated —</span>
+      <button class="htn" id="btn-freshness" title="Data sources freshness" aria-label="Data sources freshness">
+        <span class="dot green" id="freshness-dot" aria-hidden="true"></span>Sources <span id="freshness-count">12/15</span>
       </button>
-      <button class="htn" id="btn-layers">⚙ Layers</button>
-      <button class="htn" id="btn-fence">✏︎ Geo-fence <span id="fence-badge"></span></button>
-      <button class="htn" id="btn-style" title="Toggle theme">🌙</button>
-      <button class="htn" id="btn-help">? Manual</button>
+      <button class="htn" id="btn-layers" aria-label="Map layers and filters">⚙ Layers</button>
+      <button class="htn" id="btn-fence" aria-label="Geo-fence drawing tool">✏︎ Geo-fence <span id="fence-badge"></span></button>
+      <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
+      <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
     </div>
   </header>
 
   <div class="main">
     <!-- LEFT ZONE: Alert Feed -->
     <div class="left-zone">
-      <div class="rail alert" id="rail-alerts" title="Alert Feed">
-        <span class="rail-bell">🔔</span>
+      <div class="rail alert" id="rail-alerts" title="Open Alert Feed" role="button" tabindex="0" aria-label="Alert Feed — toggle panel" aria-controls="panel-alerts" aria-expanded="false">
+        <span class="rail-bell" aria-hidden="true">🔔</span>
         <span class="rail-icon">ALERTS</span>
         <div class="rail-office-list" id="rail-office-list"></div>
       </div>
@@ -477,16 +518,15 @@ button { cursor: pointer; }
       <div class="map-overlay map-fence-bottom" id="fence-bottom" style="display:none;"></div>
 
       <!-- RESET VIEW button -->
-      <button id="btn-reset-view" title="Show all offices"
-        style="position:absolute;top:80px;left:10px;z-index:600;background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:5px;font-size:12px;display:flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(0,0,0,.4);cursor:pointer">
-        🌐 All offices
+      <button id="btn-reset-view" class="reset-view-btn" title="Show all offices" aria-label="Reset map to show all offices">
+        <span aria-hidden="true">🌐</span> All offices
       </button>
     </div>
 
     <!-- RIGHT ZONE: Crisis + Incidents stacked -->
     <div class="right-zone">
       <!-- Crisis Comms -->
-      <div class="rail crisis" id="rail-crisis" title="Crisis Comms"><span class="rail-icon">📣 Crisis</span></div>
+      <div class="rail crisis" id="rail-crisis" title="Open Crisis Comms" role="button" tabindex="0" aria-label="Crisis Communications — toggle panel" aria-controls="panel-crisis" aria-expanded="false"><span class="rail-icon">📣 Crisis</span></div>
       <aside class="panel collapsed" id="panel-crisis" style="width: 360px;">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-teal">📣</span> Crisis Comms</div>
@@ -504,7 +544,7 @@ button { cursor: pointer; }
       </aside>
 
       <!-- Incidents -->
-      <div class="rail incident" id="rail-incident" title="Incidents"><span class="rail-icon">🚨 Incidents</span><span class="badge live" id="incident-active-badge">0</span></div>
+      <div class="rail incident" id="rail-incident" title="Open Incidents" role="button" tabindex="0" aria-label="Incidents — toggle panel" aria-controls="panel-incident" aria-expanded="false"><span class="rail-icon">🚨 Incidents</span><span class="badge live" id="incident-active-badge" aria-label="active incidents">0</span></div>
       <aside class="panel collapsed" id="panel-incident" style="width: 360px;">
         <div class="panel-head">
           <div class="panel-title"><span class="accent-red">🚨</span> Incidents</div>
@@ -519,7 +559,7 @@ button { cursor: pointer; }
   </div>
 </div>
 
-<div class="toast-wrap" id="toast-wrap"></div>
+<div class="toast-wrap" id="toast-wrap" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
@@ -694,11 +734,11 @@ const TEMPLATES = {
   shelter:  { name:'Shelter in Place',body:'IMMEDIATE: A safety incident has been reported. Shelter in place inside the office. Move away from windows. Do not exit until you receive an all-clear. Reply OK / HELP.' },
   evac:     { name:'Evacuation',      body:'IMMEDIATE: Evacuate the office now via the nearest safe exit. Proceed to the muster point. Do not use elevators. Reply OK once you are at muster.' },
   allclear: { name:'All Clear',       body:'All clear. The earlier safety incident has been resolved. You may resume normal activity.' },
-  custom:   { name:'Custom',          body:'' },
 };
 
 const STATE = {
   feedTab: 'office',
+  expandedOffices: new Set(),  // office groups showing all alerts vs top 5
   search: '',
   selectedAlertId: null,
   selectedOffices: [],
@@ -935,17 +975,19 @@ function renderFeed() {
       const o = OFFICE_BY_ID[oid];
       const sev = list.reduce((m,a)=>SEV_RANK[a.sev]>m?SEV_RANK[a.sev]:m,0);
       const sevName = SEVERITY[sev-1];
-      const visible = list.slice(0,5);
+      const expanded = STATE.expandedOffices.has(oid);
+      const visible = expanded ? list : list.slice(0,5);
       const more = list.length - visible.length;
       return `<div class="office-group">
-        <div class="office-group-head" onclick="App.zoomOffice('${oid}')">
-          <span class="sev-dot" style="background:${SEV_COLOR[sevName]||'var(--muted)'}"></span>
-          <span class="name">${o ? o.name : 'Travel / Region'}</span>
+        <div class="office-group-head" onclick="App.zoomOffice('${esc(oid)}')">
+          <span class="sev-dot" style="background:${SEV_COLOR[sevName]||'var(--muted)'}" aria-hidden="true"></span>
+          <span class="name">${esc(o ? o.name : 'Travel / Region')}</span>
           <span class="pill">${list.length}</span>
         </div>
         <div class="alert-cards">
           ${visible.map(a=>alertCardHTML(a)).join('')}
-          ${more>0?`<div class="more">+${more} more</div>`:''}
+          ${more>0?`<button class="more-btn" data-expand="${esc(oid)}">Show ${more} more ▾</button>`:''}
+          ${expanded && list.length>5?`<button class="more-btn" data-collapse="${esc(oid)}">Show less ▴</button>`:''}
         </div>
       </div>`;
     }).join('');
@@ -969,6 +1011,14 @@ function renderFeed() {
   body.querySelectorAll('.details-btn').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
     showAlertDetails(el.dataset.details);
+  }));
+  body.querySelectorAll('[data-expand]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    STATE.expandedOffices.add(el.dataset.expand); renderFeed();
+  }));
+  body.querySelectorAll('[data-collapse]').forEach(el => el.addEventListener('click', e => {
+    e.stopPropagation();
+    STATE.expandedOffices.delete(el.dataset.collapse); renderFeed();
   }));
 }
 function alertCardHTML(a) {
@@ -1026,7 +1076,7 @@ function recipientsForChannel(ch, ids) {
 }
 function allTemplates() {
   return [
-    ...Object.entries(TEMPLATES).filter(([k])=>k!=='custom').map(([k,t]) => ({ id:k, name:t.name, body:t.body, builtin:true })),
+    ...Object.entries(TEMPLATES).map(([k,t]) => ({ id:k, name:t.name, body:t.body, builtin:true })),
     ...STATE.userTemplates.map(t => ({ id:t.id, name:t.name, body:t.body, builtin:false })),
   ];
 }
@@ -1658,6 +1708,9 @@ function loadTravCSV(file) {
 
 /* ---------- 14. Geo-fence ---------- */
 const drawHandlers = {};
+function disableAllDrawHandlers() {
+  Object.values(drawHandlers).forEach(h => h?.disable && h.disable());
+}
 function setupDraw() {
   drawHandlers.circle    = new L.Draw.Circle(map,    { shapeOptions: { color: SEV_COLOR.high, weight: 2, fillOpacity: .1 } });
   drawHandlers.rectangle = new L.Draw.Rectangle(map, { shapeOptions: { color: SEV_COLOR.high, weight: 2, fillOpacity: .1 } });
@@ -1665,6 +1718,7 @@ function setupDraw() {
   document.querySelectorAll('[data-shape]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-shape]').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
+    disableAllDrawHandlers();              // ensure only one shape handler is live
     if (STATE.fence) clearFence();
     drawHandlers[b.dataset.shape].enable();
     toast('Click on the map to draw.');
@@ -1676,6 +1730,8 @@ function setupDraw() {
     if (STATE.fence) computeFenceResults();
   }));
   map.on(L.Draw.Event.CREATED, e => {
+    disableAllDrawHandlers();              // exit drawing mode after a shape lands
+    document.querySelectorAll('[data-shape]').forEach(x => x.classList.remove('active'));
     const layer = e.layer; layers.fence.addLayer(layer);
     STATE.fence = { layer, shape: e.layerType };
     computeFenceResults();
@@ -1780,14 +1836,21 @@ function fenceToCrisis() {
 function openPanel(p) {
   STATE.panels[p] = true;
   document.getElementById('panel-'+p).classList.remove('collapsed');
+  document.getElementById('rail-'+p)?.setAttribute('aria-expanded', 'true');
 }
 function closePanel(p) {
   STATE.panels[p] = false;
   document.getElementById('panel-'+p).classList.add('collapsed');
+  document.getElementById('rail-'+p)?.setAttribute('aria-expanded', 'false');
 }
-document.getElementById('rail-alerts').onclick = () => STATE.panels.alerts ? closePanel('alerts') : openPanel('alerts');
-document.getElementById('rail-crisis').onclick = () => STATE.panels.crisis ? closePanel('crisis') : openPanel('crisis');
-document.getElementById('rail-incident').onclick = () => STATE.panels.incident ? closePanel('incident') : openPanel('incident');
+function togglePanel(p) { STATE.panels[p] ? closePanel(p) : openPanel(p); }
+['alerts','crisis','incident'].forEach(p => {
+  const rail = document.getElementById('rail-'+p);
+  rail.addEventListener('click', () => togglePanel(p));
+  rail.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePanel(p); }
+  });
+});
 document.getElementById('btn-collapse-alerts').onclick = () => closePanel('alerts');
 document.getElementById('btn-collapse-crisis').onclick = () => closePanel('crisis');
 document.getElementById('btn-collapse-incident').onclick = () => closePanel('incident');
@@ -1909,9 +1972,14 @@ document.getElementById('btn-new-incident').onclick = () => {
 function showModal(html) {
   const back = document.createElement('div');
   back.className = 'modal-back'; back.id='modal-back';
-  back.innerHTML = `<div class="modal">${html}</div>`;
+  back.innerHTML = `<div class="modal" role="dialog" aria-modal="true">${html}</div>`;
   back.addEventListener('click', e => { if (e.target===back) closeModal(); });
   document.body.appendChild(back);
+  // focus the first focusable element for keyboard users
+  setTimeout(() => {
+    const focusable = back.querySelector('input, textarea, button, select');
+    focusable?.focus();
+  }, 0);
 }
 function closeModal() { document.getElementById('modal-back')?.remove(); }
 function toast(msg) {
@@ -1931,10 +1999,10 @@ window.App = {
   },
   zoomOffice(id) {
     const o = OFFICE_BY_ID[id]; if (!o) return;
-    map.setView([o.lat, o.lng], 7);
-    // open the popup after the pan settles
     const m = OFFICE_MARKERS[id];
-    if (m) setTimeout(() => m.openPopup(), 250);
+    // open the popup once the pan settles (no magic timeout)
+    if (m) map.once('moveend', () => m.openPopup());
+    map.setView([o.lat, o.lng], 7);
   },
   resetView() {
     // close any open popup, fit to all offices
