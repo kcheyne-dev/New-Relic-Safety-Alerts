@@ -1,0 +1,22 @@
+# Sprint 1 dev stack: Postgres + PostGIS only.
+# (Nominatim/Redis come in Sprint 2-3 when needed.)
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: nrsa-db
+    environment:
+      POSTGRES_USER: nrsa
+      POSTGRES_PASSWORD: nrsa
+      POSTGRES_DB: nrsa
+    ports:
+      - "5432:5432"
+    volumes:
+      - nrsa-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "nrsa"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  nrsa-pgdata:
