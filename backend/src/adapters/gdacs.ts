@@ -1,4 +1,5 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity, Category } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Category } from '../types.js';
+import { fromGdacsAlert } from '../pipeline/severity.js';
 import { log } from '../log.js';
 
 /**
@@ -55,12 +56,6 @@ const TYPE_MAP: Record<string, { type: string; cat: Category }> = {
   WF: { type: 'wildfire', cat: 'natural' },
 };
 
-const SEV_MAP: Record<string, Severity> = {
-  Green: 'mod',
-  Orange: 'high',
-  Red: 'ext',
-};
-
 function fromDate(daysAgo: number): string {
   const d = new Date(Date.now() - daysAgo * 24 * 3600 * 1000);
   return d.toISOString().slice(0, 10);
@@ -89,7 +84,7 @@ export const gdacsAdapter: SourceAdapter = {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
       const mapped = TYPE_MAP[p.eventtype] ?? { type: p.eventtype.toLowerCase(), cat: 'natural' as Category };
-      const sev = SEV_MAP[p.alertlevel] ?? 'mod';
+      const sev = fromGdacsAlert(p.alertlevel);
 
       const country = p.country ?? '';
       const title = `${p.eventname || p.name} ${country ? `— ${country}` : ''}`.trim();

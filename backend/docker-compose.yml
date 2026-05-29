@@ -1,5 +1,9 @@
-# Sprint 1 dev stack: Postgres + PostGIS only.
-# (Nominatim/Redis come in Sprint 2-3 when needed.)
+# Dev stack for NR Safety Alerts backend.
+# - `docker compose up -d`              → just Postgres+PostGIS (default)
+# - `docker compose --profile geocode up -d` → adds self-hosted Nominatim
+#
+# The Nominatim service is opt-in because the dataset download is large.
+
 services:
   db:
     image: postgis/postgis:16-3.4
@@ -18,5 +22,30 @@ services:
       timeout: 3s
       retries: 5
 
+  # Self-hosted Nominatim — opt-in via `--profile geocode`.
+  # First boot downloads + imports a region extract from Geofabrik (~30-60 min).
+  # Use PBF_URL to choose your region. North America is ~10GB; planet is ~80GB.
+  # Once running, set NOMINATIM_URL=http://localhost:7070/search in your .env.
+  nominatim:
+    profiles: ["geocode"]
+    image: mediagis/nominatim:4.4
+    container_name: nrsa-nominatim
+    ports:
+      - "7070:8080"
+    environment:
+      # Default to a small region (Liechtenstein) so first boot is fast for demos.
+      # Replace with your real region:
+      #   https://download.geofabrik.de/north-america-latest.osm.pbf
+      #   https://download.geofabrik.de/europe-latest.osm.pbf
+      PBF_URL: ${PBF_URL:-https://download.geofabrik.de/europe/liechtenstein-latest.osm.pbf}
+      REPLICATION_URL: ${REPLICATION_URL:-https://download.geofabrik.de/europe/liechtenstein-updates/}
+      IMPORT_WIKIPEDIA: "false"
+    volumes:
+      - nrsa-nominatim-data:/var/lib/postgresql/14/main
+      - nrsa-nominatim-flat:/nominatim/flatnode
+    shm_size: 1gb
+
 volumes:
   nrsa-pgdata:
+  nrsa-nominatim-data:
+  nrsa-nominatim-flat:

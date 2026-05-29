@@ -1,4 +1,5 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity, Category } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Category } from '../types.js';
+import { fromCap } from '../pipeline/severity.js';
 import { log } from '../log.js';
 
 /**
@@ -45,16 +46,6 @@ interface NwsFeed {
 
 const FEED_URL = 'https://api.weather.gov/alerts/active';
 const UA = 'nr-safety-alerts/0.1 (cmt-dashboard@example.com)';
-
-function severityFor(s: NwsFeature['properties']['severity']): Severity {
-  switch (s) {
-    case 'Extreme':  return 'ext';
-    case 'Severe':   return 'high';
-    case 'Moderate': return 'mod';
-    case 'Minor':    return 'low';
-    default:         return 'low';
-  }
-}
 
 function categoryFor(c: string): Category {
   switch (c) {
@@ -136,7 +127,7 @@ export const nwsAdapter: SourceAdapter = {
         primarySourceId: 'nws',
         title: p.event,
         summary: summary || p.areaDesc,
-        severity: severityFor(p.severity),
+        severity: fromCap(p.severity),
         category: categoryFor(p.category),
         type: p.event.toLowerCase().replace(/\s+/g, '_'),
         location: p.areaDesc,

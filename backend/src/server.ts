@@ -4,7 +4,12 @@ import { config } from './config.js';
 import { log } from './log.js';
 import { eventsRoutes } from './routes/events.js';
 import { sourcesRoutes } from './routes/sources.js';
+import { streamRoutes } from './routes/stream.js';
+import { authRoutes } from './routes/auth.js';
+import { incidentRoutes } from './routes/incidents.js';
 import { startScheduler } from './workers/scheduler.js';
+import { startSweeper } from './workers/sweeper.js';
+import { startHealthCheck } from './workers/health_check.js';
 import { pool } from './db.js';
 
 async function main() {
@@ -14,6 +19,9 @@ async function main() {
   app.get('/api/health', async () => ({ ok: true, ts: new Date().toISOString() }));
   await app.register(eventsRoutes);
   await app.register(sourcesRoutes);
+  await app.register(streamRoutes);
+  await app.register(authRoutes);
+  await app.register(incidentRoutes);
 
   // Verify DB connection before binding
   try {
@@ -27,9 +35,11 @@ async function main() {
   await app.listen({ host: '0.0.0.0', port: config.port });
   log.info(`api.listening :${config.port}`);
 
-  // Start the ingestion scheduler in the same process for now.
-  // Move to a separate process when load demands it (Sprint 3+).
+  // Start the ingestion scheduler + maintenance workers in the same process for now.
+  // Move to separate processes when load demands it.
   startScheduler();
+  startSweeper();
+  startHealthCheck();
 
   process.on('SIGINT', async () => {
     log.info('shutdown.start');

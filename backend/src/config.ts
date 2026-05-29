@@ -15,6 +15,20 @@ export const config = {
     cacheTtlDays:       num(process.env.GEOCODE_CACHE_TTL_DAYS, 180),
   },
 
+  /** Generic webhook for source-down / source-recovery / future incident notifications.
+   *  Auto-detects Slack / PagerDuty / generic by URL. Empty = log-only. */
+  webhookUrl: process.env.WEBHOOK_URL ?? '',
+
+  auth: {
+    jwtSecret:    process.env.JWT_SECRET ?? 'dev-only-do-not-use-in-prod',
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
+    /** Set these when migrating to Okta. When all three are set the JWT verifier
+     *  switches to verifying Okta-signed tokens via JWKS instead of locally-issued ones. */
+    oktaIssuer:   process.env.OKTA_ISSUER ?? '',
+    oktaAudience: process.env.OKTA_AUDIENCE ?? '',
+    oktaJwksUri:  process.env.OKTA_JWKS_URI ?? '',
+  },
+
   sources: {
     usgs:       { disabled: flag(process.env.USGS_DISABLED),       intervalSeconds: num(process.env.USGS_FETCH_INTERVAL, 60) },
     nws:        { disabled: flag(process.env.NWS_DISABLED),        intervalSeconds: num(process.env.NWS_FETCH_INTERVAL, 300) },
@@ -23,5 +37,10 @@ export const config = {
     emsc:       { disabled: flag(process.env.EMSC_DISABLED),       intervalSeconds: num(process.env.EMSC_FETCH_INTERVAL, 300) },
     meteoalarm: { disabled: flag(process.env.METEOALARM_DISABLED), intervalSeconds: num(process.env.METEOALARM_FETCH_INTERVAL, 900) },
     stateDept:  { disabled: flag(process.env.STATE_DEPT_DISABLED), intervalSeconds: num(process.env.STATE_DEPT_FETCH_INTERVAL, 86400) },
+    sfPolice:       { disabled: flag(process.env.SF_POLICE_DISABLED),       intervalSeconds: num(process.env.SF_POLICE_FETCH_INTERVAL, 600) },
+    atlApd:         { disabled: flag(process.env.ATL_APD_DISABLED),         intervalSeconds: num(process.env.ATL_APD_FETCH_INTERVAL, 900) },
+    pdxFlashalert:  { disabled: flag(process.env.PDX_FLASHALERT_DISABLED),  intervalSeconds: num(process.env.PDX_FLASHALERT_FETCH_INTERVAL, 600) },
+    londonTfl:      { disabled: flag(process.env.LONDON_TFL_DISABLED),      intervalSeconds: num(process.env.LONDON_TFL_FETCH_INTERVAL, 600) },
+    gdelt:          { disabled: flag(process.env.GDELT_DISABLED),           intervalSeconds: num(process.env.GDELT_FETCH_INTERVAL, 900) },
   },
 };

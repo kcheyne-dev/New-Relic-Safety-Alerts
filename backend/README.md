@@ -2,25 +2,39 @@
 
 Real-time alert ingestion + REST API for the CMT Dashboard.
 
-## What's in this build (Sprint 1 + Sprint 2)
+## What's in this build (Sprints 1–5)
 
-**7 live sources** with auto-ingestion:
+**12 live sources** with auto-ingestion:
 
 | Source | Cadence | Format | Notes |
 |---|---|---|---|
 | USGS Earthquakes | 60s | GeoJSON | M4.5+ globally; magnitude → severity |
-| NWS Active Alerts (US) | 5m | GeoJSON | Severity = Minor/Moderate/Severe/Extreme; polygon centroids |
+| NWS Active Alerts (US) | 5m | GeoJSON | Severity = Minor/Moderate/Severe/Extreme |
 | NASA EONET | 10m | JSON | Wildfires, storms, volcanoes, floods globally |
 | GDACS | 10m | GeoJSON | UN multi-hazard with Green/Orange/Red severity |
-| EMSC | 5m | GeoJSON | European seismic; redundancy with USGS, often faster for EU |
-| MeteoAlarm | 15m | Atom XML | EU weather warnings color-coded; geocoded by area name |
+| EMSC | 5m | GeoJSON | European seismic; faster than USGS for EU |
+| MeteoAlarm | 15m | Atom XML | EU weather warnings color-coded; geocoded by area |
 | US State Dept | 24h | RSS XML | Travel advisories L1–L4 by country |
+| **SF Police (Socrata)** | 10m | JSON | Local incidents within 10km of SFO |
+| **Atlanta APD (ArcGIS)** | 15m | JSON | Local incidents within 8km of ATL |
+| **Portland FlashAlert** | 10m | RSS XML | Public-safety announcements PDX area |
+| **London TfL** | 10m | JSON | Transit disruptions for LON |
+| **GDELT 2.0** | 15m | JSON | Global news with theme + tone filtering (civil unrest, terror, evac) |
 
+- **Cross-source clustering**: USGS + EMSC + GDACS publishing the same Tokyo quake within 30 min and 25 km gets folded into ONE event. The cluster keeps the highest-severity primary source; all contributing sources are listed in `contributing_sources`.
+- **Centralized severity normalization** (`pipeline/severity.ts`): one place where every source's scale is mapped to canonical Low/Mod/High/Ext.
 - **Postgres + PostGIS** for event storage with spatial queries.
-- **Office proximity matching**: every ingested alert is stamped with the IDs of any NR offices within a category-default radius (overridable per event).
-- **Geocoding layer**: cache-backed, calls Nominatim only on misses, honors 1 req/sec policy.
+- **Office proximity matching**: every ingested alert is stamped with the IDs of NR offices within a category-default radius.
+- **Geocoding layer**: cache-backed Nominatim with 1 req/sec throttle.
 - **Fastify REST API** at `/api/events`, `/api/events/:id`, `/api/sources/health`, `/api/health`.
+- **Server-Sent Events** at `/api/events/stream` — dashboard subscribes and gets pushes on every new/updated event. No polling.
 - **In-process scheduler** with stagger-on-boot to avoid thundering-herd fetches.
+- **Stale-event sweeper** (`workers/sweeper.ts`): runs every 30 min; flags non-travel events older than 24h or past their `expires_at` as `is_stale=true`. The default `/api/events` query filters them out.
+- **Source-health monitor + webhook alerts** (`workers/health_check.ts` + `notifications/webhook.ts`): every 5 min checks for sources that haven't fetched successfully in >30 min. Auto-detects Slack / PagerDuty / generic webhook from `WEBHOOK_URL`. Throttled per-source so you don't get repeat pages.
+- **Optional self-hosted Nominatim** (`docker compose --profile geocode up -d`) for unlimited-volume geocoding without rate limits or third-party dependencies.
+- **Server-side incidents** with full CRUD: `POST /api/incidents`, `POST /api/incidents/:id/messages`, `PUT /api/incidents/:id/responses/:employeeId`, `POST /api/incidents/:id/notes`, `POST /api/incidents/:id/close`, `POST /api/incidents/:id/reopen`. Incidents now persist in Postgres instead of dashboard localStorage.
+- **JWT auth + role-based access**: `admin > cmt > office > employee`. Login via `POST /api/auth/login`, returns a Bearer token. Routes use `requireAuth` and `requireRole('cmt')` Fastify hooks. Okta migration is a single-function swap in `auth/jwt.ts` — see "Okta migration path" below.
+- **Append-only audit log**: every authenticated mutation writes to `audit_log` with user_id, action, target, IP, user-agent, payload. Compliance-ready.
 
 ## Stack
 
@@ -109,11 +123,149 @@ setInterval(refreshAlerts, 60000);
 - **Idempotency**: every adapter's events are upserted on `(source, source_event_id)`. Re-running ingestion is safe and cheap.
 - **Audit**: `raw_events` keeps the original payload of every ingested item, forever (until you decide to truncate). Nothing is lost; reprocessing is possible by replaying.
 
-## What this DOESN'T do yet (Sprint 3+)
+## Wiring the dashboard to live data via SSE
 
-- **Cross-source deduplication** — USGS + EMSC + GDACS each publishing the same Tokyo quake currently produces three events. Sprint 3 adds clustering by time (±30 min) + space (≤25 km) + topic.
-- **Server-Sent Events** — dashboard polls today; SSE/WebSocket push is Sprint 3.
-- **Auth / Okta SSO** — Sprint 5 alongside server-side incident persistence.
+In `index.html`:
+
+```js
+// Replace the const ALERTS = [...] block with:
+let ALERTS = [];
+
+// Initial backfill on load
+async function initialBackfill() {
+  const resp = await fetch('http://localhost:8080/api/events?limit=500');
+  const data = await resp.json();
+  ALERTS = data.events;
+  renderAll();
+}
+
+// Live stream — pushed every time the backend ingests
+function subscribeStream() {
+  const es = new EventSource('http://localhost:8080/api/events/stream');
+  es.addEventListener('event', (msg) => {
+    const data = JSON.parse(msg.data);
+    if (data.kind === 'new' && data.event) {
+      // De-dup against current array on id
+      ALERTS = [data.event, ...ALERTS.filter(a => a.id !== data.event.id)];
+      renderAll();
+      toast(`New alert: ${data.event.title}`);
+    } else if (data.kind === 'updated' && data.event) {
+      ALERTS = ALERTS.map(a => a.id === data.event.id ? data.event : a);
+      renderAll();
+    }
+  });
+  es.onerror = () => console.warn('SSE disconnected; will auto-reconnect');
+}
+
+initialBackfill();
+subscribeStream();
+```
+
+Browser `EventSource` auto-reconnects on disconnect. No polling, no polling jitter.
+
+## Webhook configuration examples
+
+**Slack** — paste your incoming webhook URL into `WEBHOOK_URL`:
+```
+WEBHOOK_URL=https://hooks.slack.com/services/T0000000/B0000000/abc123
+```
+Alerts will appear in the channel as severity-tinted attachments with an "Open" button.
+
+**PagerDuty** — Events API v2:
+```
+WEBHOOK_URL=https://events.pagerduty.com/v2/enqueue
+PAGERDUTY_ROUTING_KEY=R00000000000000000000000000
+```
+"Source down" creates an incident with severity=warning and dedup_key=`source-down-{id}`. Recovery resolves it.
+
+**Generic** — any URL that accepts POST + JSON:
+```
+WEBHOOK_URL=https://hooks.your-internal-tool.com/safety-alerts
+```
+Receives `{ title, body, severity, dedupKey, link }`.
+
+**Empty** — pure log-only mode, no outbound (default):
+```
+WEBHOOK_URL=
+```
+
+## Self-hosted geocoding
+
+The default config uses the **public Nominatim** service at openstreetmap.org. It's free, but rate-limited to 1 req/sec and asks you not to use it for high-volume production. We honor that.
+
+For real production, run your own:
+
+```bash
+# Pick your region first by setting PBF_URL in .env (or accept the small Liechtenstein default for testing):
+# PBF_URL=https://download.geofabrik.de/north-america-latest.osm.pbf
+
+# Bring up Postgres + Nominatim
+docker compose --profile geocode up -d
+
+# First boot will download + import the OSM extract. This takes ~30 minutes for
+# a small region, ~12 hours for the planet. Monitor with:
+docker compose logs -f nominatim
+
+# Once "Nominatim is ready" appears, set in .env:
+NOMINATIM_URL=http://localhost:7070/search
+```
+
+After that, `pipeline/geocode.ts` will hit your local instance — no rate limits, no third-party dependency.
+
+## Auth — quick start
+
+Create your first admin user (after `npm run migrate`):
+
+```bash
+npm run create-user -- --email=admin@newrelic.com --password='ChangeMe123!' --role=admin --name="Admin"
+```
+
+Login:
+
+```bash
+curl -X POST http://localhost:8080/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@newrelic.com","password":"ChangeMe123!"}'
+# → { "token": "eyJhbGc...", "user": { ... } }
+```
+
+Use the token in subsequent requests:
+
+```bash
+TOKEN=eyJhbGc...
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/incidents
+```
+
+### Roles
+
+| Role | Can do |
+|---|---|
+| `admin`    | everything |
+| `cmt`      | create/close/reopen incidents, send crisis messages |
+| `office`   | log responses (OK/Help) on existing incidents |
+| `employee` | read-only |
+
+### Okta migration path
+
+When you're ready to swap our locally-issued JWTs for Okta SSO:
+
+1. Set in `.env`:
+   ```
+   OKTA_ISSUER=https://yourorg.okta.com/oauth2/default
+   OKTA_AUDIENCE=api://nr-safety-alerts
+   OKTA_JWKS_URI=https://yourorg.okta.com/oauth2/default/v1/keys
+   ```
+2. Add `jwks-rsa` to `package.json`.
+3. Replace the body of `verifyToken()` in `src/auth/jwt.ts` with a JWKS-based verifier (about 15 lines).
+4. The dashboard's login page becomes an Okta OIDC redirect instead of email+password — you'll add `/auth/callback` route to handle the code exchange.
+
+Everything else (incident routes, role checks, audit log) stays untouched. The token's `sub`/`email`/`role` claims continue to drive RBAC; you map Okta groups → roles in step 3.
+
+## What this DOESN'T do yet (Sprint 6+)
+
+- **Slack outbound bot** — actually send Crisis messages to Slack channels (currently they're just stored).
+- **Email outbound** — Gmail / SendGrid integration to actually send the email channel.
+- **Workday employee directory sync** — replace mock employees with real ones.
 - **Incident persistence on the server** — still in dashboard localStorage. Sprint 5 migrates incidents/responses/messages to Postgres.
 - **Automated stale sweeper** — events older than 24h should be flagged. Sprint 4.
 - **Source health alerting** — push to PagerDuty/email when a feed has been down >30 min. Sprint 4.

@@ -1,4 +1,5 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
+import { fromMagnitude, radiusFromMagnitude } from '../pipeline/severity.js';
 import { log } from '../log.js';
 
 /**
@@ -41,20 +42,6 @@ interface EmscFeed {
 
 const FEED_URL = 'https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=200&minmag=4';
 
-function severityForMagnitude(mag: number): Severity {
-  if (mag >= 6.5) return 'ext';
-  if (mag >= 5.0) return 'high';
-  if (mag >= 4.0) return 'mod';
-  return 'low';
-}
-function radiusKmForMagnitude(mag: number): number {
-  if (mag >= 7.0) return 600;
-  if (mag >= 6.0) return 350;
-  if (mag >= 5.0) return 180;
-  if (mag >= 4.0) return 80;
-  return 40;
-}
-
 export const emscAdapter: SourceAdapter = {
   id: 'emsc',
   name: 'European Mediterranean Seismological Centre',
@@ -76,8 +63,8 @@ export const emscAdapter: SourceAdapter = {
       const lng = p.lon ?? f.geometry.coordinates[0];
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-      const sev = severityForMagnitude(p.mag);
-      const radius = radiusKmForMagnitude(p.mag);
+      const sev = fromMagnitude(p.mag);
+      const radius = radiusFromMagnitude(p.mag);
 
       const normalized: NormalizedEvent = {
         sourceEventId: p.unid || p.source_id,

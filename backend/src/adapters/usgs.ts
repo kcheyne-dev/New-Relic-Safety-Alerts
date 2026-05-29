@@ -1,4 +1,5 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
+import { fromMagnitude, radiusFromMagnitude } from '../pipeline/severity.js';
 import { log } from '../log.js';
 
 /**
@@ -44,23 +45,6 @@ interface UsgsFeed {
 
 const FEED_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson';
 
-function severityForMagnitude(mag: number): Severity {
-  if (mag >= 6.5) return 'ext';
-  if (mag >= 5.0) return 'high';
-  if (mag >= 4.0) return 'mod';
-  return 'low';
-}
-
-function radiusKmForMagnitude(mag: number): number {
-  // Empirical felt-radius in km. Increases superlinearly with magnitude.
-  // Source: rough average of historical USGS DYFI felt reports.
-  if (mag >= 7.0) return 600;
-  if (mag >= 6.0) return 350;
-  if (mag >= 5.0) return 180;
-  if (mag >= 4.0) return 80;
-  return 40;
-}
-
 export const usgsAdapter: SourceAdapter = {
   id: 'usgs',
   name: 'US Geological Survey — earthquakes',
@@ -85,8 +69,8 @@ export const usgsAdapter: SourceAdapter = {
       const [lng, lat] = f.geometry.coordinates;
       if (lat == null || lng == null) continue;
 
-      const sev = severityForMagnitude(mag);
-      const radius = radiusKmForMagnitude(mag);
+      const sev = fromMagnitude(mag);
+      const radius = radiusFromMagnitude(mag);
       const tsunamiSuffix = f.properties.tsunami ? ' · tsunami advisory issued' : '';
 
       const normalized: NormalizedEvent = {

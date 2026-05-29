@@ -1,5 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
+import { fromTravelLevel } from '../pipeline/severity.js';
 import { log } from '../log.js';
 
 /**
@@ -36,20 +37,6 @@ interface RssFeed {
   rss?: { channel?: { item?: RssItem | RssItem[] } };
 }
 
-const LEVEL_RE = /Level\s*(\d)/i;
-
-function severityForCategory(cats: string | string[] | undefined): Severity {
-  const s = Array.isArray(cats) ? cats.join(' ') : cats ?? '';
-  const m = s.match(LEVEL_RE);
-  if (!m) return 'low';
-  switch (m[1]) {
-    case '4': return 'ext';
-    case '3': return 'high';
-    case '2': return 'mod';
-    default:  return 'low';
-  }
-}
-
 function countryFromTitle(title: string | undefined): string {
   if (!title) return '';
   // Titles look like "France - Level 2: Exercise Increased Caution"
@@ -80,7 +67,7 @@ export const stateDeptAdapter: SourceAdapter = {
 
     const items: RawAndNormalized[] = [];
     for (const it of list) {
-      const sev = severityForCategory(it.category);
+      const sev = fromTravelLevel(it.category);
       if (sev === 'low') continue;                  // skip Level 1 (most countries) for noise
       const country = countryFromTitle(it.title);
       if (!country) continue;

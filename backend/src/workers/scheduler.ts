@@ -6,6 +6,11 @@ import { gdacsAdapter } from '../adapters/gdacs.js';
 import { emscAdapter } from '../adapters/emsc.js';
 import { meteoalarmAdapter } from '../adapters/meteoalarm.js';
 import { stateDeptAdapter } from '../adapters/state_dept.js';
+import { sfPoliceAdapter } from '../adapters/sf_police.js';
+import { atlApdAdapter } from '../adapters/atl_apd.js';
+import { pdxFlashalertAdapter } from '../adapters/pdx_flashalert.js';
+import { londonTflAdapter } from '../adapters/london_tfl.js';
+import { gdeltAdapter } from '../adapters/gdelt.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
 import { persistBatch, markSourceOk, markSourceError } from '../pipeline/persist.js';
@@ -19,6 +24,11 @@ const ADAPTERS: { adapter: SourceAdapter; disabled: boolean }[] = [
   { adapter: emscAdapter,       disabled: config.sources.emsc.disabled       },
   { adapter: meteoalarmAdapter, disabled: config.sources.meteoalarm.disabled },
   { adapter: stateDeptAdapter,  disabled: config.sources.stateDept.disabled  },
+  { adapter: sfPoliceAdapter,      disabled: config.sources.sfPolice.disabled      },
+  { adapter: atlApdAdapter,        disabled: config.sources.atlApd.disabled        },
+  { adapter: pdxFlashalertAdapter, disabled: config.sources.pdxFlashalert.disabled },
+  { adapter: londonTflAdapter,     disabled: config.sources.londonTfl.disabled     },
+  { adapter: gdeltAdapter,         disabled: config.sources.gdelt.disabled         },
 ];
 
 async function runOnce(adapter: SourceAdapter): Promise<void> {

@@ -1,5 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity } from '../types.js';
+import { fromCap, fromMeteoAlarmColor } from '../pipeline/severity.js';
 import { log } from '../log.js';
 
 /**
@@ -49,26 +50,12 @@ interface AtomFeed {
   };
 }
 
-function detectColor(text: string): Severity | null {
-  const t = text.toLowerCase();
-  if (t.includes('red')) return 'ext';
-  if (t.includes('orange')) return 'high';
-  if (t.includes('yellow') || t.includes('amber')) return 'mod';
-  if (t.includes('green')) return 'low';
-  return null;
-}
-
 function severityFor(entry: AtomEntry): Severity {
   // Try cap:severity first (CAP standard: Minor/Moderate/Severe/Extreme)
-  const cap = (entry['cap:severity'] || '').toLowerCase();
-  if (cap === 'extreme') return 'ext';
-  if (cap === 'severe') return 'high';
-  if (cap === 'moderate') return 'mod';
-  if (cap === 'minor') return 'low';
+  const cap = entry['cap:severity'];
+  if (cap) return fromCap(cap);
   // Fall back: scan the title for color words
-  const fromTitle = detectColor(entry.title || '');
-  if (fromTitle) return fromTitle;
-  return 'mod';
+  return fromMeteoAlarmColor(entry.title || '');
 }
 
 function firstLink(entry: AtomEntry): string | null {
