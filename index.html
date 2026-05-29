@@ -157,9 +157,26 @@ button { cursor: pointer; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
 
 .panel { width: 340px; background: var(--bg2); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; min-height: 0; }
+  display: flex; flex-direction: column; min-height: 0; position: relative; }
 .right-zone .panel { border-right: 0; border-left: 1px solid var(--border); }
 .panel.collapsed { display: none; }
+/* Resize handle — sits on the edge facing the map */
+.panel-resize {
+  position: absolute; top: 0; bottom: 0; width: 6px;
+  cursor: ew-resize; z-index: 50;
+  background: transparent; transition: background .15s;
+}
+.left-zone .panel-resize { right: -3px; }
+.right-zone .panel-resize { left: -3px; }
+.panel-resize:hover, .panel-resize.dragging { background: var(--green); }
+.panel-resize::after {
+  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 2px; height: 36px; background: var(--border); border-radius: 1px;
+  transition: background .15s;
+}
+.panel-resize:hover::after, .panel-resize.dragging::after { background: #000; }
+body.resizing-panel { cursor: ew-resize !important; user-select: none; }
+body.resizing-panel * { cursor: ew-resize !important; }
 .panel-head { padding: 10px 12px; border-bottom: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between; }
 .panel-title { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
@@ -368,6 +385,24 @@ button { cursor: pointer; }
   display: flex; align-items: center; gap: 10px; }
 .linked-icon { font-size: 14px; }
 
+/* Advanced disclosure inside Compose */
+.cc-advanced-toggle {
+  width: 100%; background: var(--bg3); border: 1px dashed var(--border);
+  border-radius: 5px; padding: 8px 10px; font-size: 12px; color: var(--muted);
+  cursor: pointer; text-align: left; display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px; transition: border-color .15s, color .15s;
+}
+.cc-advanced-toggle:hover { border-color: var(--green); color: var(--text); }
+.cc-advanced-toggle[aria-expanded="true"] {
+  border-style: solid; border-color: var(--border); color: var(--text);
+  background: var(--bg2); margin-bottom: 6px;
+}
+.cc-advanced-caret { font-size: 11px; color: var(--green); width: 12px; }
+.cc-advanced-hint { color: var(--green); font-size: 11px; }
+.cc-advanced-body {
+  padding: 0 0 8px 0; border-left: 2px solid var(--bg3); margin-left: 6px; padding-left: 8px;
+}
+
 /* attachments */
 .att-zone { border: 1px dashed var(--border); border-radius: 5px; padding: 10px;
   background: var(--bg3); text-align: center; font-size: 11px; color: var(--muted);
@@ -530,6 +565,7 @@ button { cursor: pointer; }
         <div class="rail-office-list" id="rail-office-list"></div>
       </div>
       <aside class="panel collapsed" id="panel-alerts">
+        <div class="panel-resize" data-resize-panel="alerts" title="Drag to resize" aria-label="Resize Alert Feed panel"></div>
         <div class="panel-head">
           <div class="panel-title"><span class="accent-emerald">🔔</span> Alert Feed</div>
           <button class="btn-ghost" id="btn-collapse-alerts">«</button>
@@ -638,7 +674,8 @@ button { cursor: pointer; }
     <div class="right-zone">
       <!-- Crisis Comms -->
       <div class="rail crisis" id="rail-crisis" title="Open Crisis Comms" role="button" tabindex="0" aria-label="Crisis Communications — toggle panel" aria-controls="panel-crisis" aria-expanded="false"><span class="rail-icon">📣 Crisis</span></div>
-      <aside class="panel collapsed" id="panel-crisis" style="width: 360px;">
+      <aside class="panel collapsed" id="panel-crisis">
+        <div class="panel-resize" data-resize-panel="crisis" title="Drag to resize" aria-label="Resize Crisis Comms panel"></div>
         <div class="panel-head">
           <div class="panel-title"><span class="accent-teal">📣</span> Crisis Comms</div>
           <div style="display:flex;gap:6px;">
@@ -656,7 +693,8 @@ button { cursor: pointer; }
 
       <!-- Incidents -->
       <div class="rail incident" id="rail-incident" title="Open Incidents" role="button" tabindex="0" aria-label="Incidents — toggle panel" aria-controls="panel-incident" aria-expanded="false"><span class="rail-icon">🚨 Incidents</span><span class="badge live" id="incident-active-badge" aria-label="active incidents">0</span></div>
-      <aside class="panel collapsed" id="panel-incident" style="width: 360px;">
+      <aside class="panel collapsed" id="panel-incident">
+        <div class="panel-resize" data-resize-panel="incident" title="Drag to resize" aria-label="Resize Incidents panel"></div>
         <div class="panel-head">
           <div class="panel-title"><span class="accent-red">🚨</span> Incidents</div>
           <div style="display:flex;gap:6px;">
@@ -870,6 +908,7 @@ const STATE = {
   empMode: 'office',
   showTravelers: true,
   ccTab: 'compose',
+  composeAdvanced: false,            // Advanced disclosure in Compose tab
   channels: { slack:true, email:false, sms:false },
   template: '',
   customMessage: '',
@@ -893,6 +932,7 @@ const STATE = {
   msgFilter: 'all',
   responses: {},  // { incidentId: { employeeId: { status: 'ok'|'help'|'no', when, by } } }
   panels: { alerts:false, crisis:false, incident:false },
+  panelWidths: { alerts: 340, crisis: 360, incident: 360 },
   fence: null,             // {layer, shape, mode, results: {offices, employees, travelers}}
   fenceMode: 'highlight',
   hazards: { fire:false, flood:false, quake:false, unrest:false, heat:false, aqi:false, precip:false, temp:false },
@@ -1586,11 +1626,6 @@ function renderComposeForm() {
     </div>
 
     <div class="field">
-      <label>Subject</label>
-      <input type="text" id="cc-subject" value="${esc(STATE.subject)}" placeholder="[Severity] Safety Alert — ..."/>
-    </div>
-
-    <div class="field">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
         <label style="margin-bottom:0">Message</label>
         <a href="#" id="cc-clear-msg" style="font-size:10px;color:var(--muted)">Clear</a>
@@ -1598,33 +1633,52 @@ function renderComposeForm() {
       <textarea id="msg-body" placeholder="Compose the safety message... URLs you paste will be clickable when received.">${esc(message)}</textarea>
     </div>
 
-    <div class="field">
-      <label>Attachments & Links</label>
-      <div class="att-zone" id="att-zone-cc">
-        Drop files here, paste, or
-        <button type="button" class="att-pick-btn" id="att-pick-cc">Choose files</button>
-        <input type="file" id="att-input-cc" multiple style="display:none"/>
-        <div style="font-size:10px;margin-top:4px">URLs in your message auto-link. Files ≤ ${fmtSize(ATT_EMBED_LIMIT)} are embedded.</div>
-      </div>
-      ${STATE.attachments.length ? `<div class="att-list">${STATE.attachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
-    </div>
-
-    <div class="field" style="margin-bottom:6px">
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text);font-weight:400">
-        <input type="checkbox" id="resp-required" ${STATE.responseRequired?'checked':''} style="width:auto"/>
-        Response required
-      </label>
-    </div>
-    <div class="field" style="display:flex;align-items:center;gap:8px">
-      <label style="margin-bottom:0;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted);font-weight:400">Remind after</label>
-      <select id="reminder" style="flex:1">
-        <option value="15m" ${STATE.reminderInterval==='15m'?'selected':''}>15 minutes</option>
-        <option value="30m" ${STATE.reminderInterval==='30m'?'selected':''}>30 minutes</option>
-        <option value="1h"  ${STATE.reminderInterval==='1h' ?'selected':''}>1 hour</option>
-        <option value="4h"  ${STATE.reminderInterval==='4h' ?'selected':''}>4 hours</option>
-        <option value="1d"  ${STATE.reminderInterval==='1d' ?'selected':''}>1 day</option>
-      </select>
-    </div>
+    ${(() => {
+      // Advanced disclosure — keeps secondary fields out of the way for the 80% case
+      const adv = [];
+      if (STATE.subject) adv.push('Subject set');
+      if (STATE.attachments.length) adv.push(`${STATE.attachments.length} attachment${STATE.attachments.length===1?'':'s'}`);
+      if (!STATE.responseRequired) adv.push('Response off');
+      if (STATE.reminderInterval !== '15m') adv.push('Reminder ' + STATE.reminderInterval);
+      const hint = adv.length ? `<span class="cc-advanced-hint"> · ${adv.join(' · ')}</span>` : '';
+      const open = STATE.composeAdvanced;
+      return `<button class="cc-advanced-toggle" type="button" id="cc-advanced-toggle" aria-expanded="${open}">
+        <span class="cc-advanced-caret">${open ? '▾' : '▸'}</span>
+        Advanced${hint}
+      </button>
+      ${open ? `<div class="cc-advanced-body">
+        <div class="field">
+          <label>Subject</label>
+          <input type="text" id="cc-subject" value="${esc(STATE.subject)}" placeholder="[Severity] Safety Alert — ..."/>
+        </div>
+        <div class="field">
+          <label>Attachments & Links</label>
+          <div class="att-zone" id="att-zone-cc">
+            Drop files here, paste, or
+            <button type="button" class="att-pick-btn" id="att-pick-cc">Choose files</button>
+            <input type="file" id="att-input-cc" multiple style="display:none"/>
+            <div style="font-size:10px;margin-top:4px">URLs in your message auto-link. Files ≤ ${fmtSize(ATT_EMBED_LIMIT)} are embedded.</div>
+          </div>
+          ${STATE.attachments.length ? `<div class="att-list">${STATE.attachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
+        </div>
+        <div class="field" style="margin-bottom:6px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="resp-required" ${STATE.responseRequired?'checked':''} style="width:auto"/>
+            Response required (track per-employee status in incident)
+          </label>
+        </div>
+        <div class="field" style="display:flex;align-items:center;gap:8px">
+          <label style="margin-bottom:0;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted);font-weight:400">Remind after</label>
+          <select id="reminder" style="flex:1">
+            <option value="15m" ${STATE.reminderInterval==='15m'?'selected':''}>15 minutes</option>
+            <option value="30m" ${STATE.reminderInterval==='30m'?'selected':''}>30 minutes</option>
+            <option value="1h"  ${STATE.reminderInterval==='1h' ?'selected':''}>1 hour</option>
+            <option value="4h"  ${STATE.reminderInterval==='4h' ?'selected':''}>4 hours</option>
+            <option value="1d"  ${STATE.reminderInterval==='1d' ?'selected':''}>1 day</option>
+          </select>
+        </div>
+      </div>` : ''}`;
+    })()}
 
     <button class="btn-primary cc-send" id="btn-send" ${reachOffices&&activeChannels.length?'':'disabled'}>
       ${linked
@@ -1795,6 +1849,10 @@ function bindCCHandlers() {
   document.getElementById('cc-clear-msg')?.addEventListener('click', e => {
     e.preventDefault();
     STATE.customMessage = ''; STATE.template = ''; STATE.subject = '';
+    renderCC();
+  });
+  document.getElementById('cc-advanced-toggle')?.addEventListener('click', () => {
+    STATE.composeAdvanced = !STATE.composeAdvanced;
     renderCC();
   });
   document.getElementById('cc-unlink')?.addEventListener('click', e => {
@@ -3163,6 +3221,7 @@ function buildPersistPayload() {
     customLocations:  STATE.customLocations,
     expandedOffices:  Array.from(STATE.expandedOffices || []),
     incidentListFilter: STATE.incidentListFilter,
+    panelWidths:      STATE.panelWidths,
     draft: {
       selectedOffices:  STATE.selectedOffices,
       channels:         STATE.channels,
@@ -3173,6 +3232,7 @@ function buildPersistPayload() {
       reminderInterval: STATE.reminderInterval,
       attachments:      (STATE.attachments || []).map(stripAtt),
       linkedIncidentId: STATE.linkedIncidentId,
+      composeAdvanced:  STATE.composeAdvanced,
     },
     noteAttachments:  (STATE.noteAttachments || []).map(stripAtt),
   };
@@ -3212,6 +3272,7 @@ function loadState() {
     if (Array.isArray(data.customLocations))STATE.customLocations = data.customLocations;
     if (Array.isArray(data.expandedOffices))STATE.expandedOffices = new Set(data.expandedOffices);
     if (data.incidentListFilter)            STATE.incidentListFilter = data.incidentListFilter;
+    if (data.panelWidths)                   STATE.panelWidths = { ...STATE.panelWidths, ...data.panelWidths };
     if (data.draft) {
       STATE.selectedOffices  = data.draft.selectedOffices  || [];
       STATE.channels         = data.draft.channels         || STATE.channels;
@@ -3222,6 +3283,7 @@ function loadState() {
       STATE.reminderInterval = data.draft.reminderInterval || '15m';
       STATE.attachments      = data.draft.attachments      || [];
       STATE.linkedIncidentId = data.draft.linkedIncidentId || null;
+      if (typeof data.draft.composeAdvanced === 'boolean') STATE.composeAdvanced = data.draft.composeAdvanced;
     }
     if (Array.isArray(data.noteAttachments)) STATE.noteAttachments = data.noteAttachments;
     if (data.savedAt) lastSavedAt = new Date(data.savedAt);
@@ -3387,10 +3449,67 @@ function renderAll() {
   saveState();   // debounced
 }
 
+/* ---------- 18b. Panel resize ---------- */
+const PANEL_MIN_W = 280;
+const PANEL_MAX_W = 600;
+function applyPanelWidths() {
+  ['alerts','crisis','incident'].forEach(p => {
+    const el = document.getElementById('panel-'+p);
+    if (el) el.style.width = (STATE.panelWidths?.[p] || 340) + 'px';
+  });
+}
+function setupPanelResize() {
+  document.querySelectorAll('[data-resize-panel]').forEach(handle => {
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const panelId = handle.dataset.resizePanel;
+      const panel = document.getElementById('panel-' + panelId);
+      if (!panel) return;
+      const startX = e.clientX;
+      const startW = panel.offsetWidth;
+      const isLeftZone = panel.closest('.left-zone') !== null;
+      handle.classList.add('dragging');
+      document.body.classList.add('resizing-panel');
+
+      function onMove(ev) {
+        const dx = ev.clientX - startX;
+        // Left-zone handle on right edge: drag right grows. Right-zone handle on left edge: drag left grows.
+        const newW = isLeftZone ? startW + dx : startW - dx;
+        const clamped = Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, newW));
+        panel.style.width = clamped + 'px';
+        if (typeof map !== 'undefined' && map) map.invalidateSize();
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('dragging');
+        document.body.classList.remove('resizing-panel');
+        STATE.panelWidths[panelId] = parseInt(panel.style.width, 10) || PANEL_MIN_W;
+        saveState();
+        if (typeof map !== 'undefined' && map) map.invalidateSize();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    // Double-click handle resets to default
+    handle.addEventListener('dblclick', () => {
+      const panelId = handle.dataset.resizePanel;
+      const defaults = { alerts: 340, crisis: 360, incident: 360 };
+      STATE.panelWidths[panelId] = defaults[panelId];
+      applyPanelWidths();
+      if (typeof map !== 'undefined' && map) map.invalidateSize();
+      saveState();
+      toast('Panel reset to default width.');
+    });
+  });
+}
+
 /* ---------- 19. Boot ---------- */
 const _restored = loadState();
 buildLayerControls();
 setupDraw();
+applyPanelWidths();
+setupPanelResize();
 renderAll();
 if (_restored) {
   setTimeout(() => toast(`Restored from local save${lastSavedAt?` (${relTime(lastSavedAt.toISOString())} ago)`:''}.`), 400);
