@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NR Safety Alerts — Project Overview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#18181b; --bg2:#1c1c1f; --bg3:#27272a;
+    --border:#3f3f46; --text:#e4e4e7; --muted:#a1a1aa;
+    --green:#1ce783; --blue:#1e90ff; --orange:#fb923c;
+    --red:#f87171; --yellow:#facc15; --teal:#2dd4bf;
+    font-size: 15px;
+  }
+  html { background: var(--bg); color: var(--text);
+    font-family: 'Inter', -apple-system, system-ui, sans-serif; line-height: 1.65; }
+  body { max-width: 880px; margin: 0 auto; padding: 40px 36px 60px; }
+
+  /* Header */
+  .page-header { border-bottom: 2px solid var(--green); padding-bottom: 18px; margin-bottom: 28px; }
+  .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .logo { width: 44px; height: 44px; background: var(--green); border-radius: 9px;
+    display: grid; place-items: center; font-weight: 900; font-size: 16px; color: #000;
+    box-shadow: 0 2px 8px rgba(28,231,131,.25); }
+  .brand h1 { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+  .brand h1 span { color: var(--green); }
+  .brand .sub { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+
+  h2 { font-size: 1.1rem; font-weight: 700; margin: 36px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  h2::before { content: ''; display: inline-block; width: 6px; height: 18px;
+    background: var(--green); margin-right: 10px; vertical-align: -3px; border-radius: 2px; }
+  h3 { font-size: 0.96rem; font-weight: 700; margin: 20px 0 8px; color: var(--text); }
+
+  p { font-size: 0.92rem; color: var(--text); margin-bottom: 12px; }
+  p.lead { color: var(--muted); font-size: 0.95rem; line-height: 1.7; margin-bottom: 18px; }
+  ul, ol { padding-left: 22px; margin-bottom: 14px; }
+  li { font-size: 0.9rem; margin-bottom: 5px; line-height: 1.6; }
+  strong { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 12px 0; }
+  th, td { padding: 9px 11px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.74rem;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  code { background: var(--bg3); padding: 1px 6px; border-radius: 3px;
+    font-size: 0.84rem; font-family: ui-monospace, monospace; color: var(--green); }
+
+  .callout { background: var(--bg2); border: 1px solid var(--border);
+    border-left: 4px solid var(--green); padding: 14px 16px;
+    border-radius: 0 6px 6px 0; margin: 16px 0; font-size: 0.9rem; }
+  .callout.info  { border-left-color: var(--blue); }
+  .callout.warn  { border-left-color: var(--yellow); }
+
+  /* ASCII diagram block */
+  pre {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px 18px; overflow-x: auto;
+    font-family: ui-monospace, monospace; font-size: 0.78rem;
+    line-height: 1.45; color: var(--muted); margin: 12px 0;
+  }
+
+  /* Sprint badge timeline */
+  .timeline { margin: 12px 0; }
+  .sprint {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 16px; margin-bottom: 8px;
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .sprint .num {
+    flex-shrink: 0; width: 56px; padding: 4px 8px; border-radius: 4px;
+    background: var(--green); color: #000; font-weight: 800; font-size: 0.74rem;
+    text-align: center; letter-spacing: 0.04em;
+  }
+  .sprint .body { flex: 1; }
+  .sprint h4 { font-size: 0.92rem; font-weight: 700; margin-bottom: 4px; }
+  .sprint p { font-size: 0.84rem; color: var(--muted); margin: 0; }
+  .sprint.future .num { background: var(--bg3); color: var(--muted); border: 1px solid var(--border); }
+
+  .footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border);
+    font-size: 0.8rem; color: var(--muted); text-align: center; }
+
+  @media print {
+    html { background: #fff; color: #111; font-size: 11pt; }
+    body { padding: 16px 24px; max-width: none; }
+    :root { --bg:#fff; --bg2:#fafafa; --bg3:#f4f4f5; --border:#d4d4d8;
+            --text:#111; --muted:#555; --green:#1a7a42; }
+  }
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <div class="brand">
+    <div class="logo">NR</div>
+    <div>
+      <h1>New Relic <span>Safety Alerts</span> — Project Overview</h1>
+      <div class="sub">Architecture · Roadmap · Operating model</div>
+    </div>
+  </div>
+</header>
+
+<p class="lead">
+  This document explains <em>what</em> the Safety Alerts project is, <em>how</em> it works
+  technically, and <em>where</em> it's going. It's intended for engineering leads,
+  security/compliance reviewers, and exec sponsors who need context before approving
+  next-step integrations.
+</p>
+
+<!-- ── What it is ──────────────────────────────────────────── -->
+<h2>1. What this is</h2>
+<p>
+  A real-time threat-monitoring and crisis-communications dashboard for New Relic's
+  Crisis Management Team (CMT). It pulls live alert feeds from public data sources,
+  plots them against the 9 New Relic offices, lets the CMT scope incidents to specific
+  geographic areas, dispatch coordinated safety messages, and track per-employee
+  response status — all from a single interface.
+</p>
+
+<p>The project has two parts:</p>
+<ul>
+  <li><strong>Frontend</strong> — a single-file static HTML dashboard. Hosted on GitHub Pages today; can run anywhere static files run. No build step. ~3,600 lines of vanilla JavaScript + custom CSS using Leaflet for mapping.</li>
+  <li><strong>Backend</strong> — a TypeScript Node service (Fastify + Postgres + PostGIS) that ingests from 12 public data sources, deduplicates across them, geocodes, matches to offices, and serves a REST + Server-Sent Events API. ~3,200 lines of TS across 44 files.</li>
+</ul>
+
+<div class="callout">
+  <strong>Live URL:</strong> <code>https://kcheyne-dev.github.io/New-Relic-Safety-Alerts/</code><br>
+  The frontend is fully usable today against mock data. The backend is built and tested but not yet wired to the frontend (deferred until vendor integrations are approved).
+</div>
+
+<!-- ── Audience ────────────────────────────────────────────── -->
+<h2>2. Who it's for</h2>
+<table>
+  <tr><th>Role</th><th>Primary use</th></tr>
+  <tr><td><strong>CMT Member</strong></td>
+      <td>Open and close incidents, send crisis communications, track responses</td></tr>
+  <tr><td><strong>Office Manager</strong></td>
+      <td>Log local response status (OK / Need Help) for their office's employees</td></tr>
+  <tr><td><strong>Admin</strong></td>
+      <td>User management, system configuration, data export</td></tr>
+  <tr><td><strong>Employee</strong></td>
+      <td>Read-only view of incidents that affect them (future: respond to crisis comms via Slack)</td></tr>
+</table>
+
+<!-- ── Architecture ────────────────────────────────────────── -->
+<h2>3. Architecture</h2>
+
+<p>The system is split front-end / back-end, with a clean API contract between them:</p>
+
+<pre>
+                  ┌──────────────────────────────────────┐
+                  │   FREE PUBLIC DATA SOURCES (12)      │
+                  │   USGS / NWS / EMSC / NASA EONET /   │
+                  │   GDACS / MeteoAlarm / State Dept /  │
+                  │   SF Police / ATL APD / PDX FA /     │
+                  │   London TfL / GDELT                 │
+                  └──────────────┬───────────────────────┘
+                                 │  (poll on schedule)
+                                 ▼
+                  ┌──────────────────────────────────────┐
+                  │   BACKEND — Node + Fastify + TS      │
+                  │   - Per-source adapters              │
+                  │   - Severity normalization           │
+                  │   - Geocoding (cached Nominatim)     │
+                  │   - Cross-source deduplication       │
+                  │   - Office-proximity matching        │
+                  │   - Stale-event sweeper              │
+                  │   - Source health monitor + webhook  │
+                  └──────────────┬───────────────────────┘
+                                 │
+                                 ▼
+                  ┌──────────────────────────────────────┐
+                  │   POSTGRES + POSTGIS                 │
+                  │   - events (deduplicated, indexed)   │
+                  │   - raw_events (audit log)           │
+                  │   - offices (geom + headcount)       │
+                  │   - incidents / messages / responses │
+                  │   - audit_log (compliance)           │
+                  │   - users (auth)                     │
+                  └──────────────┬───────────────────────┘
+                                 │
+                       ┌─────────┴──────────┐
+                       ▼                    ▼
+                  REST  /api/...       SSE  /api/events/stream
+                  (auth: JWT)          (auth: ?token=)
+                       │                    │
+                       └─────────┬──────────┘
+                                 ▼
+                  ┌──────────────────────────────────────┐
+                  │   FRONTEND — single HTML file        │
+                  │   Leaflet map + 4-zone panel layout  │
+                  │   Status strip + persistence layer   │
+                  │   Compose / Incidents / Crisis Log   │
+                  └──────────────────────────────────────┘
+</pre>
+
+<h3>Frontend stack</h3>
+<ul>
+  <li><strong>Pure HTML/CSS/JS</strong> — no framework, no build step, no transpiler.</li>
+  <li><strong>Leaflet</strong> + Leaflet.draw + Leaflet.markercluster (via CDN) for mapping.</li>
+  <li><strong>CartoDB</strong> dark/light tiles. <strong>RainViewer</strong> for live precipitation. <strong>NASA GIBS</strong> for live land-surface temperature.</li>
+  <li>State management: a single <code>STATE</code> object + render functions that read it.</li>
+  <li>Persistence: <code>localStorage</code> with debounced saves, schema-versioned for future migrations.</li>
+  <li>Accessibility: ARIA labels, keyboard navigation on rails, semantic dialog roles on modals.</li>
+  <li>Security: CSP meta tag, escape-everything XSS prevention, HTTPS-only sources.</li>
+</ul>
+
+<h3>Backend stack</h3>
+<ul>
+  <li><strong>Node.js 20+</strong> with TypeScript and ESM modules.</li>
+  <li><strong>Fastify</strong> for HTTP — chosen over Express for speed and better TS support.</li>
+  <li><strong>PostgreSQL 16 + PostGIS</strong> for spatial queries (<code>ST_DWithin</code> for office proximity, indexed geometry).</li>
+  <li><strong>node-cron-style intervals</strong> for ingestion scheduling.</li>
+  <li><strong>bcrypt</strong> + <strong>jsonwebtoken</strong> for auth.</li>
+  <li><strong>pino</strong> for structured logging, <strong>zod</strong> for input validation.</li>
+  <li><strong>Server-Sent Events</strong> for live push to the dashboard (no polling).</li>
+</ul>
+
+<!-- ── Sprints ─────────────────────────────────────────────── -->
+<h2>4. Build sprints — what's done</h2>
+
+<div class="timeline">
+
+  <div class="sprint">
+    <div class="num">v2</div>
+    <div class="body">
+      <h4>Frontend rebuild — faithful to original spec</h4>
+      <p>4-zone collapsible-rail layout, NR-green theme, 9 office hubs, severity-color markers, alert feed, geo-fence, Crisis Comms with templates, full Incident workflow.</p>
+    </div>
+  </div>
+
+  <div class="sprint">
+    <div class="num">v2.x</div>
+    <div class="body">
+      <h4>Frontend polish (~30 iterations)</h4>
+      <p>Status strip, persistence layer, drag-resize panels, smart alert ordering, unified Map Tools panel, multi-message incident flow, reopen-incident, comprehensive incident report export, attachments + URL linkification, hazard map layers, NASA GIBS / RainViewer live tiles, CSP, accessibility pass, audit fixes.</p>
+    </div>
+  </div>
+
+  <div class="sprint">
+    <div class="num">B-1</div>
+    <div class="body">
+      <h4>Backend Sprint 1 — Foundation</h4>
+      <p>TypeScript + Fastify scaffold. USGS + NWS adapters. Postgres schema with PostGIS. Office proximity matching. REST API for events + sources/health. In-process scheduler.</p>
+    </div>
+  </div>
+
+  <div class="sprint">
+    <div class="num">B-2</div>
+    <div class="body">
+      <h4>Backend Sprint 2 — Breadth + geocoding</h4>
+      <p>Added EONET, GDACS, EMSC, MeteoAlarm, State Dept adapters (5 more sources). Cached Nominatim geocoder with 1 req/sec throttle. Pre-pass geocoding integrated with the persist pipeline.</p>
+    </div>
+  </div>
+
+  <div class="sprint">
+    <div class="num">B-3</div>
+    <div class="body">
+      <h4>Backend Sprint 3 — Dedup, SSE, city feeds</h4>
+      <p>Cross-source clustering (USGS + EMSC + GDACS publishing the same quake → one event). Centralized severity normalization. Server-Sent Events stream. 4 city open-data adapters: SF Police, Atlanta APD, Portland FlashAlert, London TfL.</p>
+    </div>
+  </div>
+
+  <div class="sprint">
+    <div class="num">B-4</div>
+    <div class="body">
+      <h4>Backend Sprint 4 — Production hardening</h4>
+      <p>GDELT firehose with theme + tone filtering. Stale-event sweeper. Source health monitor with auto-detected webhooks (Slack / PagerDuty / generic). Optional self-hosted Nominatim Docker profile.</p>
+    </div>
+  </div>
+
+  <div class="sprint">
+    <div class="num">B-5</div>
+    <div class="body">
+      <h4>Backend Sprint 5 — Real multi-user</h4>
+      <p>Server-side incidents/messages/responses/notes/log replacing localStorage. JWT auth with bcrypt. Role-based access control (admin / cmt / office / employee). Append-only audit log for compliance. Okta migration documented as single-function swap.</p>
+    </div>
+  </div>
+
+</div>
+
+<h2>5. Build sprints — what's planned</h2>
+
+<div class="timeline">
+
+  <div class="sprint future">
+    <div class="num">B-6A</div>
+    <div class="body">
+      <h4>Wire dashboard ↔ backend</h4>
+      <p>Replace dashboard's hardcoded mock data with calls to the backend API. ~30 lines of JS in <code>index.html</code>. Login screen + JWT-based session. EventSource subscription for live updates.</p>
+    </div>
+  </div>
+
+  <div class="sprint future">
+    <div class="num">B-6B</div>
+    <div class="body">
+      <h4>Slack outbound</h4>
+      <p>Crisis messages actually post to office Slack channels with Block Kit (severity-tinted, OK/Help action buttons). Requires: Slack app registration in NR workspace.</p>
+    </div>
+  </div>
+
+  <div class="sprint future">
+    <div class="num">B-6C</div>
+    <div class="body">
+      <h4>Slack inbound (Events API)</h4>
+      <p>Employees clicking "I'm OK" or "Need Help" in Slack auto-update the incident's response tracking. Closed-loop response handling.</p>
+    </div>
+  </div>
+
+  <div class="sprint future">
+    <div class="num">B-6D</div>
+    <div class="body">
+      <h4>Email outbound</h4>
+      <p>Email channel actually sends via Postmark / SES / Gmail. Office distribution lists. Delivery status webhooks.</p>
+    </div>
+  </div>
+
+  <div class="sprint future">
+    <div class="num">B-6E</div>
+    <div class="body">
+      <h4>Workday employee directory sync</h4>
+      <p>Replaces mock employees with real ones. Nightly full sync + change-event webhooks. The longest procurement timeline of any integration.</p>
+    </div>
+  </div>
+
+  <div class="sprint future">
+    <div class="num">B-6F</div>
+    <div class="body">
+      <h4>Navan traveler webhook</h4>
+      <p>Real-time booking updates replace mock travelers. Geo-fence flow lights up with real exposure data.</p>
+    </div>
+  </div>
+
+  <div class="sprint future">
+    <div class="num">B-7</div>
+    <div class="body">
+      <h4>Okta SSO</h4>
+      <p>Replace local password auth with Okta OIDC. Single function swap in <code>auth/jwt.ts</code> per the documented migration path. Group-based role mapping.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="callout info">
+  <strong>S.T.A.R. dependency</strong>
+  Sprints B-6 onward all depend on vendor integration approvals (IT / Security / Legal / Compliance review). Engineering work is bounded; procurement is the long-pole. The current architecture is designed so each integration is a self-contained module that drops into the existing pipeline — no rewrites needed.
+</div>
+
+<!-- ── Data sources ─────────────────────────────────────────── -->
+<h2>6. Data sources — open vs. paid</h2>
+
+<h3>Currently using (all free, no API keys)</h3>
+<table>
+  <tr><th>Source</th><th>What we get</th></tr>
+  <tr><td><strong>USGS</strong></td><td>Global earthquakes M4.5+, GeoJSON, 1-min updates</td></tr>
+  <tr><td><strong>NWS</strong></td><td>US weather alerts/warnings — Minor through Extreme</td></tr>
+  <tr><td><strong>EMSC</strong></td><td>European seismic, often faster than USGS for EU events</td></tr>
+  <tr><td><strong>NASA EONET</strong></td><td>Wildfires, severe storms, volcanoes globally</td></tr>
+  <tr><td><strong>GDACS</strong></td><td>UN-affiliated multi-hazard with Green/Orange/Red</td></tr>
+  <tr><td><strong>MeteoAlarm</strong></td><td>EU weather warnings (color-coded by country)</td></tr>
+  <tr><td><strong>State Dept</strong></td><td>US travel advisories L1-L4 by country</td></tr>
+  <tr><td><strong>SF / Atlanta / Portland / London</strong></td><td>City-specific public-safety feeds</td></tr>
+  <tr><td><strong>GDELT 2.0</strong></td><td>Global news, filtered by safety themes + tone</td></tr>
+  <tr><td><strong>RainViewer</strong></td><td>Live precipitation radar tiles</td></tr>
+  <tr><td><strong>NASA GIBS</strong></td><td>Live land-surface temperature tiles</td></tr>
+</table>
+
+<h3>Free but worth applying for separately</h3>
+<ul>
+  <li><strong>OSAC</strong> (Overseas Security Advisory Council) — US State Dept program for vetted private companies. Country reports, peer chatter, regional intel briefs. Free; ~3-week vetting.</li>
+  <li><strong>AirNow</strong> — official US EPA AQI, free with key registration.</li>
+  <li><strong>ACLED</strong> — armed conflict data. Free for academic use; private-sector requires license.</li>
+</ul>
+
+<h3>Paid options if/when needed</h3>
+<table>
+  <tr><th>Tier</th><th>Recommended pick</th><th>Approximate cost</th></tr>
+  <tr><td>~$30-50K/yr</td><td><strong>Factal</strong> — analyst-curated breaking news + safety intel</td><td>Mid-market</td></tr>
+  <tr><td>~$30-100K/yr</td><td><strong>Crisis24</strong> Risk Portal — country reports + analyst access</td><td>Mid-market</td></tr>
+  <tr><td>~$100K+/yr</td><td><strong>Dataminr Pulse</strong> — real-time social/news first-mover</td><td>Enterprise</td></tr>
+</table>
+
+<!-- ── Operational model ────────────────────────────────────── -->
+<h2>7. Operational model</h2>
+
+<h3>Hosting</h3>
+<table>
+  <tr><th>Component</th><th>Where</th><th>Cost</th></tr>
+  <tr><td>Frontend (static)</td><td>GitHub Pages</td><td>$0</td></tr>
+  <tr><td>Backend (when deployed)</td><td>Hetzner / Fly.io / Railway / a single VM</td><td>$10-30/month</td></tr>
+  <tr><td>Postgres</td><td>Same VM via Docker, or Neon free tier</td><td>$0-25/month</td></tr>
+  <tr><td>Geocoding</td><td>Public Nominatim (free) or self-hosted Docker</td><td>$0</td></tr>
+  <tr><td>Tile sources</td><td>CartoDB / RainViewer / NASA GIBS</td><td>$0</td></tr>
+</table>
+
+<p><strong>Total operational cost at current scope: ~$10-30/month.</strong> The expensive parts are the (future) paid integrations — Slack/Workday/Navan/Okta licenses are typically already paid for at the org level.</p>
+
+<h3>Reliability</h3>
+<ul>
+  <li><strong>Stale-event sweeper</strong> auto-marks events as inactive after 24h.</li>
+  <li><strong>Source-health monitor</strong> fires webhook alerts when a source has been silent &gt;30 min — auto-detects Slack / PagerDuty / generic from URL.</li>
+  <li><strong>Cross-source dedup</strong> means losing one source doesn't lose visibility on an event (USGS + EMSC + GDACS all cover earthquakes).</li>
+  <li><strong>Source-row health stored in Postgres</strong> persists across restarts.</li>
+</ul>
+
+<h3>Compliance</h3>
+<ul>
+  <li><strong>Append-only <code>audit_log</code> table</strong> captures every authenticated mutation: user, action, target, IP, user agent, payload.</li>
+  <li><strong>Append-only <code>raw_events</code> table</strong> preserves every payload from every source — full provenance chain from raw → normalized → clustered → incident.</li>
+  <li><strong>Schema-versioned</strong> persistence in both backend (SQL migrations) and frontend (localStorage schema field) so future shape changes can be migrated cleanly.</li>
+  <li><strong>RBAC</strong> built in from day one with four tiers; gating is one line per route.</li>
+</ul>
+
+<!-- ── Risk & open questions ───────────────────────────────── -->
+<h2>8. Risk & open questions</h2>
+
+<table>
+  <tr><th>Item</th><th>Status</th></tr>
+  <tr><td>S.T.A.R. (IT/Security/Legal/Compliance) review for vendor integrations</td>
+      <td>In progress — gates Sprint 6 work</td></tr>
+  <tr><td>Workday API access</td>
+      <td>Typically a 2-3 month procurement; should be started early</td></tr>
+  <tr><td>Slack app registration in NR workspace</td>
+      <td>IT request; usually fast once approved</td></tr>
+  <tr><td>OSAC application</td>
+      <td>Independent of S.T.A.R.; recommend applying now (~3 weeks vetting)</td></tr>
+  <tr><td>PII handling (when Workday lands)</td>
+      <td>Triggers GDPR / data classification review for EU offices</td></tr>
+  <tr><td>Custom domain on Pages or move to NR-owned host</td>
+      <td>Cosmetic; can wait</td></tr>
+</table>
+
+<!-- ── Summary ──────────────────────────────────────────────── -->
+<h2>9. Summary</h2>
+<p>
+  The Safety Alerts project today is a complete operational dashboard backed by an
+  ingestion engine that pulls from 12 free real-time data sources, with role-based auth,
+  audit logging, and clean integration points for Slack / Gmail / Workday / Navan / Okta
+  when those approvals come through.
+</p>
+<p>
+  <strong>What's deployed and live:</strong> the frontend dashboard at the Pages URL,
+  using mock data that mirrors the real schema.
+</p>
+<p>
+  <strong>What's built but not deployed:</strong> the full backend — runnable locally with
+  <code>docker compose up -d &amp;&amp; npm run dev</code>, ingesting from all 12 sources.
+</p>
+<p>
+  <strong>What's gated on approvals:</strong> wiring the dashboard to the backend,
+  vendor integrations (Slack / Gmail / Workday / Navan), Okta SSO.
+</p>
+<p>
+  <strong>What's recommended to start now:</strong> OSAC application (free, ~3 weeks of
+  vetting, no other dependencies).
+</p>
+
+<div class="footer">
+  NR Safety Alerts · CMT Dashboard · Internal use only<br>
+  Companion documents: <a href="quick-reference.html" style="color:var(--green)">quick-reference.html</a> · <a href="user-manual.html" style="color:var(--green)">user-manual.html</a>
+</div>
+
+</body>
+</html>
