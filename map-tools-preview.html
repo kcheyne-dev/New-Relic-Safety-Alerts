@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Map Tools Panel — Preview</title>
+<style>
+  :root {
+    --bg:#18181b; --bg2:#1c1c1f; --bg3:#27272a;
+    --border:#3f3f46; --text:#e4e4e7; --muted:#a1a1aa;
+    --green:#1ce783; --blue:#1e90ff; --orange:#fb923c;
+    --red:#f87171; --yellow:#facc15; --teal:#2dd4bf;
+    --sev-low:#4ade80; --sev-mod:#facc15; --sev-high:#fb923c; --sev-ext:#f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, system-ui, sans-serif; }
+  body { padding: 32px; max-width: 1500px; margin: 0 auto; }
+
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  h1 span { color: var(--green); }
+  .lead { color: var(--muted); font-size: 13px; margin-bottom: 24px; line-height: 1.6; max-width: 760px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--green); margin: 32px 0 8px 0; }
+  .caption { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; max-width: 720px; }
+
+  /* ===== Frame around each variant ===== */
+  .row { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+  .frame {
+    flex: 1; min-width: 460px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    position: relative;
+  }
+  .frame-header {
+    height: 64px; padding: 0 14px; background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  }
+  .htn {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 6px; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .htn:hover { border-color: var(--green); }
+  .htn.active {
+    background: rgba(28,231,131,.12); border-color: var(--green); color: var(--green);
+  }
+  .frame-body {
+    height: 380px; background:
+      radial-gradient(circle at 20% 30%, #2a2a2e 0%, transparent 40%),
+      radial-gradient(circle at 70% 60%, #2a2a2e 0%, transparent 40%),
+      var(--bg);
+    position: relative;
+  }
+  .map-label {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+  }
+  .header-badge {
+    background: var(--green); color: #000; border-radius: 8px;
+    padding: 0 5px; font-size: 10px; font-weight: 700; margin-left: 4px;
+  }
+  .fence-badge-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--sev-ext); margin-left: 4px;
+  }
+
+  /* ===== The Map Tools dropdown — the actual subject ===== */
+  .tools-dropdown {
+    position: absolute; top: 76px; right: 14px; width: 360px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    max-height: 296px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .tools-dropdown::after {
+    content: ''; position: absolute; top: -7px; right: 14px;
+    width: 12px; height: 12px; background: var(--bg2);
+    border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+    transform: rotate(45deg);
+  }
+  .tools-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tools-tab {
+    flex: 1; padding: 10px 8px; font-size: 12px; font-weight: 600;
+    color: var(--muted); background: transparent; border: 0;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .tools-tab.active { color: var(--text); border-bottom-color: var(--green); background: var(--bg3); }
+  .tools-tab-body { padding: 12px; overflow-y: auto; flex: 1; min-height: 0; }
+  .tools-dropdown h4 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--green); margin: 8px 0 6px 0;
+  }
+  .tools-dropdown h4:first-child { margin-top: 0; }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between;
+    font-size: 12px; padding: 4px 0; }
+  .toggle-row label { display: flex; align-items: center; gap: 6px; flex: 1; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .toggle-row input[type=checkbox] { accent-color: var(--green); }
+
+  .sev-segments { display: flex; gap: 4px; margin-top: 4px; }
+  .sev-seg { flex: 1; padding: 4px; text-align: center; font-size: 10px; font-weight: 700;
+    border: 1px solid var(--border); border-radius: 4px; background: var(--bg3);
+    text-transform: uppercase; }
+  .sev-seg.active.low { background: rgba(74,222,128,.2); color: var(--sev-low); border-color: var(--sev-low); }
+  .sev-seg.active.high { background: rgba(251,146,60,.2); color: var(--sev-high); border-color: var(--sev-high); }
+
+  .shape-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 4px; }
+  .shape-buttons button { padding: 8px 4px; font-size: 11px; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 5px; color: var(--text); }
+  .shape-buttons button.active { background: rgba(28,231,131,.15); border-color: var(--green); color: var(--green); }
+  .fence-results { margin-top: 8px; max-height: 96px; overflow-y: auto;
+    background: var(--bg3); border-radius: 5px; padding: 6px; font-size: 11px; }
+  .fence-row { display: flex; justify-content: space-between; padding: 3px 4px;
+    border-bottom: 1px dotted var(--border); }
+  .fence-row:last-child { border-bottom: 0; }
+  .fence-row b { color: var(--text); }
+
+  .btn-ghost { background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    border-radius: 5px; padding: 5px 10px; font-size: 11px; cursor: pointer; }
+  .btn-primary {
+    background: var(--green); color: #000; padding: 6px 12px; border-radius: 6px; border: 0;
+    font-weight: 700; font-size: 12px; cursor: pointer;
+  }
+  .empty { color: var(--muted); padding: 20px; text-align: center; font-size: 11px; }
+
+  /* ===== Hazard legend overlay ===== */
+  .legend {
+    position: absolute; left: 12px; bottom: 12px; z-index: 5;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 11px; max-width: 220px;
+  }
+  .legend .leg-title { font-size: 10px; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+  .legend .leg-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .legend .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend a { color: var(--blue); text-decoration: none; font-size: 10px; }
+
+  /* ===== Hazard zone simulations on the mock map ===== */
+  .zone {
+    position: absolute; border-radius: 50%; border: 2px dashed; opacity: 0.7;
+  }
+  .zone.fire { width: 90px; height: 90px; left: 18%; top: 30%; border-color: #f87171; background: rgba(248,113,113,.18); }
+  .zone.quake { width: 75px; height: 75px; left: 70%; top: 35%; border-color: #fb923c; background: rgba(251,146,60,.18); }
+  .zone.heat { width: 60px; height: 60px; left: 50%; top: 55%; border-color: #dc2626; background: rgba(220,38,38,.18); }
+  .fence-shape {
+    position: absolute; left: 28%; top: 38%; width: 130px; height: 130px;
+    border: 2px solid var(--green); background: rgba(28,231,131,.10); border-radius: 50%;
+  }
+  .fence-bottom-bar {
+    position: absolute; bottom: 0; left: 0; right: 0; background: rgba(24,24,27,.95);
+    border-top: 1px solid var(--border); padding: 6px 12px;
+    display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text);
+  }
+  .fence-bottom-bar .count-emp { color: var(--sev-low); font-weight: 700; }
+  .fence-bottom-bar .count-trav { color: var(--orange); font-weight: 700; }
+  .fence-bottom-bar .chip { background: var(--bg3); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 10px; font-size: 10px; }
+  .fence-bottom-bar .chip.emp { background: rgba(74,222,128,.12); color: var(--sev-low); border-color: rgba(74,222,128,.3); }
+  .fence-bottom-bar .chip.trav { background: rgba(251,146,60,.12); color: var(--orange); border-color: rgba(251,146,60,.3); }
+  .fence-bottom-bar .grow { flex: 1; }
+
+  .legend2 { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px 16px; margin-top: 24px; }
+  .legend2 h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--green); margin-bottom: 10px; }
+  .legend2 ul { list-style: none; padding: 0; }
+  .legend2 li { font-size: 12px; color: var(--muted); padding: 4px 0; line-height: 1.6; }
+  .legend2 li b { color: var(--text); }
+  .legend2 code { background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<h1>Map Tools <span>Preview</span></h1>
+<p class="lead">
+  Read-only mockup of the unified Map Tools panel. The two old buttons (⚙ Layers and ✏︎ Geo-fence) collapse
+  into a single 🗺 Map Tools button. The panel that opens is tabbed — Layers & Filters on the left,
+  Geo-fence on the right. Below are four states showing how it behaves.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 1 — Closed, no overlays active</h2>
+<div class="row"><div class="frame">
+  <div class="frame-header">
+    <button class="htn">🗺 Map Tools</button>
+    <button class="htn">🌙</button>
+    <button class="htn">? Manual</button>
+  </div>
+  <div class="frame-body"><div class="map-label">— map area —</div></div>
+</div></div>
+<p class="caption">Quiet header. Clean badge. Nothing shouting for attention.</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 2 — Layers tab open, three hazards active</h2>
+<div class="row"><div class="frame">
+  <div class="frame-header">
+    <button class="htn active">🗺 Map Tools<span class="header-badge">3</span></button>
+    <button class="htn">🌙</button>
+    <button class="htn">? Manual</button>
+  </div>
+  <div class="frame-body">
+    <div class="zone fire"></div>
+    <div class="zone quake"></div>
+    <div class="zone heat"></div>
+    <div class="map-label">— map with overlays —</div>
+    <div class="legend">
+      <div class="leg-title">Map overlays active</div>
+      <div class="leg-row"><span class="leg-dot" style="background:#f87171"></span>🔥 Wildfire <span style="color:var(--muted);font-size:10px;margin-left:auto">5</span> <a>↗</a></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#fb923c"></span>🌍 Seismic <span style="color:var(--muted);font-size:10px;margin-left:auto">5</span> <a>↗</a></div>
+      <div class="leg-row"><span class="leg-dot" style="background:#dc2626"></span>☀️ Heat <span style="color:var(--muted);font-size:10px;margin-left:auto">7</span> <a>↗</a></div>
+    </div>
+    <div class="tools-dropdown">
+      <div class="tools-tabs">
+        <button class="tools-tab active">⚙ Layers & Filters</button>
+        <button class="tools-tab">✏︎ Geo-fence</button>
+      </div>
+      <div class="tools-tab-body">
+        <h4>Hazard Overlays</h4>
+        <div class="toggle-row"><label><span class="swatch" style="background:#f87171"></span>Active Wildfire Zones</label><input type="checkbox" checked /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#1e90ff"></span>Flood Risk Zones</label><input type="checkbox" /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#fb923c"></span>Seismic Risk</label><input type="checkbox" checked /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#facc15"></span>Civil Unrest Zones</label><input type="checkbox" /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#dc2626"></span>Heat Advisory Zones</label><input type="checkbox" checked /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#a855f7"></span>Air Quality (AQI &gt; 100)</label><input type="checkbox" /></div>
+        <h4>Live Overlays</h4>
+        <div class="toggle-row"><label>🌧 Precipitation Radar (RainViewer)</label><input type="checkbox" /></div>
+        <div class="toggle-row"><label>🌡 Land Surface Temperature (NASA GIBS)</label><input type="checkbox" /></div>
+        <h4>Severity Filter</h4>
+        <div class="sev-segments">
+          <div class="sev-seg low active">Low+</div>
+          <div class="sev-seg">Mod+</div>
+          <div class="sev-seg">High+</div>
+          <div class="sev-seg">Ext</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+<p class="caption">
+  Header badge reads <code style="background:#27272a;padding:0 4px;border-radius:3px">3</code>. Inside the panel, Layers tab is active. Bottom-left legend on the map mirrors the active overlays. Clicking
+  a layer's name on the map (or the ↗ in the legend) jumps to its source.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 3 — Geo-fence tab, drawing in progress</h2>
+<div class="row"><div class="frame">
+  <div class="frame-header">
+    <button class="htn active">🗺 Map Tools</button>
+    <button class="htn">🌙</button>
+    <button class="htn">? Manual</button>
+  </div>
+  <div class="frame-body">
+    <div class="map-label">— click on the map to draw —</div>
+    <div class="tools-dropdown">
+      <div class="tools-tabs">
+        <button class="tools-tab">⚙ Layers & Filters</button>
+        <button class="tools-tab active">✏︎ Geo-fence</button>
+      </div>
+      <div class="tools-tab-body">
+        <h4>Draw Shape</h4>
+        <div class="shape-buttons">
+          <button class="active">Circle</button>
+          <button>Rectangle</button>
+          <button>Polygon</button>
+        </div>
+        <h4>Mode</h4>
+        <div class="shape-buttons" style="grid-template-columns:1fr 1fr">
+          <button class="active">Highlight</button>
+          <button>Filter</button>
+        </div>
+        <h4>Results</h4>
+        <div class="fence-results">
+          <div class="empty">Draw a shape to see results.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+<p class="caption">User clicked Geo-fence tab, then Circle. The Circle button is active (NR-green). Cursor instructs to click on the map to draw. Layers stay applied even while drawing (this tab just changes what controls are visible).</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 4 — Geo-fence drawn, results showing in panel + bottom bar</h2>
+<div class="row"><div class="frame">
+  <div class="frame-header">
+    <button class="htn active">🗺 Map Tools</button>
+    <button class="htn">🌙</button>
+    <button class="htn">? Manual</button>
+  </div>
+  <div class="frame-body">
+    <div class="fence-shape"></div>
+    <div class="map-label" style="top:30%">— fence drawn over Tokyo —</div>
+    <div class="tools-dropdown">
+      <div class="tools-tabs">
+        <button class="tools-tab">⚙ Layers & Filters</button>
+        <button class="tools-tab active">✏︎ Geo-fence <span class="fence-badge-dot"></span></button>
+      </div>
+      <div class="tools-tab-body">
+        <h4>Draw Shape</h4>
+        <div class="shape-buttons">
+          <button>Circle</button>
+          <button>Rectangle</button>
+          <button>Polygon</button>
+        </div>
+        <h4>Results <span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">96 emp · 2 trav</span></h4>
+        <div class="fence-results">
+          <div class="fence-row"><b>Offices</b><span>1</span></div>
+          <div class="fence-row"><span>TYO · Tokyo</span><span>96 emp</span></div>
+          <div class="fence-row" style="margin-top:6px"><b>Alerts</b><span>3</span></div>
+          <div class="fence-row" style="cursor:pointer"><span style="background:rgba(248,113,113,.15);color:#f87171;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700">EXTREME</span><span>M5.8 earthquake — Tokyo…</span><span style="color:var(--green);font-size:10px">Details ›</span></div>
+          <div class="fence-row" style="cursor:pointer"><span style="background:rgba(251,146,60,.15);color:#fb923c;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700">HIGH</span><span>Aftershock M4.6 near Tokyo Bay…</span><span style="color:var(--green);font-size:10px">Details ›</span></div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn-ghost">Clear Fence</button>
+          <button class="btn-ghost">Export CSV</button>
+          <button class="btn-primary" style="margin-top:0;flex:1">Crisis</button>
+        </div>
+      </div>
+    </div>
+    <div class="fence-bottom-bar">
+      <span class="count-emp">● 96 employees in geofence</span>
+      <span class="count-trav">● 2 travelers in geofence</span>
+      <span class="chip emp">TYO 96</span>
+      <span class="chip trav">✈ Bengaluru 2</span>
+      <span class="grow"></span>
+      <button class="btn-ghost">Export CSV</button>
+      <button class="btn-primary">Crisis →</button>
+    </div>
+  </div>
+</div></div>
+<p class="caption">
+  Geo-fence tab now has a <strong>red dot badge</strong> (the existing fence severity dot — preserved) signaling the fence has caught an Extreme alert.
+  Results panel shows offices and alerts inside the fence. Bottom-bar gives the at-a-glance employee/traveler chips and the
+  Crisis fast-path. Two surfaces, two purposes — together they don't compete because the panel is the actionable detail and the bar is the persistent counter.
+</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<h2>State 5 — Mobile/narrow viewport (responsive)</h2>
+<div class="row"><div class="frame" style="max-width: 460px">
+  <div class="frame-header">
+    <button class="htn active">🗺 Tools<span class="header-badge">2</span></button>
+    <button class="htn">🌙</button>
+  </div>
+  <div class="frame-body" style="height: 320px">
+    <div class="map-label">— map —</div>
+    <div class="tools-dropdown" style="width: 320px;">
+      <div class="tools-tabs">
+        <button class="tools-tab active">Layers</button>
+        <button class="tools-tab">Geo-fence</button>
+      </div>
+      <div class="tools-tab-body">
+        <h4>Hazard Overlays</h4>
+        <div class="toggle-row"><label><span class="swatch" style="background:#f87171"></span>Wildfire</label><input type="checkbox" checked /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#fb923c"></span>Seismic</label><input type="checkbox" checked /></div>
+        <div class="toggle-row"><label><span class="swatch" style="background:#facc15"></span>Civil Unrest</label><input type="checkbox" /></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+<p class="caption">On narrower screens the tabs shorten to "Layers" and "Geo-fence" and the panel can drop to 320px. The "Map Tools" label could shorten to just "Tools" if you want to save horizontal space (not implemented yet — call this out if you want).</p>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<div class="legend2">
+  <h3>What's different from before</h3>
+  <ul>
+    <li><b>One header button instead of two</b> — <code>🗺 Map Tools</code> with a green count badge showing how many overlays are toggled on. Reduces header clutter; surfaces "is anything on?" at a glance.</li>
+    <li><b>Tabbed dropdown</b> — Layers & Filters / Geo-fence. Same content as before, organized cleaner. The fence-active dot now lives on the Geo-fence tab.</li>
+    <li><b>Same trigger pattern</b> — click button to open, click outside or hit Esc to close. Clicking the button while open closes it.</li>
+    <li><b>Tab state is transient</b> — not persisted. Always boots to Layers tab. (We can persist if you want it to remember last tab.)</li>
+    <li><b>No fence-state lost</b> — drawing a fence in the Geo-fence tab works exactly as before. Switching tabs while a fence is drawn keeps the fence on the map.</li>
+    <li><b>Esc precedence:</b> <code>modal → tools dropdown → reset map view</code>. Same chain as before, simpler now (one less dropdown to check).</li>
+  </ul>
+</div>
+
+</body>
+</html>

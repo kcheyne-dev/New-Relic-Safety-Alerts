@@ -304,25 +304,37 @@ body.resizing-panel * { cursor: ew-resize !important; }
   background: var(--bg2) !important; color: var(--text) !important; border-color: var(--border) !important; }
 
 /* ============ MAP TOOL OVERLAYS =================================== */
-.layers-dropdown, .geofence-dropdown {
-  position: fixed; z-index: 700; top: 112px; right: 14px; width: 320px;
+.tools-dropdown {
+  position: fixed; z-index: 700; top: 112px; right: 14px; width: 360px;
   background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.5); padding: 12px; display: none;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5); display: none;
   max-height: calc(100vh - 132px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  flex-direction: column;
+  overflow: hidden;
 }
-.layers-dropdown::after, .geofence-dropdown::after {
-  /* tiny notch pointing up at the header button */
+.tools-dropdown::after {
+  /* notch pointing up at the header button */
   content: ''; position: absolute; top: -7px; right: 14px;
   width: 12px; height: 12px; background: var(--bg2);
   border-left: 1px solid var(--border); border-top: 1px solid var(--border);
   transform: rotate(45deg);
 }
-.layers-dropdown.open, .geofence-dropdown.open { display: block; }
-.layers-dropdown h4, .geofence-dropdown h4 { font-size: 11px; text-transform: uppercase;
+.tools-dropdown.open { display: flex; }
+.tools-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg2); }
+.tools-tab {
+  flex: 1; padding: 10px 8px; font-size: 12px; font-weight: 600;
+  color: var(--muted); background: transparent; border: 0;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.tools-tab:hover { color: var(--text); }
+.tools-tab.active { color: var(--text); border-bottom-color: var(--green); background: var(--bg3); }
+.tools-tab-body {
+  padding: 12px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0;
+}
+.tools-dropdown h4 { font-size: 11px; text-transform: uppercase;
   letter-spacing: .08em; color: var(--green); margin: 8px 0 6px 0; }
-.layers-dropdown h4:first-child, .geofence-dropdown h4:first-child { margin-top: 0; }
+.tools-dropdown h4:first-child { margin-top: 0; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between;
   font-size: 12px; padding: 4px 0; }
 .toggle-row label { display: flex; align-items: center; gap: 6px; flex: 1; }
@@ -546,8 +558,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
       </div>
     </div>
     <div class="h-tools">
-      <button class="htn" id="btn-layers" aria-label="Map layers and filters">⚙ Layers</button>
-      <button class="htn" id="btn-fence" aria-label="Geo-fence drawing tool">✏︎ Geo-fence <span id="fence-badge"></span></button>
+      <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
     </div>
@@ -585,8 +596,13 @@ body.resizing-panel * { cursor: ew-resize !important; }
     <div class="map-wrap">
       <div id="map"></div>
 
-      <!-- LAYERS DROPDOWN -->
-      <div class="layers-dropdown" id="layers-dropdown">
+      <!-- MAP TOOLS DROPDOWN — Layers + Geo-fence in one tabbed panel -->
+      <div class="tools-dropdown" id="tools-dropdown" role="dialog" aria-label="Map tools">
+        <div class="tools-tabs" role="tablist">
+          <button class="tools-tab active" data-tools-tab="layers" role="tab" aria-selected="true">⚙ Layers & Filters</button>
+          <button class="tools-tab" data-tools-tab="fence" role="tab" aria-selected="false">✏︎ Geo-fence <span id="fence-badge"></span></button>
+        </div>
+        <div class="tools-tab-body" data-tools-body="layers">
         <h4>Hazard Overlays</h4>
         <div class="toggle-row"><label><span class="swatch" style="background:var(--sev-ext)"></span>Active Wildfire Zones</label><input type="checkbox" data-overlay="fire"/></div>
         <div class="toggle-row"><label><span class="swatch" style="background:var(--blue)"></span>Flood Risk Zones</label><input type="checkbox" data-overlay="flood"/></div>
@@ -634,10 +650,9 @@ body.resizing-panel * { cursor: ew-resize !important; }
           <input type="file" id="trav-file" style="display:none" accept=".csv"/>
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;" id="trav-count">— travelers loaded</div>
-      </div>
+        </div>
 
-      <!-- GEO-FENCE DROPDOWN -->
-      <div class="geofence-dropdown" id="geofence-dropdown">
+        <div class="tools-tab-body" data-tools-body="fence" style="display:none">
         <h4>Draw Shape</h4>
         <div class="shape-buttons">
           <button data-shape="circle">Circle</button>
@@ -655,6 +670,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
           <button class="btn-ghost" id="btn-fence-clear">Clear Fence</button>
           <button class="btn-ghost" id="btn-fence-export">Export CSV</button>
           <button class="btn-primary" style="margin-top:0;flex:1;" id="btn-fence-crisis">Crisis</button>
+        </div>
         </div>
       </div>
 
@@ -1392,6 +1408,14 @@ async function applyTileOverlays() {
 
 /** Update the legend with all active overlays. */
 function updateHazardLegend(active) {
+  // update Map Tools header badge with active-overlay count
+  const overlayCount = Object.values(STATE.hazards).filter(Boolean).length;
+  const badge = document.getElementById('tools-badge');
+  if (badge) {
+    badge.innerHTML = overlayCount
+      ? `<span style="display:inline-block;background:var(--green);color:#000;border-radius:8px;padding:0 5px;font-size:10px;font-weight:700;margin-left:4px">${overlayCount}</span>`
+      : '';
+  }
   const leg = document.getElementById('hazard-legend');
   if (!leg) return;
   const entries = [...active.map(({def}) => ({ label: def.label, color: def.color, count: def.zones.length, source: def.source, sourceUrl: def.sourceUrl }))];
@@ -2617,22 +2641,31 @@ document.getElementById('btn-collapse-alerts').onclick = () => closePanel('alert
 document.getElementById('btn-collapse-crisis').onclick = () => closePanel('crisis');
 document.getElementById('btn-collapse-incident').onclick = () => closePanel('incident');
 
-document.getElementById('btn-layers').onclick = (e) => {
+document.getElementById('btn-tools').onclick = (e) => {
   e.stopPropagation();
-  document.getElementById('geofence-dropdown').classList.remove('open');
-  document.getElementById('layers-dropdown').classList.toggle('open');
-};
-document.getElementById('btn-fence').onclick = (e) => {
-  e.stopPropagation();
-  document.getElementById('layers-dropdown').classList.remove('open');
-  document.getElementById('geofence-dropdown').classList.toggle('open');
+  document.getElementById('tools-dropdown').classList.toggle('open');
 };
 document.addEventListener('click', e => {
-  if (!e.target.closest('.layers-dropdown') && !e.target.closest('#btn-layers'))
-    document.getElementById('layers-dropdown').classList.remove('open');
-  if (!e.target.closest('.geofence-dropdown') && !e.target.closest('#btn-fence'))
-    document.getElementById('geofence-dropdown').classList.remove('open');
+  if (!e.target.closest('.tools-dropdown') && !e.target.closest('#btn-tools'))
+    document.getElementById('tools-dropdown').classList.remove('open');
 });
+// Tab switching inside the Map Tools dropdown
+function setMapToolsTab(tab) {
+  document.querySelectorAll('[data-tools-tab]').forEach(b => {
+    const on = b.dataset.toolsTab === tab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  document.querySelectorAll('[data-tools-body]').forEach(b => {
+    b.style.display = b.dataset.toolsBody === tab ? '' : 'none';
+  });
+}
+document.querySelectorAll('[data-tools-tab]').forEach(t => t.addEventListener('click', () => setMapToolsTab(t.dataset.toolsTab)));
+// Helper exposed via App after init (see window.App definition below).
+function openMapToolsTab(tab) {
+  document.getElementById('tools-dropdown').classList.add('open');
+  setMapToolsTab(tab);
+}
 
 document.querySelectorAll('[data-feed-tab]').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('[data-feed-tab]').forEach(x => x.classList.remove('active'));
@@ -2647,12 +2680,9 @@ document.getElementById('btn-reset-view').onclick = () => App.resetView();
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (isModalOpen()) { closeModal(); return; }   // close modal first
-  // then drop any open dropdowns
-  const layersOpen = document.getElementById('layers-dropdown').classList.contains('open');
-  const fenceOpen  = document.getElementById('geofence-dropdown').classList.contains('open');
-  if (layersOpen || fenceOpen) {
-    document.getElementById('layers-dropdown').classList.remove('open');
-    document.getElementById('geofence-dropdown').classList.remove('open');
+  const tools = document.getElementById('tools-dropdown');
+  if (tools && tools.classList.contains('open')) {
+    tools.classList.remove('open');
     return;
   }
   App.resetView();
@@ -2807,6 +2837,7 @@ window.App = {
   selectAlert,
   showFreshness,
   exportData, resetData,
+  openMapToolsTab,
 };
 
 /* ---------- 17b. Alert Details — opens in a new tab ---------- */
