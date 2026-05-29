@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "ingest": "tsx src/workers/scheduler.ts",
-    "migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f seeds/offices.sql",
+    "migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f migrations/002_geocode_and_sources.sql && psql $DATABASE_URL -f seeds/offices.sql",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "vitest"
@@ -15,6 +15,7 @@
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "dotenv": "^16.4.5",
+    "fast-xml-parser": "^4.5.0",
     "fastify": "^4.28.1",
     "node-cron": "^3.0.3",
     "pg": "^8.13.0",

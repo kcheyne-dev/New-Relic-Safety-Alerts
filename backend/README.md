@@ -1,12 +1,26 @@
-# NR Safety Alerts — Backend (Sprint 1)
+# NR Safety Alerts — Backend
 
-Real-time alert ingestion + REST API for the CMT Dashboard. This Sprint 1 build ships:
+Real-time alert ingestion + REST API for the CMT Dashboard.
 
-- **Two live sources**: USGS earthquakes (1-min cadence) and NWS weather alerts (5-min cadence).
+## What's in this build (Sprint 1 + Sprint 2)
+
+**7 live sources** with auto-ingestion:
+
+| Source | Cadence | Format | Notes |
+|---|---|---|---|
+| USGS Earthquakes | 60s | GeoJSON | M4.5+ globally; magnitude → severity |
+| NWS Active Alerts (US) | 5m | GeoJSON | Severity = Minor/Moderate/Severe/Extreme; polygon centroids |
+| NASA EONET | 10m | JSON | Wildfires, storms, volcanoes, floods globally |
+| GDACS | 10m | GeoJSON | UN multi-hazard with Green/Orange/Red severity |
+| EMSC | 5m | GeoJSON | European seismic; redundancy with USGS, often faster for EU |
+| MeteoAlarm | 15m | Atom XML | EU weather warnings color-coded; geocoded by area name |
+| US State Dept | 24h | RSS XML | Travel advisories L1–L4 by country |
+
 - **Postgres + PostGIS** for event storage with spatial queries.
-- **Office proximity matching**: every ingested alert is stamped with the IDs of any NR offices within a category-default radius.
+- **Office proximity matching**: every ingested alert is stamped with the IDs of any NR offices within a category-default radius (overridable per event).
+- **Geocoding layer**: cache-backed, calls Nominatim only on misses, honors 1 req/sec policy.
 - **Fastify REST API** at `/api/events`, `/api/events/:id`, `/api/sources/health`, `/api/health`.
-- **In-process scheduler** that runs the ingestion adapters on their declared intervals.
+- **In-process scheduler** with stagger-on-boot to avoid thundering-herd fetches.
 
 ## Stack
 
@@ -95,17 +109,21 @@ setInterval(refreshAlerts, 60000);
 - **Idempotency**: every adapter's events are upserted on `(source, source_event_id)`. Re-running ingestion is safe and cheap.
 - **Audit**: `raw_events` keeps the original payload of every ingested item, forever (until you decide to truncate). Nothing is lost; reprocessing is possible by replaying.
 
-## What this DOESN'T do yet (Sprint 2+)
+## What this DOESN'T do yet (Sprint 3+)
 
-- Cross-source deduplication (USGS + EMSC + GDELT publishing the same quake → one event, not three)
-- Server-Sent Events streaming (currently the dashboard would poll)
-- Geocoding via Nominatim (only sources that publish lat/lng work today)
-- Auth / Okta SSO
-- Incident persistence on the server (still in dashboard localStorage)
-- Automated stale-event sweeper (24h TTL)
-- Source health alerting via PagerDuty / email
+- **Cross-source deduplication** — USGS + EMSC + GDACS each publishing the same Tokyo quake currently produces three events. Sprint 3 adds clustering by time (±30 min) + space (≤25 km) + topic.
+- **Server-Sent Events** — dashboard polls today; SSE/WebSocket push is Sprint 3.
+- **Auth / Okta SSO** — Sprint 5 alongside server-side incident persistence.
+- **Incident persistence on the server** — still in dashboard localStorage. Sprint 5 migrates incidents/responses/messages to Postgres.
+- **Automated stale sweeper** — events older than 24h should be flagged. Sprint 4.
+- **Source health alerting** — push to PagerDuty/email when a feed has been down >30 min. Sprint 4.
+- **GDELT + ACLED** — heaviest filtering work; Sprint 4.
 
-These are Sprints 2-5 in the build plan.
+## Geocoding
+
+- For sources that publish a place name without coordinates (MeteoAlarm, State Dept), the persist pipeline calls `pipeline/geocode.ts` before insert.
+- Lookups are cached in Postgres (`geocode_cache` table). TTL: 180 days for hits, 24h for misses.
+- The **public Nominatim service** is rate-limited to 1 req/sec. We honor that with both a server-side throttle and the cache. For commercial-volume operation, run your own Nominatim Docker container — the only change needed is `NOMINATIM_URL=http://localhost:7070/search` in `.env`.
 
 ## Cost to run
 

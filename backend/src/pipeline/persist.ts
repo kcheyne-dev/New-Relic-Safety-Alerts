@@ -1,6 +1,7 @@
 import { withTx } from '../db.js';
 import type { RawAndNormalized, NormalizedEvent } from '../types.js';
 import { log } from '../log.js';
+import { ensureCoords } from './geocode.js';
 
 /**
  * Insert raw + normalized events. Idempotent on (source, source_event_id).
@@ -30,6 +31,15 @@ export async function persistBatch(
 ): Promise<IngestStats> {
   const stats: IngestStats = { fetched: items.length, inserted: 0, updated: 0, skipped: 0 };
   if (items.length === 0) return stats;
+
+  // Pre-pass: geocode any items missing coordinates. Done outside the transaction
+  // so a slow Nominatim call doesn't hold a DB connection.
+  for (const item of items) {
+    const ok = await ensureCoords(item.normalized);
+    if (!ok) {
+      log.warn({ source: sourceId, id: item.sourceEventId, loc: item.normalized.location }, 'geocode.unresolved');
+    }
+  }
 
   await withTx(async (client) => {
     for (const item of items) {

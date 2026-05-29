@@ -1,0 +1,102 @@
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity } from '../types.js';
+import { log } from '../log.js';
+
+/**
+ * EMSC — European Mediterranean Seismological Centre.
+ *
+ * Endpoint: https://www.seismicportal.eu/fdsnws/event/1/query
+ *           ?format=json&limit=200&minmag=4
+ * Auth:     none
+ * Format:   GeoJSON FeatureCollection (FDSN WS standard)
+ *
+ * EMSC frequently picks up European events faster than USGS. Output schema
+ * mirrors USGS closely. Severity mapping is identical to USGS.
+ */
+
+interface EmscFeature {
+  type: 'Feature';
+  id: string;
+  geometry: { type: 'Point'; coordinates: [number, number, number] };
+  properties: {
+    source_id: string;
+    source_catalog: string;
+    lastupdate: string;
+    time: string;
+    flynn_region: string;
+    lat: number;
+    lon: number;
+    depth: number;
+    evtype: string;        // 'ke' = known earthquake, 'se' = suspected, etc.
+    auth: string;
+    mag: number;
+    magtype: string;
+    unid: string;
+  };
+}
+interface EmscFeed {
+  type: 'FeatureCollection';
+  metadata: { count: number; generated: number };
+  features: EmscFeature[];
+}
+
+const FEED_URL = 'https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=200&minmag=4';
+
+function severityForMagnitude(mag: number): Severity {
+  if (mag >= 6.5) return 'ext';
+  if (mag >= 5.0) return 'high';
+  if (mag >= 4.0) return 'mod';
+  return 'low';
+}
+function radiusKmForMagnitude(mag: number): number {
+  if (mag >= 7.0) return 600;
+  if (mag >= 6.0) return 350;
+  if (mag >= 5.0) return 180;
+  if (mag >= 4.0) return 80;
+  return 40;
+}
+
+export const emscAdapter: SourceAdapter = {
+  id: 'emsc',
+  name: 'European Mediterranean Seismological Centre',
+  intervalSeconds: 300,
+
+  async fetch(): Promise<RawAndNormalized[]> {
+    const resp = await globalThis.fetch(FEED_URL, {
+      headers: { 'User-Agent': 'nr-safety-alerts/0.1', Accept: 'application/json' },
+    });
+    if (!resp.ok) throw new Error(`EMSC feed returned HTTP ${resp.status}`);
+    const data = (await resp.json()) as EmscFeed;
+    log.debug({ count: data.features?.length ?? 0 }, 'emsc.fetched');
+
+    const items: RawAndNormalized[] = [];
+    for (const f of data.features ?? []) {
+      const p = f.properties;
+      if (p.evtype !== 'ke') continue;            // only confirmed earthquakes
+      const lat = p.lat ?? f.geometry.coordinates[1];
+      const lng = p.lon ?? f.geometry.coordinates[0];
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+      const sev = severityForMagnitude(p.mag);
+      const radius = radiusKmForMagnitude(p.mag);
+
+      const normalized: NormalizedEvent = {
+        sourceEventId: p.unid || p.source_id,
+        primarySourceId: 'emsc',
+        title: `M${p.mag.toFixed(1)} earthquake — ${p.flynn_region}`,
+        summary: `Magnitude ${p.mag.toFixed(1)} ${p.magtype} earthquake at depth ${p.depth} km. ${p.flynn_region}.`,
+        severity: sev,
+        category: 'natural',
+        type: 'earthquake',
+        location: p.flynn_region,
+        lat,
+        lng,
+        radiusKm: radius,
+        issuedAt: new Date(p.time),
+        expiresAt: null,
+        sourceUrl: `https://www.seismicportal.eu/eventdetails.html?unid=${encodeURIComponent(p.unid || p.source_id)}`,
+      };
+      items.push({ sourceEventId: normalized.sourceEventId, payload: f, normalized });
+    }
+    return items;
+  },
+};

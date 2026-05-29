@@ -1,14 +1,24 @@
 import type { SourceAdapter } from '../types.js';
 import { usgsAdapter } from '../adapters/usgs.js';
 import { nwsAdapter } from '../adapters/nws.js';
+import { eonetAdapter } from '../adapters/eonet.js';
+import { gdacsAdapter } from '../adapters/gdacs.js';
+import { emscAdapter } from '../adapters/emsc.js';
+import { meteoalarmAdapter } from '../adapters/meteoalarm.js';
+import { stateDeptAdapter } from '../adapters/state_dept.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
 import { persistBatch, markSourceOk, markSourceError } from '../pipeline/persist.js';
 
 /** All adapters this build supports. Add new sources by importing + registering here. */
 const ADAPTERS: { adapter: SourceAdapter; disabled: boolean }[] = [
-  { adapter: usgsAdapter, disabled: config.sources.usgs.disabled },
-  { adapter: nwsAdapter,  disabled: config.sources.nws.disabled  },
+  { adapter: usgsAdapter,       disabled: config.sources.usgs.disabled       },
+  { adapter: nwsAdapter,        disabled: config.sources.nws.disabled        },
+  { adapter: eonetAdapter,      disabled: config.sources.eonet.disabled      },
+  { adapter: gdacsAdapter,      disabled: config.sources.gdacs.disabled      },
+  { adapter: emscAdapter,       disabled: config.sources.emsc.disabled       },
+  { adapter: meteoalarmAdapter, disabled: config.sources.meteoalarm.disabled },
+  { adapter: stateDeptAdapter,  disabled: config.sources.stateDept.disabled  },
 ];
 
 async function runOnce(adapter: SourceAdapter): Promise<void> {
@@ -31,8 +41,9 @@ export function startScheduler(): void {
       continue;
     }
     log.info({ source: adapter.id, intervalSeconds: adapter.intervalSeconds }, 'source.scheduled');
-    // Fire immediately on boot, then on interval
-    runOnce(adapter);
+    // Stagger initial fetches by 0-3s so we don't fire all 7 sources simultaneously on boot
+    const stagger = Math.floor(Math.random() * 3000);
+    setTimeout(() => runOnce(adapter), stagger);
     setInterval(() => runOnce(adapter), adapter.intervalSeconds * 1000);
   }
 }
@@ -40,7 +51,6 @@ export function startScheduler(): void {
 // Allow running this file standalone (npm run ingest)
 if (import.meta.url === `file://${process.argv[1]}`) {
   startScheduler();
-  // Keep the process alive
   process.on('SIGINT', () => {
     log.info('shutdown');
     process.exit(0);
