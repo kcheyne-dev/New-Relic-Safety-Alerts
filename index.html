@@ -982,6 +982,30 @@ function passesFilter(a) {
 function visibleAlerts() { return ALERTS.filter(passesFilter); }
 function travelersAtOffice(id) { return TRAVELERS.filter(t => t.atOffice === id); }
 function uid() { return 'i_'+Math.random().toString(36).slice(2,9); }
+
+/**
+ * Priority score for sorting alerts. Severity-dominant with a recency penalty.
+ * Severity buckets are orders of magnitude apart (1, 10, 100, 1000) so a fresh
+ * higher-severity alert always outranks any older lower-severity alert. Within
+ * a tier, older alerts drift down by 1 unit per hour aged.
+ *
+ * Examples:
+ *   fresh Extreme = 1000
+ *   24h Extreme   =  976
+ *   fresh High    =  100
+ *   12h High      =   88
+ * So a fresh Ext (1000) > 24h Ext (976) > fresh High (100) > 12h High (88) > fresh Mod (10) > fresh Low (1).
+ */
+function alertPriorityScore(a) {
+  const sevWeight = { ext: 1000, high: 100, mod: 10, low: 1 };
+  const ageHours = Math.max(0, (Date.now() - new Date(a.issued).getTime()) / 3600000);
+  return (sevWeight[a.sev] || 1) - ageHours;
+}
+/** Highest priority score among a list of alerts; -Infinity if empty. */
+function topScore(alerts) {
+  if (!alerts.length) return -Infinity;
+  return alerts.reduce((m, a) => Math.max(m, alertPriorityScore(a)), -Infinity);
+}
 /** Escape user-provided strings before injecting into HTML. */
 function esc(s) {
   if (s == null) return '';
@@ -1397,13 +1421,10 @@ function renderRailAlerts() {
   const data = OFFICES.map(o => {
     const a = activeAlertsForOffice(o.id);
     const counts = SEVERITY.reduce((m,s) => { m[s] = a.filter(x => x.sev===s).length; return m; }, {});
-    return { o, counts, total: a.length };
+    return { o, counts, total: a.length, score: topScore(a) };
   }).filter(x => x.total > 0)
-    .sort((a,b) => {
-      const aMax = Math.max(...SEVERITY.map(s => a.counts[s] ? SEV_RANK[s] : 0));
-      const bMax = Math.max(...SEVERITY.map(s => b.counts[s] ? SEV_RANK[s] : 0));
-      return bMax - aMax || b.total - a.total;
-    });
+    // Hottest office first (severity-dominant priority score with recency penalty)
+    .sort((a,b) => b.score - a.score || b.total - a.total);
   if (!data.length) { list.innerHTML = '<div style="font-size:9px;color:var(--muted);text-align:center;padding:6px 0">no alerts</div>'; return; }
   list.innerHTML = data.map(({o, counts}) => {
     const segs = ['ext','high','mod','low'].filter(s => counts[s] > 0)
@@ -1430,7 +1451,12 @@ function renderFeed() {
       const key = a.officeId || '—';
       (groups[key] = groups[key] || []).push(a);
     });
-    body.innerHTML = Object.entries(groups).map(([oid, list]) => {
+    // Sort each group's alerts by priority (highest score first)
+    Object.values(groups).forEach(list => list.sort((a,b) => alertPriorityScore(b) - alertPriorityScore(a)));
+    // Sort groups by their hottest alert
+    const sortedKeys = Object.keys(groups).sort((a,b) => topScore(groups[b]) - topScore(groups[a]));
+    body.innerHTML = sortedKeys.map(oid => {
+      const list = groups[oid];
       const o = OFFICE_BY_ID[oid];
       const sev = list.reduce((m,a)=>SEV_RANK[a.sev]>m?SEV_RANK[a.sev]:m,0);
       const sevName = SEVERITY[sev-1];
