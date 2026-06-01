@@ -8,7 +8,7 @@
   script-src 'self' 'unsafe-inline' https://unpkg.com;
   style-src 'self' 'unsafe-inline' https://unpkg.com;
   img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://tilecache.rainviewer.com https://*.rainviewer.com https://mesonet.agron.iastate.edu https://gibs.earthdata.nasa.gov https://*.gibs.earthdata.nasa.gov;
-  connect-src 'self' https://*.basemaps.cartocdn.com https://api.rainviewer.com;
+  connect-src 'self' http://localhost:8080 http://127.0.0.1:8080 https://*.basemaps.cartocdn.com https://api.rainviewer.com;
   font-src 'self' data:;
   frame-ancestors 'none';
   base-uri 'self';
@@ -222,6 +222,11 @@ body.resizing-panel * { cursor: ew-resize !important; }
 .alert-card .top-row { display: flex; gap: 6px; align-items: center; }
 .alert-card .a-title { font-weight: 600; color: var(--text); flex: 1; line-height: 1.3; }
 .alert-card .a-sub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.alert-card .a-impact { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+.impact-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 1.4; }
+.impact-office { background: rgba(28,231,131,.15); color: var(--green); border: 1px solid rgba(28,231,131,.3); }
+.impact-trav   { background: rgba(255,170,0,.15);  color: #ffb84d;     border: 1px solid rgba(255,170,0,.3); }
+.impact-emp    { background: rgba(120,160,255,.15); color: #9eb8ff;    border: 1px solid rgba(120,160,255,.3); }
 .alert-card .crisis-btn { background: rgba(28,231,131,.15); border: 1px solid rgba(28,231,131,.4);
   color: var(--green); border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }
 .alert-card .crisis-btn:hover { background: var(--green); color: #000; }
@@ -949,6 +954,7 @@ const STATE = {
   selectedAlertId: null,
   selectedOffices: [],
   filterMinSev: 'low',
+  officeRelevantOnly: true,           // hide global noise — only show events affecting an office, traveler, or employee population
   visibleOffices: OFFICES.map(o => o.id),
   visibleAlertTypes: ALERT_TYPES.slice(),
   showEmployees: true,
@@ -1019,10 +1025,57 @@ function maxSevForOffice(officeId) {
 function activeAlertsForOffice(id) {
   return ALERTS.filter(a => a.officeId === id && passesFilter(a));
 }
+// Haversine great-circle distance in km. Used to match alerts to travelers/offices.
+function distanceKm(lat1, lng1, lat2, lng2) {
+  if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return Infinity;
+  const R = 6371;
+  const toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Default impact radius (km) when an alert doesn't carry one. Per category — these are
+// loose; tighter is better for travel advisories, looser for tropical cyclones.
+const IMPACT_RADIUS_DEFAULT_KM = {
+  'Natural Disaster': 100,
+  'Civil Unrest':     50,
+  'Public Safety':    25,
+  'Travel Advisory':  300,
+};
+
+// Enrich a backend event with client-side impact data (travelers/employees within radius).
+// Returns the event object augmented with affectedTravelers, affectedOfficeImpact, isRelevant.
+function enrichEventWithImpact(e) {
+  const radiusKm = e.radiusKm > 0 ? e.radiusKm : (IMPACT_RADIUS_DEFAULT_KM[e.type] || 100);
+  const affectedTravelers = TRAVELERS.filter(t =>
+    distanceKm(e.lat, e.lng, t.lat, t.lng) <= radiusKm
+  ).map(t => t.id);
+  // Office-headcount impact: any office within radius (in addition to backend's affectedOfficeIds)
+  const officeMatches = OFFICES.filter(o =>
+    distanceKm(e.lat, e.lng, o.lat, o.lng) <= radiusKm
+  ).map(o => o.id);
+  const allOfficeIds = Array.from(new Set([
+    ...(e.affectedOfficeIds || []),
+    ...officeMatches,
+  ]));
+  const totalEmployeesAffected = allOfficeIds.reduce((sum, id) => sum + ((OFFICE_BY_ID[id]?.headcount) || 0), 0);
+  return {
+    ...e,
+    affectedOfficeIds:    allOfficeIds,
+    officeId:             e.officeId || allOfficeIds[0] || null,
+    affectedTravelers,
+    totalEmployeesAffected,
+    isRelevant:           allOfficeIds.length > 0 || affectedTravelers.length > 0,
+  };
+}
+
 function passesFilter(a) {
   if (SEV_RANK[a.sev] < SEV_RANK[STATE.filterMinSev]) return false;
   if (!STATE.visibleAlertTypes.includes(a.type)) return false;
   if (a.officeId && !STATE.visibleOffices.includes(a.officeId)) return false;
+  if (STATE.officeRelevantOnly && !a.isRelevant) return false;
   if (STATE.search && !(a.title+' '+a.location+' '+a.summary).toLowerCase().includes(STATE.search.toLowerCase())) return false;
   return true;
 }
@@ -1563,6 +1616,20 @@ function renderFeed() {
 }
 function alertCardHTML(a) {
   const sel = STATE.selectedAlertId === a.id ? 'selected' : '';
+  const officeBadges = (a.affectedOfficeIds || []).map(id =>
+    `<span class="impact-badge impact-office" title="${esc(OFFICE_BY_ID[id]?.name || id)} office in impact radius">🏢 ${esc(id)}</span>`
+  ).join('');
+  const travCount = (a.affectedTravelers || []).length;
+  const travBadge = travCount
+    ? `<span class="impact-badge impact-trav" title="${travCount} traveler${travCount>1?'s':''} within radius">✈ ${travCount}</span>`
+    : '';
+  const empCount = a.totalEmployeesAffected || 0;
+  const empBadge = empCount
+    ? `<span class="impact-badge impact-emp" title="${empCount} employees in office headcounts within radius">👥 ${empCount}</span>`
+    : '';
+  const impactRow = (officeBadges || travBadge || empBadge)
+    ? `<div class="a-impact">${officeBadges}${travBadge}${empBadge}</div>`
+    : '';
   return `<div class="alert-card s-${a.sev} ${sel}" data-id="${a.id}">
     <div class="top-row">
       <span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span>
@@ -1572,6 +1639,7 @@ function alertCardHTML(a) {
     <div class="a-sub">
       <span>${a.location}</span>·<span>${relTime(a.issued)}</span>·<span>${a.type}</span>
     </div>
+    ${impactRow}
     <div style="display:flex;gap:4px;margin-top:6px">
       <button class="details-btn" data-details="${a.id}">Details</button>
       ${a.officeId?`<button class="crisis-btn" data-id="${a.id}">Crisis</button>`:''}
@@ -3487,6 +3555,13 @@ function renderStatusStrip() {
       </div>
     </button>
     <div class="ss-chip ss-spacer"></div>
+    <button class="ss-chip clickable" data-ss-action="toggle-relevance" title="${STATE.officeRelevantOnly ? 'Showing only events affecting an office or traveler. Click to show all global events.' : 'Showing all global events. Click to limit to office/traveler-relevant.'}">
+      <span class="ss-icon" aria-hidden="true">${STATE.officeRelevantOnly ? '🎯' : '🌐'}</span>
+      <div style="text-align:left">
+        <div class="ss-label">View</div>
+        <div class="ss-value" style="font-size:0.78rem">${STATE.officeRelevantOnly ? `Office-relevant (${visAlerts.length}/${ALERTS.length})` : `All global (${ALERTS.length})`}</div>
+      </div>
+    </button>
     <div class="ss-chip timestamp" title="Last save · last data refresh">
       <span class="ss-saved-dot" aria-hidden="true" style="${lastSavedAt ? '' : 'background:var(--muted);box-shadow:none'}"></span>
       <span>${lastSavedAt ? `💾 saved ${relTime(lastSavedAt.toISOString())} ago` : 'No saves yet'}</span>
@@ -3525,6 +3600,12 @@ function renderStatusStrip() {
       document.getElementById('btn-help')?.blur();
       // Trigger the existing freshness modal directly
       App.showFreshness?.();
+    } else if (action === 'toggle-relevance') {
+      STATE.officeRelevantOnly = !STATE.officeRelevantOnly;
+      toast(STATE.officeRelevantOnly
+        ? '🎯 Showing office-relevant only.'
+        : '🌐 Showing all global events.');
+      renderAll();
     }
   }));
 }
@@ -3724,16 +3805,44 @@ function showLoginModal() {
   document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
 }
 
+// Map backend granular type ('earthquake', 'tornado_warning', etc.) to one of the
+// 4 frontend categories the filter UI knows about.
+const BACKEND_TYPE_TO_CATEGORY = {
+  earthquake: 'Natural Disaster', tropical_cyclone: 'Natural Disaster',
+  severe_storm: 'Natural Disaster', tornado_warning: 'Natural Disaster',
+  flood: 'Natural Disaster', flood_warning: 'Natural Disaster',
+  wildfire: 'Natural Disaster', volcano: 'Natural Disaster',
+  drought: 'Natural Disaster', snow: 'Natural Disaster',
+  winter_storm: 'Natural Disaster', temp_extreme: 'Natural Disaster',
+  dust: 'Natural Disaster', sea_lake_ice: 'Natural Disaster',
+  water_color: 'Natural Disaster',
+  travel_advisory: 'Travel Advisory',
+  transit_disruption: 'Public Safety',
+  manmade: 'Civil Unrest',
+};
+function mapBackendType(t) {
+  return BACKEND_TYPE_TO_CATEGORY[t] || 'Natural Disaster';
+}
+
+// Detect EONET prescribed-fire entries (controlled government burns, not threats)
+function isPrescribedFire(e) {
+  const t = (e.title || '').toLowerCase();
+  return t.includes('prescribed fire') || /\brx\b/i.test(e.title || '') || t.startsWith('rx ');
+}
+
 async function backfillAlerts() {
   try {
-    const data = await apiFetch('/api/events?limit=200');
+    const data = await apiFetch('/api/events?limit=500');
     if (data?.events) {
-      ALERTS = data.events.map(e => ({
-        id: e.id, sev: e.sev, type: e.type, source: e.source,
-        title: e.title, location: e.location, officeId: e.officeId,
-        lat: e.lat, lng: e.lng, radiusKm: e.radiusKm ?? 0,
-        summary: e.summary, issued: e.issued, sourceUrl: e.sourceUrl,
-      }));
+      ALERTS = data.events
+        .filter(e => !isPrescribedFire(e))
+        .map(e => enrichEventWithImpact({
+          id: e.id, sev: e.sev, type: mapBackendType(e.type), source: e.source,
+          title: e.title, location: e.location,
+          officeId: e.officeId, affectedOfficeIds: e.affectedOfficeIds || [],
+          lat: e.lat, lng: e.lng, radiusKm: e.radiusKm ?? 0,
+          summary: e.summary, issued: e.issued, sourceUrl: e.sourceUrl,
+        }));
       renderAll();
       lastRefreshAt = new Date();
       toast(`Loaded ${ALERTS.length} live alerts.`);
@@ -3754,12 +3863,20 @@ function subscribeLiveStream() {
   es.addEventListener('event', (msg) => {
     try {
       const data = JSON.parse(msg.data);
+      const mapEvt = (e) => enrichEventWithImpact({
+        ...e, type: mapBackendType(e.type), radiusKm: e.radiusKm ?? 0,
+        affectedOfficeIds: e.affectedOfficeIds || [],
+      });
       if (data.kind === 'new' && data.event) {
-        ALERTS = [data.event, ...ALERTS.filter(a => a.id !== data.event.id)];
+        if (isPrescribedFire(data.event)) return;     // ignore controlled burns
+        const evt = mapEvt(data.event);
+        ALERTS = [evt, ...ALERTS.filter(a => a.id !== evt.id)];
         renderAll();
-        toast(`📡 New alert: ${data.event.title.slice(0, 40)}…`);
+        toast(`📡 New alert: ${evt.title.slice(0, 40)}…`);
       } else if (data.kind === 'updated' && data.event) {
-        ALERTS = ALERTS.map(a => a.id === data.event.id ? data.event : a);
+        if (isPrescribedFire(data.event)) return;
+        const evt = mapEvt(data.event);
+        ALERTS = ALERTS.map(a => a.id === evt.id ? evt : a);
         renderAll();
       }
     } catch (e) { /* noop */ }

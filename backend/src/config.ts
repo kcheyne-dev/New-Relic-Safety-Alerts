@@ -29,6 +29,15 @@ export const config = {
     oktaJwksUri:  process.env.OKTA_JWKS_URI ?? '',
   },
 
+  /** Source-quality knobs. Tightens the firehose at ingest time. */
+  quality: {
+    /** EONET keeps wildfires "open" for years if no one closes them.
+     *  Only ingest events whose latest geometry is within this many days. */
+    eonetMaxAgeDays: num(process.env.EONET_MAX_AGE_DAYS, 7),
+    /** Sweeper marks non-NWS events older than this as is_stale. */
+    staleAfterDays:  num(process.env.STALE_AFTER_DAYS, 7),
+  },
+
   sources: {
     usgs:       { disabled: flag(process.env.USGS_DISABLED),       intervalSeconds: num(process.env.USGS_FETCH_INTERVAL, 60) },
     nws:        { disabled: flag(process.env.NWS_DISABLED),        intervalSeconds: num(process.env.NWS_FETCH_INTERVAL, 300) },

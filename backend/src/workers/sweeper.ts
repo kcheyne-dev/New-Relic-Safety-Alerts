@@ -1,16 +1,23 @@
 import { pool } from '../db.js';
 import { log } from '../log.js';
+import { config } from '../config.js';
 
 /**
  * Periodically marks events as `is_stale = true` once they've outlived their
  * usefulness. Stale events are filtered out of /api/events queries by default
  * but remain in the table for audit / replay.
  *
- * Rules:
- *   - If `expires_at` is set and now() > expires_at  → stale immediately
- *   - Otherwise, default 24h after `created_at`     → stale
+ * Rules (in priority order):
+ *   1. expires_at set and past → stale immediately (e.g. tornado warnings end)
+ *   2. NWS event with no expiry → stale 24h after issued_at (warnings are short-lived)
+ *   3. Any non-travel event with issued_at older than `staleAfterDays`
+ *      (default 7 days) → stale. This catches EONET/USGS/EMSC long-tail.
  *
- * Travel advisories are exempt (they're long-lived by nature).
+ * Travel advisories are exempt (they're long-lived by nature — typically months).
+ *
+ * NOTE: We measure age from `issued_at` (when the event happened in the real world),
+ *       not `created_at` (when we ingested it). The previous version used created_at,
+ *       which meant freshly-ingested historical events stayed "fresh" for 24h.
  */
 
 const SWEEPER_INTERVAL_MS = 30 * 60 * 1000;          // every 30 minutes
@@ -23,7 +30,9 @@ async function sweepOnce(): Promise<void> {
       AND (
         (expires_at IS NOT NULL AND expires_at < NOW())
         OR
-        (expires_at IS NULL AND created_at < NOW() - interval '24 hours')
+        (primary_source_id = 'nws' AND expires_at IS NULL AND issued_at < NOW() - interval '24 hours')
+        OR
+        (issued_at < NOW() - interval '${config.quality.staleAfterDays} days')
       )
     RETURNING id
   `);

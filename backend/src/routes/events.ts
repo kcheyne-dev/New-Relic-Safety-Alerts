@@ -22,7 +22,12 @@ export async function eventsRoutes(app: FastifyInstance): Promise<void> {
     }
     const q = parse.data;
     const params: unknown[] = [];
-    const where: string[] = ['NOT is_stale'];
+    // NOT is_stale handles age-based pruning; expires_at hides NWS/State-Dept
+    // events past their published expiry (e.g., a tornado warning that ended).
+    const where: string[] = [
+      'NOT is_stale',
+      '(expires_at IS NULL OR expires_at > now())',
+    ];
 
     if (q.since) {
       params.push(q.since);

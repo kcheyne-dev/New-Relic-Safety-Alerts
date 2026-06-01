@@ -1,5 +1,6 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity, Category } from '../types.js';
 import { log } from '../log.js';
+import { config } from '../config.js';
 
 /**
  * NASA EONET — Earth Observatory Natural Event Tracker.
@@ -48,20 +49,31 @@ interface EonetFeed {
 
 const FEED_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open';
 
+// Severities are intentionally conservative. EONET doesn't publish severity, just
+// categories — and most events are not corporate-CMT-actionable on their own. We
+// rely on (a) cross-source corroboration, (b) office-proximity matching, and
+// (c) magnitude when present, to promote anything to "high".
 const CATEGORY_MAP: Record<string, { sev: Severity; type: string; cat: Category }> = {
-  wildfires:    { sev: 'high', type: 'wildfire',     cat: 'natural' },
-  severeStorms: { sev: 'high', type: 'severe_storm', cat: 'natural' },
-  volcanoes:    { sev: 'high', type: 'volcano',      cat: 'natural' },
+  wildfires:    { sev: 'mod',  type: 'wildfire',     cat: 'natural' },
+  severeStorms: { sev: 'mod',  type: 'severe_storm', cat: 'natural' },
+  volcanoes:    { sev: 'high', type: 'volcano',      cat: 'natural' },  // less common; usually meaningful
   earthquakes:  { sev: 'mod',  type: 'earthquake',   cat: 'natural' },
-  floods:       { sev: 'high', type: 'flood',        cat: 'natural' },
-  drought:      { sev: 'mod',  type: 'drought',      cat: 'natural' },
+  floods:       { sev: 'mod',  type: 'flood',        cat: 'natural' },
+  drought:      { sev: 'low',  type: 'drought',      cat: 'natural' },
   manmade:      { sev: 'mod',  type: 'manmade',      cat: 'natural' },
   tempExtremes: { sev: 'mod',  type: 'temp_extreme', cat: 'natural' },
-  dustHaze:     { sev: 'mod',  type: 'dust',         cat: 'natural' },
+  dustHaze:     { sev: 'low',  type: 'dust',         cat: 'natural' },
   seaLakeIce:   { sev: 'low',  type: 'sea_lake_ice', cat: 'natural' },
-  snow:         { sev: 'mod',  type: 'snow',         cat: 'natural' },
+  snow:         { sev: 'low',  type: 'snow',         cat: 'natural' },
   waterColor:   { sev: 'low',  type: 'water_color',  cat: 'natural' },
 };
+
+/** Heuristic: EONET groups prescribed/managed fires under "wildfires" with no flag.
+ *  Title patterns from the data: "RX Prescribed Fire", "Compartment N RX...", etc. */
+function isPrescribedFire(title: string): boolean {
+  const t = title.toLowerCase();
+  return t.includes('prescribed fire') || /\brx\b/i.test(title);
+}
 
 /** Last point of a Polygon (centroid is overkill; first vertex is fine here). */
 function pointFromGeometry(g: EonetGeometry): [number, number] | null {
@@ -93,13 +105,22 @@ export const eonetAdapter: SourceAdapter = {
     const data = (await resp.json()) as EonetFeed;
     log.debug({ count: data.events.length }, 'eonet.fetched');
 
+    // EONET keeps wildfires "open" indefinitely if no one closes them — many entries
+    // are years stale. Drop anything older than the configured max-age window.
+    const cutoffMs = Date.now() - config.quality.eonetMaxAgeDays * 24 * 60 * 60 * 1000;
+
     const items: RawAndNormalized[] = [];
+    let droppedOld = 0, droppedRx = 0;
     for (const e of data.events) {
       if (e.closed) continue;                       // ignore closed events
       if (!e.categories.length || !e.geometry.length) continue;
+      if (isPrescribedFire(e.title)) { droppedRx++; continue; }   // RX/prescribed burns are not threats
 
       // Use the latest geometry entry (events evolve over time)
       const latest = [...e.geometry].sort((a, b) => b.date.localeCompare(a.date))[0]!;
+      const latestMs = new Date(latest.date).getTime();
+      if (Number.isFinite(latestMs) && latestMs < cutoffMs) { droppedOld++; continue; }
+
       const point = pointFromGeometry(latest);
       if (!point) continue;
       const [lng, lat] = point;
@@ -125,6 +146,7 @@ export const eonetAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: e.id, payload: e, normalized });
     }
+    log.debug({ kept: items.length, droppedOld, droppedRx, totalSeen: data.events.length }, 'eonet.filtered');
     return items;
   },
 };
