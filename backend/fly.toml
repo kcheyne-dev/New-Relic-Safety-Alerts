@@ -1,0 +1,45 @@
+# NR Safety Alerts backend — Fly.io app config.
+#
+# `fly launch` overwrites the app name on first run; everything below stays.
+# After deploy: `fly status` shows the public URL.
+
+app = "nr-safety-alerts-api"
+primary_region = "ord"          # Chicago — closest to most NR offices on average
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8080"
+  LOG_LEVEL = "info"
+  # CORS origin — set to your Pages URL for production:
+  # CORS_ORIGIN = "https://kcheyne-dev.github.io"
+  CORS_ORIGIN = "*"
+
+# Secrets (DATABASE_URL, JWT_SECRET) are set with `fly secrets set ...`.
+# fly postgres attach will set DATABASE_URL automatically.
+
+# Run migrations on every deploy — they are idempotent (`CREATE TABLE IF NOT EXISTS`).
+[deploy]
+  release_command = "npm run migrate"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"      # idle = stopped, saves money
+  auto_start_machines = true
+  min_machines_running = 0          # set to 1 if you want always-on (otherwise first request wakes it)
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "get"
+    path = "/api/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512                   # Plenty for 12 adapters + Fastify

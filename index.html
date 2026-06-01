@@ -762,31 +762,62 @@ const SOURCES = [
   { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale', url:'https://openaq.org/' },
 ];
 
+/** Office directory — fictitious demo data for the prototype.
+ *  Headcounts, addresses, and traveler records below are illustrative,
+ *  not pulled from Workday. Real values will land via /api/offices once
+ *  the backend integration ships. Safe to keep in the public repo.
+ */
 const OFFICES = [
   { id:'SFO', name:'San Francisco', country:'USA',  lat:37.7898, lng:-122.3942, headcount:412,
-    address:'188 Spear St, San Francisco, CA 94105' },
-  { id:'PDX', name:'Portland',      country:'USA',  lat:45.5152, lng:-122.6784, headcount:188,
-    address:'111 SW 5th Ave, Portland, OR 97204' },
-  { id:'ATL', name:'Atlanta',       country:'USA',  lat:33.7837, lng:-84.3833,  headcount:262,
-    address:'1100 Peachtree St NE, Atlanta, GA 30309' },
-  { id:'BCN', name:'Barcelona',     country:'Spain',lat:41.3996, lng:2.1944,    headcount:142,
-    address:'Carrer de Roc Boronat 78, 08005 Barcelona' },
-  { id:'DUB', name:'Dublin',        country:'Ireland', lat:53.3470, lng:-6.2486, headcount:217,
-    address:'One Spencer Dock, North Wall Quay, Dublin 1' },
-  { id:'LON', name:'London',        country:'UK',   lat:51.5145, lng:-0.1037,   headcount:305,
-    address:'35 New Bridge St, London EC4V 6BW' },
-  { id:'TYO', name:'Tokyo',         country:'Japan',lat:35.6762, lng:139.6503,  headcount:96,
-    address:'Yotsuya Tower, Shinjuku-ku, Tokyo' },
-  { id:'BLR', name:'Bengaluru',     country:'India',lat:12.9716, lng:77.5946,   headcount:512,
-    address:'Knowledge City, Bellandur, Bengaluru' },
-  { id:'HYD', name:'Hyderabad',     country:'India',lat:17.4435, lng:78.3772,   headcount:484,
-    address:'Salarpuria Sattva Knowledge City, Raidurg' },
+    address:'188 Spear St, Suite 1000, San Francisco, CA 94105' },
+  { id:'PDX', name:'Portland',      country:'USA',  lat:45.5191, lng:-122.6790, headcount:188,
+    address:'111 SW 5th Ave, Suite 2200, Portland, OR 97204' },
+  { id:'ATL', name:'Atlanta',       country:'USA',  lat:33.7841, lng:-84.3849,  headcount:262,
+    address:'1100 Peachtree St NE, Suite 2000, Atlanta, GA 30309' },
+  { id:'BCN', name:'Barcelona',     country:'Spain',lat:41.4036, lng:2.1894,    headcount:142,
+    address:'Torre Glòries, Suite 2200, Avinguda Diagonal 211, 08018 Barcelona, Spain' },
+  { id:'DUB', name:'Dublin',        country:'Ireland', lat:53.3447, lng:-6.2520, headcount:217,
+    address:'42 Pearse St, Dublin, D02 HV59, Ireland' },
+  { id:'LON', name:'London',        country:'UK',   lat:51.5125, lng:-0.1167,   headcount:305,
+    address:'Strand Bridge House, 138-142 The Strand, London WC2R 1HL' },
+  { id:'TYO', name:'Tokyo',         country:'Japan',lat:35.6802, lng:139.7714,  headcount:96,
+    address:'Tokyo Midtown Yaesu, Yaesu Central Tower 7F, 2-2-1 Yaesu, Chuo-ku, Tokyo 104-0028' },
+  { id:'BLR', name:'Bengaluru',     country:'India',lat:12.9353, lng:77.6485,   headcount:512,
+    address:'Embassy Golflinks Business Park, No 15 Challaghatta Village, KNC Valley, Bengaluru, Karnataka 560071' },
+  { id:'HYD', name:'Hyderabad',     country:'India',lat:17.4413, lng:78.3826,   headcount:484,
+    address:'Raheja Mindspace, 15th Floor, Building No 9, TSIIC, Software Units Layout, Madhapur, Telangana 500081, Hyderabad' },
 ];
 const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
 
 /** Logged-in operator. Hardcoded for the prototype; will come from Okta when wired up.
  *  role: 'admin' | 'cmt' | 'office' | 'employee' */
-const OPERATOR = { name: 'Kelly Cheyne', role: 'cmt', roleLabel: 'CMT' };
+/**
+ * BACKEND CONFIG.
+ *
+ * Auto-detects environment:
+ *   - localhost / 127.0.0.1 / file://  → http://localhost:8080  (live backend)
+ *   - everywhere else (GitHub Pages…)   → ''                     (MOCK MODE)
+ *
+ * Override either way with URL hash:  #api=https://your-deployed-backend.example.com
+ * Or force mock mode:                  #api=mock
+ *
+ * MOCK MODE = no network calls, hardcoded ALERTS, dashboard works fully offline.
+ * LIVE MODE = JWT login modal, fetches /api/events, subscribes to SSE stream.
+ */
+const API_BASE = (() => {
+  const hashMatch = location.hash.match(/[#&]api=([^&]+)/);
+  if (hashMatch) {
+    const v = decodeURIComponent(hashMatch[1]);
+    return v === 'mock' ? '' : v.replace(/\/$/, '');
+  }
+  const host = location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1' || location.protocol === 'file:') {
+    return 'http://localhost:8080';
+  }
+  return '';
+})();
+
+let OPERATOR = { name: 'Kevin Cheyne', role: 'cmt', roleLabel: 'CMT' };
 const ROLE_TAG_STYLE = {
   admin:    { bg: 'var(--green)',  fg: '#062c1f',  label: 'Admin' },
   cmt:      { bg: 'var(--blue)',   fg: '#fff',     label: 'CMT Member' },
@@ -803,7 +834,7 @@ function randomName() {
   return rand(F)+' '+rand(L);
 }
 
-const ALERTS = [
+let ALERTS = [
   { id:'a1',  sev:'high', type:'Civil Unrest',     source:'GDELT',      title:'Planned protest near Westminster — possible road closures',
     location:'London, UK', officeId:'LON', lat:51.501, lng:-0.124, radiusKm:5,
     summary:'Multiple groups gathering at Parliament Square 14:00 local. MPS advising avoidance of Whitehall.', issued: nowMinus(95) },
@@ -3621,6 +3652,141 @@ window.addEventListener('hashchange', handleHashRoute);
 handleHashRoute();
 
 /* Map opens at global view — no auto-selection */
+
+/* ============================================================
+   21. LIVE BACKEND MODE (only active when API_BASE is set)
+   ============================================================
+   When API_BASE is empty, the dashboard runs entirely on the
+   hardcoded mock data above. When set to a real URL (e.g. your
+   Fly.io app), the dashboard:
+     1. Prompts for email + password if no JWT is cached
+     2. Fetches initial alerts from /api/events
+     3. Subscribes to /api/events/stream for live push updates
+     4. Reads operator identity from /api/auth/me
+*/
+
+const TOKEN_KEY = 'nrsa-jwt';
+
+function getStoredToken()  { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } }
+function storeToken(tok)   { try { localStorage.setItem(TOKEN_KEY, tok); } catch {} }
+function clearStoredToken(){ try { localStorage.removeItem(TOKEN_KEY); } catch {} }
+
+async function apiFetch(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  const tok = getStoredToken();
+  if (tok) headers.Authorization = `Bearer ${tok}`;
+  const resp = await fetch(`${API_BASE}${path}`, { ...opts, headers });
+  if (resp.status === 401) {
+    clearStoredToken();
+    showLoginModal();
+    throw new Error('Not authenticated');
+  }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`API ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  const ct = resp.headers.get('content-type') || '';
+  return ct.includes('application/json') ? resp.json() : resp.text();
+}
+
+function showLoginModal() {
+  showModal(`<h3>Sign in</h3>
+    <p style="font-size:12px;color:var(--muted)">Backend at <code style="font-size:11px">${esc(API_BASE)}</code></p>
+    <div class="field"><label>Email</label><input id="login-email" type="email" autofocus placeholder="you@newrelic.com"/></div>
+    <div class="field"><label>Password</label><input id="login-password" type="password"/></div>
+    <div id="login-error" style="color:var(--red);font-size:12px;margin-top:6px;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn-primary" style="width:auto;margin:0;padding:7px 14px" id="login-submit">Sign in</button>
+    </div>`);
+  const submit = async () => {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const err = document.getElementById('login-error');
+    err.style.display = 'none';
+    try {
+      const resp = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!resp.ok) throw new Error('Invalid credentials');
+      const data = await resp.json();
+      storeToken(data.token);
+      OPERATOR = { name: data.user.name, role: data.user.role, roleLabel: data.user.role.toUpperCase() };
+      closeModal();
+      bootLiveMode();
+    } catch (e) {
+      err.textContent = e.message || 'Login failed';
+      err.style.display = 'block';
+    }
+  };
+  document.getElementById('login-submit').onclick = submit;
+  document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+}
+
+async function backfillAlerts() {
+  try {
+    const data = await apiFetch('/api/events?limit=200');
+    if (data?.events) {
+      ALERTS = data.events.map(e => ({
+        id: e.id, sev: e.sev, type: e.type, source: e.source,
+        title: e.title, location: e.location, officeId: e.officeId,
+        lat: e.lat, lng: e.lng, radiusKm: e.radiusKm ?? 0,
+        summary: e.summary, issued: e.issued, sourceUrl: e.sourceUrl,
+      }));
+      renderAll();
+      lastRefreshAt = new Date();
+      toast(`Loaded ${ALERTS.length} live alerts.`);
+    }
+  } catch (err) {
+    console.error('backfill failed:', err);
+  }
+}
+
+let _sseConnection = null;
+function subscribeLiveStream() {
+  if (_sseConnection) { _sseConnection.close(); _sseConnection = null; }
+  const tok = getStoredToken();
+  if (!tok) return;
+  // EventSource can't send Authorization header — use ?token= query param
+  const es = new EventSource(`${API_BASE}/api/events/stream?token=${encodeURIComponent(tok)}`);
+  _sseConnection = es;
+  es.addEventListener('event', (msg) => {
+    try {
+      const data = JSON.parse(msg.data);
+      if (data.kind === 'new' && data.event) {
+        ALERTS = [data.event, ...ALERTS.filter(a => a.id !== data.event.id)];
+        renderAll();
+        toast(`📡 New alert: ${data.event.title.slice(0, 40)}…`);
+      } else if (data.kind === 'updated' && data.event) {
+        ALERTS = ALERTS.map(a => a.id === data.event.id ? data.event : a);
+        renderAll();
+      }
+    } catch (e) { /* noop */ }
+  });
+  es.onerror = () => { /* EventSource auto-reconnects; no log spam */ };
+}
+
+async function bootLiveMode() {
+  try {
+    const me = await apiFetch('/api/auth/me');
+    if (me?.user) {
+      OPERATOR = { name: me.user.name, role: me.user.role, roleLabel: me.user.role.toUpperCase() };
+      renderStatusStrip();
+    }
+  } catch { /* token invalid → showLoginModal already handled it */ return; }
+
+  await backfillAlerts();
+  subscribeLiveStream();
+
+  // Refresh-on-focus: when tab regains focus, re-pull events
+  window.addEventListener('focus', backfillAlerts);
+}
+
+if (API_BASE) {
+  if (getStoredToken()) bootLiveMode();
+  else showLoginModal();
+}
 </script>
 </body>
 </html>

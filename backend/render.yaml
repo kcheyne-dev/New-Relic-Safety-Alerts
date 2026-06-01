@@ -1,0 +1,44 @@
+# Render blueprint for the NR Safety Alerts backend.
+#
+# How to use:
+#   1. Push this repo to GitHub (you already have it at kcheyne-dev/New-Relic-Safety-Alerts).
+#   2. In Render: New + → Blueprint → pick the repo → Render reads this file.
+#   3. Render will create the web service + the Postgres DB and wire DATABASE_URL automatically.
+#   4. Set JWT_SECRET in the dashboard once (see RENDER-DEPLOY.md step 4).
+#
+# Free tier notes:
+#   - Web service: free, sleeps after ~15 min idle, ~30s cold start.
+#   - Postgres: free for 90 days, then $7/mo or delete + recreate.
+
+databases:
+  - name: nr-safety-alerts-db
+    plan: free
+    databaseName: nr_safety_alerts
+    user: nr_safety_alerts
+
+services:
+  - type: web
+    name: nr-safety-alerts-api
+    runtime: docker
+    plan: free
+    region: oregon            # change to ohio/virginia/frankfurt/singapore if you prefer
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true          # redeploy on every push to main
+    preDeployCommand: npm run migrate
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: LOG_LEVEL
+        value: info
+      - key: CORS_ORIGIN
+        value: "*"             # tighten to https://kcheyne-dev.github.io after first deploy
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nr-safety-alerts-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true    # Render generates a strong random value on first create
