@@ -11,6 +11,7 @@ import { atlApdAdapter } from '../adapters/atl_apd.js';
 import { pdxFlashalertAdapter } from '../adapters/pdx_flashalert.js';
 import { londonTflAdapter } from '../adapters/london_tfl.js';
 import { gdeltAdapter } from '../adapters/gdelt.js';
+import { acledAdapter } from '../adapters/acled.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
 import { persistBatch, markSourceOk, markSourceError } from '../pipeline/persist.js';
@@ -29,6 +30,7 @@ const ADAPTERS: { adapter: SourceAdapter; disabled: boolean }[] = [
   { adapter: pdxFlashalertAdapter, disabled: config.sources.pdxFlashalert.disabled },
   { adapter: londonTflAdapter,     disabled: config.sources.londonTfl.disabled     },
   { adapter: gdeltAdapter,         disabled: config.sources.gdelt.disabled         },
+  { adapter: acledAdapter,         disabled: config.sources.acled.disabled         },
 ];
 
 async function runOnce(adapter: SourceAdapter): Promise<void> {

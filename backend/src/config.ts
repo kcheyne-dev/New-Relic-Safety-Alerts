@@ -51,5 +51,12 @@ export const config = {
     pdxFlashalert:  { disabled: flag(process.env.PDX_FLASHALERT_DISABLED),  intervalSeconds: num(process.env.PDX_FLASHALERT_FETCH_INTERVAL, 600) },
     londonTfl:      { disabled: flag(process.env.LONDON_TFL_DISABLED),      intervalSeconds: num(process.env.LONDON_TFL_FETCH_INTERVAL, 600) },
     gdelt:          { disabled: flag(process.env.GDELT_DISABLED),           intervalSeconds: num(process.env.GDELT_FETCH_INTERVAL, 900) },
+    acled:          {
+      disabled:        flag(process.env.ACLED_DISABLED) || !process.env.ACLED_EMAIL || !process.env.ACLED_PASSWORD,
+      intervalSeconds: num(process.env.ACLED_FETCH_INTERVAL, 900),
+      email:           process.env.ACLED_EMAIL    ?? '',
+      password:        process.env.ACLED_PASSWORD ?? '',
+      lookbackDays:    num(process.env.ACLED_LOOKBACK_DAYS, 7),
+    },
   },
 };

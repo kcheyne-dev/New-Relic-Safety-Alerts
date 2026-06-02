@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "ingest": "tsx src/workers/scheduler.ts",
-    "migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f migrations/002_geocode_and_sources.sql && psql $DATABASE_URL -f migrations/003_clustering_and_cities.sql && psql $DATABASE_URL -f migrations/004_sweeper_and_alerts.sql && psql $DATABASE_URL -f migrations/005_incidents_and_auth.sql && psql $DATABASE_URL -f seeds/offices.sql",
+    "migrate": "psql $DATABASE_URL -f migrations/001_init.sql && psql $DATABASE_URL -f migrations/002_geocode_and_sources.sql && psql $DATABASE_URL -f migrations/003_clustering_and_cities.sql && psql $DATABASE_URL -f migrations/004_sweeper_and_alerts.sql && psql $DATABASE_URL -f migrations/005_incidents_and_auth.sql && psql $DATABASE_URL -f migrations/006_acled.sql && psql $DATABASE_URL -f seeds/offices.sql",
     "create-user": "tsx src/scripts/create_user.ts",
     "build": "tsc",
     "start": "node dist/server.js",

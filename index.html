@@ -1230,15 +1230,48 @@ function officePopup(o) {
 }
 
 /* ---------- 7. Alert dots ---------- */
+function alertPopupHTML(a) {
+  const src = SOURCES.find(s => s.id === a.source) || { name: a.source };
+  const officeBadges = (a.affectedOfficeIds || []).map(id =>
+    `<span class="impact-badge impact-office" title="${esc(OFFICE_BY_ID[id]?.name || id)}">🏢 ${esc(id)}</span>`
+  ).join(' ');
+  const travCount = (a.affectedTravelers || []).length;
+  const empCount  = a.totalEmployeesAffected || 0;
+  const travBadge = travCount ? `<span class="impact-badge impact-trav">✈ ${travCount}</span>` : '';
+  const empBadge  = empCount  ? `<span class="impact-badge impact-emp">👥 ${empCount}</span>`   : '';
+  const impactRow = (officeBadges || travBadge || empBadge)
+    ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">${officeBadges} ${travBadge} ${empBadge}</div>`
+    : '';
+  return `
+    <div style="min-width:240px;max-width:320px">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+        <span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span>
+        <span class="src-pill">${esc(src.name || a.source)}</span>
+      </div>
+      <h4 style="margin:0 0 4px;line-height:1.25">${esc(a.title)}</h4>
+      <div class="addr" style="font-size:11px;color:var(--muted)">${esc(a.location || '')} · ${esc(relTime(a.issued))} · ${esc(a.type)}</div>
+      ${impactRow}
+      <div class="btn-row" style="margin-top:8px;display:flex;gap:6px">
+        <button class="btn-ghost" style="font-size:11px;padding:4px 8px" onclick="App.showAlertDetails('${esc(a.id)}')">Details</button>
+        <button class="btn-ghost" style="font-size:11px;padding:4px 8px;background:rgba(28,231,131,.15);border-color:rgba(28,231,131,.4);color:var(--green)" onclick="App.crisisFromAlert('${esc(a.id)}')">📣 Crisis</button>
+      </div>
+    </div>`;
+}
+
 function renderAlertDots() {
   layers.alerts.clearLayers();
   visibleAlerts().forEach(a => {
+    const popupOpts = { maxWidth: 340, autoPan: true };
     if (a.radiusKm > 0) {
       L.circle([a.lat, a.lng], { radius: a.radiusKm*1000, color: SEV_COLOR[a.sev], weight: 1, fillOpacity: 0.08 })
-        .addTo(layers.alerts).on('click', () => selectAlert(a.id));
+        .addTo(layers.alerts)
+        .bindPopup(alertPopupHTML(a), popupOpts)
+        .on('click', () => selectAlert(a.id));
     }
     L.circleMarker([a.lat, a.lng], { radius:5, color: SEV_COLOR[a.sev], fillColor: SEV_COLOR[a.sev], fillOpacity:.9, weight:2 })
-      .addTo(layers.alerts).bindTooltip(`<b>${SEV_NAME[a.sev]}</b> · ${a.title}`,{direction:'top'})
+      .addTo(layers.alerts)
+      .bindTooltip(`<b>${SEV_NAME[a.sev]}</b> · ${a.title}`,{direction:'top'})
+      .bindPopup(alertPopupHTML(a), popupOpts)
       .on('click', () => selectAlert(a.id));
   });
 }
