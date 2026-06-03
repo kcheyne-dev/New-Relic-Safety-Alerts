@@ -34,8 +34,10 @@ export const config = {
     /** EONET keeps wildfires "open" for years if no one closes them.
      *  Only ingest events whose latest geometry is within this many days. */
     eonetMaxAgeDays: num(process.env.EONET_MAX_AGE_DAYS, 7),
-    /** Sweeper marks non-NWS events older than this as is_stale. */
-    staleAfterDays:  num(process.env.STALE_AFTER_DAYS, 7),
+    /** Sweeper marks non-NWS events older than this as is_stale.
+     *  Default 2 days = 48h — aligned with CMT use case (events with extreme
+     *  likelihood to affect office/traveler/BCP, not historical context). */
+    staleAfterDays:  num(process.env.STALE_AFTER_DAYS, 2),
   },
 
   sources: {
