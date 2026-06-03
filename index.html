@@ -125,7 +125,10 @@ button { cursor: pointer; }
 }
 
 /* ============ RAILS & PANELS ====================================== */
-.left-zone, .right-zone { display: flex; }
+/* min-height: 0 is required so flex children (the panels) can shrink
+   below their content height — without it, panel-body's overflow-y:auto
+   never engages because the panel grows to fit all alerts. */
+.left-zone, .right-zone { display: flex; min-height: 0; }
 .right-zone { flex-direction: row; }
 .rail { width: var(--rail-w); background: var(--bg2); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 8px; cursor: pointer; min-height: 0; }
