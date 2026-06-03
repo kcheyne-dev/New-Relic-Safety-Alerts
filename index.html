@@ -567,6 +567,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
     </div>
     <div class="h-tools">
       <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
+      <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">0</span></button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
     </div>
@@ -926,19 +927,57 @@ function buildEmployees() {
 }
 let EMPLOYEES = buildEmployees();
 
+/* Mock traveler manifest. Pending Navan integration — fields below are
+   illustrative; production will receive same shape from the Navan API. */
 const TRAVELERS_INIT = [
-  { id:'t1', name:'A. Patel',    home:'BLR', destCity:'Singapore',  type:'hotel',  lat:1.3521, lng:103.8198, atOffice:null },
-  { id:'t2', name:'M. Diaz',     home:'SFO', destCity:'Mexico City',type:'hotel',  lat:19.4326, lng:-99.1332, atOffice:null },
-  { id:'t3', name:'R. Chen',     home:'LON', destCity:'Dubai',      type:'hotel',  lat:25.2048, lng:55.2708, atOffice:null },
-  { id:'t4', name:'L. Okafor',   home:'DUB', destCity:'Paris',      type:'hotel',  lat:48.8566, lng:2.3522, atOffice:null },
-  { id:'t5', name:'J. Park',     home:'TYO', destCity:'Seoul',      type:'hotel',  lat:37.5665, lng:126.978, atOffice:null },
-  { id:'t6', name:'S. Nakamura', home:'TYO', destCity:'San Francisco',type:'office',lat:OFFICE_BY_ID.SFO.lat, lng:OFFICE_BY_ID.SFO.lng, atOffice:'SFO' },
-  { id:'t7', name:'V. Romano',   home:'BCN', destCity:'London',     type:'office', lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, atOffice:'LON' },
-  { id:'t8', name:'P. Banerjee', home:'BLR', destCity:'Berlin',     type:'hotel',  lat:52.52, lng:13.405, atOffice:null },
-  { id:'t9', name:'K. Liu',      home:'PDX', destCity:'JFK→LHR',    type:'flight', lat:30.0, lng:-40.0, atOffice:null },
-  { id:'t10',name:'O. Adeyemi',  home:'LON', destCity:'Dublin',     type:'office', lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, atOffice:'DUB' },
-  { id:'t11',name:'H. Tanaka',   home:'TYO', destCity:'Bengaluru',  type:'office', lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, atOffice:'BLR' },
-  { id:'t12',name:'N. Walsh',    home:'DUB', destCity:'Reykjavik',  type:'hotel',  lat:64.1466, lng:-21.9426, atOffice:null },
+  { id:'t1', name:'A. Patel', home:'BLR', destCity:'Singapore', country:'Singapore',
+    type:'hotel', lat:1.3521, lng:103.8198, atOffice:null,
+    hotel:{ name:'Marina Bay Sands', address:'10 Bayfront Ave, Singapore 018956', checkIn:'2026-06-01', checkOut:'2026-06-05', confirm:'MBS-7821' },
+    lastKnownTs:'2026-06-03T08:12:00Z' },
+  { id:'t2', name:'M. Diaz', home:'SFO', destCity:'Mexico City', country:'Mexico',
+    type:'hotel', lat:19.4326, lng:-99.1332, atOffice:null,
+    hotel:{ name:'Four Seasons Mexico City', address:'Paseo de la Reforma 500, CDMX', checkIn:'2026-06-02', checkOut:'2026-06-06', confirm:'FS-44102' },
+    lastKnownTs:'2026-06-03T07:35:00Z' },
+  { id:'t3', name:'R. Chen', home:'LON', destCity:'Dubai', country:'UAE',
+    type:'hotel', lat:25.2048, lng:55.2708, atOffice:null,
+    hotel:{ name:'Jumeirah Emirates Towers', address:'Sheikh Zayed Rd, Dubai', checkIn:'2026-05-30', checkOut:'2026-06-04', confirm:'JET-9930' },
+    lastKnownTs:'2026-06-03T06:50:00Z' },
+  { id:'t4', name:'L. Okafor', home:'DUB', destCity:'Paris', country:'France',
+    type:'hotel', lat:48.8566, lng:2.3522, atOffice:null,
+    hotel:{ name:'Le Meurice', address:'228 Rue de Rivoli, 75001 Paris', checkIn:'2026-06-03', checkOut:'2026-06-07', confirm:'LM-3318' },
+    lastKnownTs:'2026-06-03T08:40:00Z' },
+  { id:'t5', name:'J. Park', home:'TYO', destCity:'Seoul', country:'South Korea',
+    type:'hotel', lat:37.5665, lng:126.978, atOffice:null,
+    hotel:{ name:'Lotte Hotel Seoul', address:'30 Eulji-ro, Jung-gu, Seoul', checkIn:'2026-06-02', checkOut:'2026-06-05', confirm:'LHS-2207' },
+    lastKnownTs:'2026-06-03T08:05:00Z' },
+  { id:'t6', name:'S. Nakamura', home:'TYO', destCity:'San Francisco', country:'USA',
+    type:'office', lat:OFFICE_BY_ID.SFO.lat, lng:OFFICE_BY_ID.SFO.lng, atOffice:'SFO',
+    office:{ id:'SFO', arriveDate:'2026-06-01', departDate:'2026-06-07' },
+    lastKnownTs:'2026-06-03T08:30:00Z' },
+  { id:'t7', name:'V. Romano', home:'BCN', destCity:'London', country:'UK',
+    type:'office', lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, atOffice:'LON',
+    office:{ id:'LON', arriveDate:'2026-06-02', departDate:'2026-06-09' },
+    lastKnownTs:'2026-06-03T07:55:00Z' },
+  { id:'t8', name:'P. Banerjee', home:'BLR', destCity:'Berlin', country:'Germany',
+    type:'hotel', lat:52.52, lng:13.405, atOffice:null,
+    hotel:{ name:'Hotel Adlon Kempinski', address:'Unter den Linden 77, 10117 Berlin', checkIn:'2026-06-03', checkOut:'2026-06-08', confirm:'HAK-5541' },
+    lastKnownTs:'2026-06-03T08:18:00Z' },
+  { id:'t9', name:'K. Liu', home:'PDX', destCity:'JFK→LHR', country:'In transit',
+    type:'flight', lat:30.0, lng:-40.0, atOffice:null,
+    flight:{ airline:'British Airways', number:'BA178', origin:'JFK', dest:'LHR', departure:'2026-06-02T22:00:00Z', arrival:'2026-06-03T10:00:00Z' },
+    lastKnownTs:'2026-06-03T03:20:00Z' },
+  { id:'t10', name:'O. Adeyemi', home:'LON', destCity:'Dublin', country:'Ireland',
+    type:'office', lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, atOffice:'DUB',
+    office:{ id:'DUB', arriveDate:'2026-06-03', departDate:'2026-06-06' },
+    lastKnownTs:'2026-06-03T08:45:00Z' },
+  { id:'t11', name:'H. Tanaka', home:'TYO', destCity:'Bengaluru', country:'India',
+    type:'office', lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, atOffice:'BLR',
+    office:{ id:'BLR', arriveDate:'2026-05-30', departDate:'2026-06-10' },
+    lastKnownTs:'2026-06-03T07:48:00Z' },
+  { id:'t12', name:'N. Walsh', home:'DUB', destCity:'Reykjavik', country:'Iceland',
+    type:'hotel', lat:64.1466, lng:-21.9426, atOffice:null,
+    hotel:{ name:'Hotel Borg', address:'Pósthússtræti 11, 101 Reykjavík', checkIn:'2026-06-01', checkOut:'2026-06-05', confirm:'HB-1190' },
+    lastKnownTs:'2026-06-03T08:02:00Z' },
 ];
 let TRAVELERS = TRAVELERS_INIT.slice();
 
@@ -1306,6 +1345,8 @@ function renderTravelers() {
     layers.trav.addLayer(m);
   });
   document.getElementById('trav-count').textContent = `${TRAVELERS.length} travelers loaded`;
+  const badge = document.getElementById('trav-count-badge');
+  if (badge) badge.textContent = TRAVELERS.length;
 }
 
 /* ---------- 9. Hazard overlays (mock) ---------- */
@@ -3940,6 +3981,197 @@ if (API_BASE) {
   if (getStoredToken()) bootLiveMode();
   else showLoginModal();
 }
+
+/* =========================================================================
+   21b. TRAVELERS LIST MODAL
+   Click ✈ Travelers in header → modal with sortable table, search, type
+   filter (flight/hotel/office), CSV export, and per-row actions: 📍 zoom
+   map to the traveler, ✉ pre-fill Crisis Comms with traveler context.
+   ========================================================================= */
+const TRAV_VIEW = { sortKey: 'name', sortDir: 'asc', search: '', typeFilter: 'all' };
+
+function _fmtTravDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d) ? '—' : d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+function _fmtTravTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d) ? '—' : d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+}
+
+function showTravelersList() {
+  showModal(travListBodyHTML());
+  bindTravListHandlers();
+}
+
+function travListBodyHTML() {
+  const filt = (t, label) => `<button data-trav-filter="${t}" class="trav-filt" style="padding:6px 12px;background:${t===TRAV_VIEW.typeFilter?'var(--green)':'var(--bg3)'};color:${t===TRAV_VIEW.typeFilter?'#062c1f':'var(--text)'};border:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;font-weight:${t===TRAV_VIEW.typeFilter?'700':'400'};">${label}</button>`;
+  return `<div style="width:min(960px,92vw);max-height:85vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-size:16px;font-weight:700;">✈ Travelers (${TRAVELERS.length})</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Mock data — Navan integration pending. Displayed values are illustrative.</div>
+      </div>
+      <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
+    </div>
+    <div style="display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
+      <input id="trav-search" type="text" placeholder="Search name, city, country, hotel, airline..." value="${esc(TRAV_VIEW.search)}"
+        style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);" />
+      <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">
+        ${filt('all','All')}${filt('flight','✈ Flight')}${filt('hotel','🏨 Hotel')}${filt('office','🏢 Office')}
+      </div>
+      <button class="btn-ghost" id="trav-export-csv">⬇ CSV</button>
+    </div>
+    <div id="trav-list-body" style="flex:1;overflow-y:auto;"></div>
+  </div>`;
+}
+
+function travSortValue(t, key) {
+  switch (key) {
+    case 'name': return t.name.toLowerCase();
+    case 'home': return t.home;
+    case 'country': return (t.country||'').toLowerCase();
+    case 'type': return t.type;
+    case 'details': return (t.flight?.number || t.hotel?.name || t.office?.id || '').toLowerCase();
+    case 'lastKnown': return t.lastKnownTs || '';
+    default: return '';
+  }
+}
+
+function travListRowsHTML() {
+  const { sortKey, sortDir, search, typeFilter } = TRAV_VIEW;
+  let rows = TRAVELERS.slice();
+  if (typeFilter !== 'all') rows = rows.filter(t => t.type === typeFilter);
+  if (search) {
+    const s = search.toLowerCase();
+    rows = rows.filter(t =>
+      (t.name+' '+t.destCity+' '+t.country+' '+(t.hotel?.name||'')+' '+(t.flight?.airline||'')+' '+(t.flight?.number||''))
+        .toLowerCase().includes(s)
+    );
+  }
+  rows.sort((a, b) => {
+    const av = travSortValue(a, sortKey), bv = travSortValue(b, sortKey);
+    if (av === bv) return 0;
+    return sortDir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+  });
+
+  if (!rows.length) return `<div style="padding:40px;text-align:center;color:var(--muted);">No travelers match the filter.</div>`;
+
+  const arrow = (key) => sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+  const th = (key, label) => `<th data-trav-sort="${key}" style="cursor:pointer;padding:10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-bottom:1px solid var(--border);user-select:none;background:var(--bg2);">${label}${arrow(key)}</th>`;
+
+  return `<table style="width:100%;border-collapse:collapse;">
+    <thead style="position:sticky;top:0;z-index:1;">
+      <tr>${th('name','Name')}${th('home','Home')}${th('country','Country / City')}${th('type','Type')}${th('details','Itinerary')}${th('lastKnown','Last seen')}<th style="padding:10px;border-bottom:1px solid var(--border);background:var(--bg2);"></th></tr>
+    </thead>
+    <tbody>${rows.map(travRowHTML).join('')}</tbody>
+  </table>`;
+}
+
+function travRowHTML(t) {
+  const homeOff = OFFICE_BY_ID[t.home];
+  let detail = '<span style="color:var(--muted);">—</span>';
+  if (t.type === 'flight' && t.flight) {
+    detail = `<b>${esc(t.flight.airline)} ${esc(t.flight.number)}</b><br><span style="color:var(--muted);font-size:11px;">${esc(t.flight.origin)} → ${esc(t.flight.dest)} · arr ${_fmtTravTime(t.flight.arrival)}</span>`;
+  } else if (t.type === 'hotel' && t.hotel) {
+    detail = `<b>${esc(t.hotel.name)}</b><br><span style="color:var(--muted);font-size:11px;">${_fmtTravDate(t.hotel.checkIn)} – ${_fmtTravDate(t.hotel.checkOut)} · ${esc(t.hotel.confirm||'')}</span>`;
+  } else if (t.type === 'office' && t.office) {
+    const o = OFFICE_BY_ID[t.office.id];
+    detail = `<b>${esc(o?.name||t.office.id)} office</b><br><span style="color:var(--muted);font-size:11px;">${_fmtTravDate(t.office.arriveDate)} – ${_fmtTravDate(t.office.departDate)}</span>`;
+  }
+  const typeIcon = t.type === 'flight' ? '✈' : t.type === 'hotel' ? '🏨' : '🏢';
+  const typeColor = t.type === 'flight' ? 'var(--blue)' : t.type === 'hotel' ? 'var(--yellow)' : 'var(--green)';
+  return `<tr style="border-bottom:1px solid var(--border);">
+    <td style="padding:10px;"><b>${esc(t.name)}</b></td>
+    <td style="padding:10px;color:var(--muted);">${esc(homeOff?.name || t.home)}</td>
+    <td style="padding:10px;"><b>${esc(t.country)}</b><br><span style="color:var(--muted);font-size:11px;">${esc(t.destCity)}</span></td>
+    <td style="padding:10px;"><span style="display:inline-flex;align-items:center;gap:4px;color:${typeColor};font-size:11px;text-transform:uppercase;letter-spacing:.05em;font-weight:600;">${typeIcon} ${esc(t.type)}</span></td>
+    <td style="padding:10px;font-size:12px;line-height:1.4;">${detail}</td>
+    <td style="padding:10px;color:var(--muted);font-size:11px;white-space:nowrap;">${relTime(t.lastKnownTs)}</td>
+    <td style="padding:10px;text-align:right;white-space:nowrap;">
+      <button class="btn-ghost trav-zoom" data-trav-id="${esc(t.id)}" title="Zoom map" style="font-size:11px;padding:4px 8px;margin-right:4px;">📍</button>
+      <button class="btn-ghost trav-msg" data-trav-id="${esc(t.id)}" title="Pre-fill Crisis Comms" style="font-size:11px;padding:4px 8px;">✉</button>
+    </td>
+  </tr>`;
+}
+
+function refreshTravList() {
+  const body = document.getElementById('trav-list-body');
+  if (body) body.innerHTML = travListRowsHTML();
+  bindTravListRowHandlers();
+}
+
+function bindTravListHandlers() {
+  document.getElementById('trav-search').addEventListener('input', e => {
+    TRAV_VIEW.search = e.target.value;
+    refreshTravList();
+  });
+  document.querySelectorAll('[data-trav-filter]').forEach(b => b.addEventListener('click', () => {
+    TRAV_VIEW.typeFilter = b.dataset.travFilter;
+    // Re-render the whole modal so chip styling refreshes
+    const back = document.getElementById('modal-back');
+    if (back) back.querySelector('.modal').innerHTML = travListBodyHTML();
+    bindTravListHandlers();
+  }));
+  document.getElementById('trav-export-csv').addEventListener('click', exportTravelersCSV);
+  refreshTravList();
+}
+
+function bindTravListRowHandlers() {
+  document.querySelectorAll('[data-trav-sort]').forEach(h => h.addEventListener('click', () => {
+    const key = h.dataset.travSort;
+    if (TRAV_VIEW.sortKey === key) TRAV_VIEW.sortDir = TRAV_VIEW.sortDir === 'asc' ? 'desc' : 'asc';
+    else { TRAV_VIEW.sortKey = key; TRAV_VIEW.sortDir = 'asc'; }
+    refreshTravList();
+  }));
+  document.querySelectorAll('.trav-zoom').forEach(b => b.addEventListener('click', () => {
+    const t = TRAVELERS.find(x => x.id === b.dataset.travId);
+    if (!t) return;
+    closeModal();
+    map.flyTo([t.lat, t.lng], 7, { duration: 0.8 });
+    toast(`Zoomed to ${t.name} · ${t.destCity}`);
+  }));
+  document.querySelectorAll('.trav-msg').forEach(b => b.addEventListener('click', () => {
+    const t = TRAVELERS.find(x => x.id === b.dataset.travId);
+    if (!t) return;
+    closeModal();
+    const locLabel = `${t.name} · ${t.destCity}`;
+    if (!STATE.customLocations.includes(locLabel)) STATE.customLocations.push(locLabel);
+    if (!STATE.subject) STATE.subject = `Safety check — ${t.name} (${t.destCity})`;
+    STATE.template = 'check';
+    openPanel('crisis');
+    setCcTab('compose');
+    renderCC();
+    toast(`Pre-loaded Crisis Comms for ${t.name}.`);
+  }));
+}
+
+function exportTravelersCSV() {
+  const headers = ['id','name','home','destCity','country','type','airline','flightNumber','origin','dest','departure','arrival','hotelName','hotelAddress','checkIn','checkOut','confirmation','officeId','officeArrive','officeDepart','lastKnownTs','lat','lng'];
+  const rows = TRAVELERS.map(t => [
+    t.id, t.name, t.home, t.destCity, t.country||'', t.type,
+    t.flight?.airline||'', t.flight?.number||'', t.flight?.origin||'', t.flight?.dest||'',
+    t.flight?.departure||'', t.flight?.arrival||'',
+    t.hotel?.name||'', t.hotel?.address||'', t.hotel?.checkIn||'', t.hotel?.checkOut||'', t.hotel?.confirm||'',
+    t.office?.id||'', t.office?.arriveDate||'', t.office?.departDate||'',
+    t.lastKnownTs||'', t.lat, t.lng,
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => {
+    const s = String(v).replace(/"/g, '""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `travelers-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(`Exported ${TRAVELERS.length} travelers to CSV.`);
+}
+
+document.getElementById('btn-travelers').onclick = () => showTravelersList();
 
 /* =========================================================================
    22. DEMO MODE — cycling alert + traveler simulator
