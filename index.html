@@ -3944,16 +3944,19 @@ if (API_BASE) {
 /* =========================================================================
    22. DEMO MODE — cycling alert + traveler simulator
    -------------------------------------------------------------------------
-   Activates only when API_BASE === '' (mock / GitHub Pages).
+   Activates ONLY when the URL explicitly carries `#api=mock`.
+   • The bare GitHub Pages URL (auto-detected mock mode) does NOT run the
+     demo — Pages stays clean for stakeholder viewing.
+   • Use file://...index.html#api=mock or any URL with that hash to opt in.
    • Enriches initial seed ALERTS so they pass the officeRelevantOnly filter.
    • Adds new alerts on a 25–70s cycle, with 4–9 min lifetime each.
-   • Shifts a random traveler to their next leg every 3 minutes.
+   • Shifts a random traveler to their next leg every 45s, with toast.
    • Occasional Extreme injection so the status-strip wash + Crisis Comm
      fast-path get exercised on the demo URL.
    • Subtle DEMO MODE badge pinned top-right with click-to-pause.
-   Localhost / file:// (live mode) is unaffected.
+   Localhost / file:// without hash (live mode) is unaffected.
    ========================================================================= */
-if (!API_BASE) {
+if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
   (function bootDemoMode() {
     const DEMO = {
       paused: false,
