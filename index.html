@@ -3960,7 +3960,7 @@ if (!API_BASE) {
       newAlertEverySec: { min: 25, max: 70 },
       alertLifetimeSec: { min: 240, max: 540 },   // 4–9 minutes
       maxActiveDemo: 18,
-      travelerMoveEverySec: 180,                  // every 3 min
+      travelerMoveEverySec: 45,                   // every 45s — demo-speed so movement is visible
       extremeChance: 0.08,                        // 8% of injections are Extreme
       timers: {},
       demoIds: new Set(),
@@ -4209,11 +4209,14 @@ if (!API_BASE) {
       const leg = legs[legCounters[tid]];
       const idx = TRAVELERS.findIndex(t => t.id === tid);
       if (idx >= 0) {
-        TRAVELERS[idx] = { ...TRAVELERS[idx],
+        const before = TRAVELERS[idx];
+        TRAVELERS[idx] = { ...before,
           destCity: leg.city, lat: leg.lat, lng: leg.lng, type: leg.type, atOffice: leg.atOffice };
         // Re-enrich active alerts so traveler-proximity badges refresh
         ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
         renderAll();
+        // Toast so the movement is visible to a watching operator
+        try { toast(`✈ ${before.name} → ${leg.city}`); } catch (_) {}
       }
     }
 
@@ -4250,6 +4253,7 @@ if (!API_BASE) {
     setTimeout(injectAlert, 9000);
     // 4. Continuous cycling
     scheduleNext();
+    setTimeout(moveTraveler, 8000);  // first traveler hop ~8s in so it's visible quickly
     DEMO.timers.travMove = setInterval(moveTraveler, DEMO.travelerMoveEverySec * 1000);
   })();
 }
