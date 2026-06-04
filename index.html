@@ -2402,11 +2402,14 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
   }
   if (STATE.incidentTab === 'responses') {
     const resp = STATE.responses[inc.id] || {};
-    const empRows = []; const travRows = [];
+    const empRows = []; const travRows = []; const remoteRows = [];
     Object.entries(resp).forEach(([eid, r]) => {
       if (r.traveler) {
         const t = TRAVELERS.find(x => 'T-'+x.id === eid);
-        if (t) travRows.push({ eid, name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} · visiting`, status: r.status });
+        if (t) travRows.push({ eid, name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} · ${t.destCity}`, status: r.status });
+      } else if (r.remote) {
+        const re = REMOTE_EMPLOYEES.find(x => 'R-'+x.id === eid);
+        if (re) remoteRows.push({ eid, name: re.name, who: `${re.city} · ${re.country} (remote)`, status: r.status });
       } else {
         const e = EMPLOYEES.find(x => x.id === eid);
         if (e) empRows.push({ eid, name: e.name, who: e.role, status: r.status });
@@ -2414,15 +2417,17 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
     });
     const filt = STATE.msgFilter;
     const f = (rows) => filt==='all' ? rows : rows.filter(r => (filt==='no'?r.status==='no': r.status===filt));
+    const allRows = [...empRows, ...travRows, ...remoteRows];
     return `<div class="msg-filter">
       ${['all','no','ok','help'].map(k=>{
-        const n = k==='all' ? empRows.length+travRows.length : [...empRows,...travRows].filter(r => k==='no'?r.status==='no':r.status===k).length;
+        const n = k==='all' ? allRows.length : allRows.filter(r => k==='no'?r.status==='no':r.status===k).length;
         return `<button class="${filt===k?'active':''}" data-mfilter="${k}">${k==='no'?'No response':k.toUpperCase()} ${n}</button>`;
       }).join('')}
     </div>
     <div class="section-h">Employees (${empRows.length})</div>
     ${f(empRows).map(r => msgRowHTML(r,inc)).join('') || '<div class="empty">None</div>'}
-    ${travRows.length ? `<div class="section-h">✈ Visiting Travelers (${travRows.length})</div>${f(travRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}`;
+    ${travRows.length ? `<div class="section-h">✈ Travelers (${travRows.length})</div>${f(travRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}
+    ${remoteRows.length ? `<div class="section-h">🏠 Remote Employees (${remoteRows.length})</div>${f(remoteRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}`;
   }
   if (STATE.incidentTab === 'notes') {
     return `<div style="padding:8px 12px;border-bottom:1px solid var(--border)">
@@ -2707,6 +2712,7 @@ function setupDraw() {
     // the modal with form state preserved + useFence pre-checked.
     if (typeof BCP_FORM !== 'undefined' && BCP_FORM._waitingForFence) {
       BCP_FORM.useFence = true;
+      if (typeof clearBCIWaitingChip === 'function') clearBCIWaitingChip();
       document.getElementById('tools-dropdown').classList.remove('open');
       showBCPModal(true);
     }
@@ -3145,11 +3151,14 @@ function exportIncidentReport(incidentId) {
   );
 
   // build per-office response table
-  const employeeRows = []; const travelerRows = [];
+  const employeeRows = []; const travelerRows = []; const remoteRows = [];
   Object.entries(resp).forEach(([eid, r]) => {
     if (r.traveler) {
       const t = TRAVELERS.find(x => 'T-'+x.id === eid);
       if (t) travelerRows.push({ name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} → ${t.destCity}`, status: r.status, when: r.when, by: r.by });
+    } else if (r.remote) {
+      const re = REMOTE_EMPLOYEES.find(x => 'R-'+x.id === eid);
+      if (re) remoteRows.push({ name: re.name, who: `${re.city}, ${re.country} (remote)`, status: r.status, when: r.when, by: r.by });
     } else {
       const e = EMPLOYEES.find(x => x.id === eid);
       if (e) employeeRows.push({ name: e.name, who: `${OFFICE_BY_ID[e.office]?.name||e.office} · ${e.role||'—'}`, status: r.status, when: r.when, by: r.by });
@@ -3348,9 +3357,20 @@ function exportIncidentReport(incidentId) {
     </tr>`).join('')}
   </table>`:'<div class="summary">No employee responses logged.</div>'}
 
-  ${travelerRows.length?`<h2>Visiting Travelers (${travelerRows.length})</h2><table>
+  ${travelerRows.length?`<h2>Travelers (${travelerRows.length})</h2><table>
     <tr><th>Name</th><th>Home → Destination</th><th>Status</th><th>When</th><th>Logged by</th></tr>
     ${travelerRows.map(r => `<tr>
+      <td><b>${esc(r.name)}</b></td>
+      <td>${esc(r.who)}</td>
+      <td class="status-${r.status==='no'?'no':r.status}">${r.status==='no'?'No response':r.status==='ok'?'OK':'Needs Help'}</td>
+      <td>${r.when?new Date(r.when).toLocaleString():'—'}</td>
+      <td>${esc(r.by||'—')}</td>
+    </tr>`).join('')}
+  </table>`:''}
+
+  ${remoteRows.length?`<h2>Remote Employees (${remoteRows.length})</h2><table>
+    <tr><th>Name</th><th>Location</th><th>Status</th><th>When</th><th>Logged by</th></tr>
+    ${remoteRows.map(r => `<tr>
       <td><b>${esc(r.name)}</b></td>
       <td>${esc(r.who)}</td>
       <td class="status-${r.status==='no'?'no':r.status}">${r.status==='no'?'No response':r.status==='ok'?'OK':'Needs Help'}</td>
@@ -4249,6 +4269,41 @@ function showBCPModal(preserve = false) {
   bindBCPHandlers();
 }
 
+/* Floating chip shown while operator is in the geo-fence-draw round trip.
+   Click → cancel and reopen BCI modal with form preserved.
+   Auto-clears after 30s if operator forgets. Prevents the "stuck waiting"
+   state where any unrelated future fence draw would surprise-reopen BCI. */
+function showBCIWaitingChip() {
+  clearBCIWaitingChip(); // idempotent
+  const chip = document.createElement('div');
+  chip.id = 'bci-waiting-chip';
+  chip.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;background:#fca5a5;color:#0a0a0a;padding:6px 14px;border-radius:14px;font:11px/1.4 system-ui,-apple-system,sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.35);user-select:none;font-weight:700;';
+  chip.textContent = '✕ Cancel — return to BCI';
+  chip.title = 'Cancel fence draw and reopen the BCI form (state preserved)';
+  chip.addEventListener('click', () => {
+    clearBCIWaitingChip();
+    BCP_FORM._waitingForFence = false;
+    document.getElementById('tools-dropdown')?.classList.remove('open');
+    showBCPModal(true);
+  });
+  document.body.appendChild(chip);
+  BCP_FORM._waitingTimeoutId = setTimeout(() => {
+    if (BCP_FORM._waitingForFence) {
+      clearBCIWaitingChip();
+      BCP_FORM._waitingForFence = false;
+      toast('Fence draw timed out. Click Declare BCI again to retry.');
+    }
+  }, 30000);
+}
+function clearBCIWaitingChip() {
+  const c = document.getElementById('bci-waiting-chip');
+  if (c) c.remove();
+  if (BCP_FORM._waitingTimeoutId) {
+    clearTimeout(BCP_FORM._waitingTimeoutId);
+    BCP_FORM._waitingTimeoutId = null;
+  }
+}
+
 function bcpModalHTML() {
   return `<div style="width:min(900px,92vw);max-height:85vh;display:flex;flex-direction:column;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(248,113,113,.08);">
@@ -4409,14 +4464,13 @@ function bindBCPFormHandlers() {
     // Mark that we're waiting for a fence so the draw handler can reopen us.
     BCP_FORM._waitingForFence = true;
     closeModal();
-    // Open Map Tools dropdown directly to the Geo-fence tab and prime
-    // the polygon handler so a click on the map starts drawing.
+    // Open Map Tools dropdown directly to the Geo-fence tab. Don't auto-pick
+    // a shape — operator may want Circle, Rectangle, or Polygon.
     document.getElementById('tools-dropdown').classList.add('open');
     setMapToolsTab('fence');
-    // Prefer Polygon (most flexible). Operator can switch shape inside the panel.
-    const polyBtn = document.querySelector('[data-shape="polygon"]');
-    if (polyBtn) polyBtn.click();
-    toast('Draw a shape on the map. The BCI form will reopen with the fence applied.');
+    // Show floating cancel chip + auto-timeout so we don't get stuck waiting.
+    showBCIWaitingChip();
+    toast('Pick a shape and draw on the map. Click the chip top-center to cancel.');
   });
   const clearBtn = document.getElementById('bcp-clear-fence');
   if (clearBtn) clearBtn.addEventListener('click', () => {
@@ -4459,12 +4513,33 @@ function declareBCP() {
     offices: exp.offices.length, officeHeadcount: exp.officeHeadcount,
     travelers: exp.travelerCount, remote: exp.remoteCount,
   };
+  // Extend response tracking to include in-scope travelers (even those NOT
+  // at any office) and remote employees. createIncident's buildResponseShells
+  // only covers office-resident employees + travelers atOffice — for a BCI
+  // we need the full in-scope population.
+  if (!STATE.responses[inc.id]) STATE.responses[inc.id] = {};
+  exp.travelers.forEach(t => {
+    const key = 'T-' + t.id;
+    if (!STATE.responses[inc.id][key]) {
+      STATE.responses[inc.id][key] = { status:'no', when:null, by:null, traveler:true };
+    }
+  });
+  exp.remote.forEach(r => {
+    const key = 'R-' + r.id;
+    if (!STATE.responses[inc.id][key]) {
+      STATE.responses[inc.id][key] = { status:'no', when:null, by:null, remote:true };
+    }
+  });
   addIncidentLog(inc.id, 'create',
     `🚨 <b>BCI</b> declared: ${esc(evt.label)}. Exposure: ${exp.officeHeadcount + exp.remoteCount} employees · ${exp.travelerCount} travelers · ${exp.offices.length} office(s).`);
   STATE.selectedOffices = officeIds.slice();
   STATE.template = BCP_FORM.templateId;
   STATE.subject = `[EXTREME · BCI] ${BCP_FORM.title}`;
-  STATE.customMessage = BCP_FORM.customMessage || '';
+  // Only overwrite the Crisis Comm draft if the BCI form contributed context.
+  // If BCI message is empty, preserve whatever the operator was already drafting.
+  if (BCP_FORM.customMessage && BCP_FORM.customMessage.trim()) {
+    STATE.customMessage = BCP_FORM.customMessage;
+  }
   STATE.linkedIncidentId = inc.id;
   closeModal();
   openPanel('crisis');
