@@ -518,7 +518,8 @@ body.resizing-panel * { cursor: ew-resize !important; }
 .modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 2000;
   display: grid; place-items: center; }
 .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
-  width: 480px; max-width: 90vw; max-height: 85vh; overflow-y: auto; padding: 18px; }
+  width: auto; min-width: min(460px, 92vw); max-width: 92vw; max-height: 85vh;
+  overflow-y: auto; padding: 18px; }
 .modal h3 { margin-bottom: 8px; }
 .modal-actions { display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end; }
 
@@ -568,7 +569,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
     <div class="h-tools">
       <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
       <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">0</span></button>
-      <button class="htn" id="btn-bcp" aria-label="Declare a Business Continuity event" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCP</button>
+      <button class="htn" id="btn-bcp" aria-label="Declare a Business Continuity Incident" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCI</button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
     </div>
@@ -2702,6 +2703,13 @@ function setupDraw() {
     const layer = e.layer; layers.fence.addLayer(layer);
     STATE.fence = { layer, shape: e.layerType };
     computeFenceResults();
+    // If the BCI form was waiting for a fence, close Map Tools and reopen
+    // the modal with form state preserved + useFence pre-checked.
+    if (typeof BCP_FORM !== 'undefined' && BCP_FORM._waitingForFence) {
+      BCP_FORM.useFence = true;
+      document.getElementById('tools-dropdown').classList.remove('open');
+      showBCPModal(true);
+    }
   });
   document.getElementById('btn-fence-clear').onclick = clearFence;
   document.getElementById('btn-fence-export').onclick = exportFenceCSV;
@@ -4231,17 +4239,21 @@ const BCP_FORM = {
   useFence: false, templateId: 'bc_announce', customMessage: '', acknowledged: false,
 };
 
-function showBCPModal() {
-  Object.assign(BCP_FORM, { title:'', countries:[], useFence:false, customMessage:'', acknowledged:false });
+function showBCPModal(preserve = false) {
+  if (!preserve) {
+    Object.assign(BCP_FORM, { title:'', countries:[], useFence:false, customMessage:'', acknowledged:false, _waitingForFence:false });
+  } else {
+    BCP_FORM._waitingForFence = false; // returning from fence-draw round trip
+  }
   showModal(bcpModalHTML());
   bindBCPHandlers();
 }
 
 function bcpModalHTML() {
-  return `<div style="width:min(680px,92vw);max-height:85vh;display:flex;flex-direction:column;">
+  return `<div style="width:min(900px,92vw);max-height:85vh;display:flex;flex-direction:column;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(248,113,113,.08);">
       <div>
-        <div style="font-size:16px;font-weight:700;color:#fca5a5;">🚨 Declare Business Continuity Event</div>
+        <div style="font-size:16px;font-weight:700;color:#fca5a5;">🚨 Declare Business Continuity Incident</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">Use this when a macro-level event has occurred and you need to coordinate response across an affected region.</div>
       </div>
       <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
@@ -4318,10 +4330,14 @@ function bcpFormBodyHTML() {
     </div>
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Geographic Scope</label>
-      ${fenceAvailable ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;cursor:pointer;color:var(--text);">
-        <input id="bcp-use-fence" type="checkbox" ${BCP_FORM.useFence?'checked':''} />
-        Use the currently drawn geo-fence on the map (overrides country picks)
-      </label>` : `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-style:italic;">Tip: draw a geo-fence on the map for sub-country events (Map Tools → Geo-fence).</div>`}
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+        ${fenceAvailable ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;color:var(--text);">
+          <input id="bcp-use-fence" type="checkbox" ${BCP_FORM.useFence?'checked':''} />
+          Use the currently drawn geo-fence (overrides country picks)
+        </label>` : ''}
+        <button id="bcp-draw-fence" class="btn-ghost" style="font-size:11px;padding:4px 10px;border:1px dashed var(--border);">✏ ${fenceAvailable?'Redraw fence':'Draw fence on map'}</button>
+        ${fenceAvailable ? `<button id="bcp-clear-fence" class="btn-ghost" style="font-size:11px;padding:4px 8px;color:var(--muted);">✕ Clear fence</button>` : ''}
+      </div>
       <div id="bcp-country-list" style="display:flex;flex-wrap:wrap;gap:5px;${useFenceNow?'opacity:0.4;pointer-events:none;':''}">
         ${countries.map(c => `<button class="bcp-country-chip" data-country="${esc(c)}"
           style="padding:4px 10px;border:1px solid var(--border);border-radius:14px;background:${BCP_FORM.countries.includes(c)?'var(--green)':'var(--bg3)'};color:${BCP_FORM.countries.includes(c)?'#062c1f':'var(--text)'};font-size:11px;cursor:pointer;font-weight:${BCP_FORM.countries.includes(c)?'700':'400'};">${esc(c)}</button>`).join('')}
@@ -4343,7 +4359,7 @@ function bcpFormBodyHTML() {
     </div>
     <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;cursor:pointer;padding:10px 12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:4px;color:var(--text);">
       <input id="bcp-ack" type="checkbox" style="margin-top:2px;" ${BCP_FORM.acknowledged?'checked':''} />
-      <span><b>I confirm this event meets BCP escalation threshold.</b> Declaring will create a Business Continuity incident and pre-load Crisis Comms with the affected scope. No messages are sent until you click Send in the Crisis panel.</span>
+      <span><b>I confirm this event meets BCI escalation threshold.</b> Declaring will create a Business Continuity Incident and pre-load Crisis Comms with the affected scope. No messages are sent until you click Send in the Crisis panel.</span>
     </label>`;
 }
 
@@ -4388,6 +4404,26 @@ function bindBCPFormHandlers() {
     BCP_FORM.useFence = e.target.checked;
     refreshBCPExposure();
   });
+  const drawBtn = document.getElementById('bcp-draw-fence');
+  if (drawBtn) drawBtn.addEventListener('click', () => {
+    // Mark that we're waiting for a fence so the draw handler can reopen us.
+    BCP_FORM._waitingForFence = true;
+    closeModal();
+    // Open Map Tools dropdown directly to the Geo-fence tab and prime
+    // the polygon handler so a click on the map starts drawing.
+    document.getElementById('tools-dropdown').classList.add('open');
+    setMapToolsTab('fence');
+    // Prefer Polygon (most flexible). Operator can switch shape inside the panel.
+    const polyBtn = document.querySelector('[data-shape="polygon"]');
+    if (polyBtn) polyBtn.click();
+    toast('Draw a shape on the map. The BCI form will reopen with the fence applied.');
+  });
+  const clearBtn = document.getElementById('bcp-clear-fence');
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    clearFence();
+    BCP_FORM.useFence = false;
+    refreshBCPExposure();
+  });
   document.querySelectorAll('.bcp-country-chip').forEach(b => b.addEventListener('click', () => {
     const c = b.dataset.country;
     if (BCP_FORM.countries.includes(c)) BCP_FORM.countries = BCP_FORM.countries.filter(x => x !== c);
@@ -4408,7 +4444,7 @@ function declareBCP() {
   const officeIds = exp.offices.map(o => o.id);
   const linkAlert = ALERTS.find(a =>
     SEV_RANK[a.sev] >= SEV_RANK.high && a.officeId && officeIds.includes(a.officeId));
-  const description = `Business Continuity event declared by operator. Type: ${evt.label}. ` +
+  const description = `Business Continuity Incident declared by operator. Type: ${evt.label}. ` +
     `Scope: ${BCP_FORM.useFence ? 'drawn geo-fence' : BCP_FORM.countries.join(', ')}. ` +
     `Exposure at declaration: ${exp.officeHeadcount + exp.remoteCount} employees, ` +
     `${exp.travelerCount} travelers across ${exp.offices.length} office(s).`;
@@ -4424,10 +4460,10 @@ function declareBCP() {
     travelers: exp.travelerCount, remote: exp.remoteCount,
   };
   addIncidentLog(inc.id, 'create',
-    `🚨 <b>BCP Event</b> declared: ${esc(evt.label)}. Exposure: ${exp.officeHeadcount + exp.remoteCount} employees · ${exp.travelerCount} travelers · ${exp.offices.length} office(s).`);
+    `🚨 <b>BCI</b> declared: ${esc(evt.label)}. Exposure: ${exp.officeHeadcount + exp.remoteCount} employees · ${exp.travelerCount} travelers · ${exp.offices.length} office(s).`);
   STATE.selectedOffices = officeIds.slice();
   STATE.template = BCP_FORM.templateId;
-  STATE.subject = `[EXTREME · BCP] ${BCP_FORM.title}`;
+  STATE.subject = `[EXTREME · BCI] ${BCP_FORM.title}`;
   STATE.customMessage = BCP_FORM.customMessage || '';
   STATE.linkedIncidentId = inc.id;
   closeModal();
@@ -4435,7 +4471,7 @@ function declareBCP() {
   setCcTab('compose');
   renderCC();
   renderIncidents();
-  toast(`🚨 BCP event declared: ${BCP_FORM.title}. ${exp.totalExposed.toLocaleString()} recipients staged.`);
+  toast(`🚨 BCI declared: ${BCP_FORM.title}. ${exp.totalExposed.toLocaleString()} recipients staged.`);
 }
 
 document.getElementById('btn-bcp').onclick = () => showBCPModal();
