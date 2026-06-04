@@ -568,6 +568,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
     <div class="h-tools">
       <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
       <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">0</span></button>
+      <button class="htn" id="btn-bcp" aria-label="Declare a Business Continuity event" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCP</button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
     </div>
@@ -987,6 +988,10 @@ const TEMPLATES = {
   shelter:  { name:'Shelter in Place',body:'IMMEDIATE: A safety incident has been reported. Shelter in place inside the office. Move away from windows. Do not exit until you receive an all-clear. Reply OK / HELP.' },
   evac:     { name:'Evacuation',      body:'IMMEDIATE: Evacuate the office now via the nearest safe exit. Proceed to the muster point. Do not use elevators. Reply OK once you are at muster.' },
   allclear: { name:'All Clear',       body:'All clear. The earlier safety incident has been resolved. You may resume normal activity.' },
+  bc_announce: { name:'BC Announcement',         body:'New Relic is monitoring a developing situation in your region. We are in contact with regional authorities and will share updates as the picture clarifies. There is no immediate action required from you at this time. If your safety is in question, reply HELP.' },
+  bc_checkin:  { name:'Country-wide Check-in',   body:'In response to events unfolding in your region, we are conducting a wellness check. Please reply OK to confirm you are safe, or HELP if you need assistance. Your manager and CMT will be notified of your status.' },
+  bc_closure:  { name:'Office Closure Directive',body:'Due to the ongoing regional situation, the office will be closed effective immediately. Do not travel to the office. Continue work from a safe location if able. CMT will share reopening guidance directly. Reply OK to acknowledge.' },
+  bc_travel:   { name:'Travel Suspension Advisory', body:'All non-essential travel to and within the affected region is suspended until further notice. If you are currently traveling in or near the region, contact CMT at safety@newrelic.com immediately. Existing trips should be reviewed with your manager.' },
 };
 
 const STATE = {
@@ -4174,6 +4179,268 @@ function exportTravelersCSV() {
 document.getElementById('btn-travelers').onclick = () => showTravelersList();
 
 /* =========================================================================
+   21c. BCP DECLARATION — operator-triggered Business Continuity event
+   Manual trigger for Q3 (macro-level events the operator already knows
+   about: terror, mass-casualty, major quake, hurricane, geopolitical).
+   Picks geographic scope by country (or drawn geo-fence), shows live
+   exposure (offices + travelers + remote employees in demo mode), creates
+   an Incident tagged BCP, pre-fills Crisis Comms with affected scope.
+   ========================================================================= */
+
+/* Mock remote employees — populated only in demo mode (see boot below).
+   Live + bare Pages keep REMOTE_EMPLOYEES = [] and the BCP modal shows
+   "Remote employees: pending Workday integration" instead of a count. */
+const REMOTE_EMPLOYEES_MOCK = (() => {
+  const data = [
+    ['USA',     35, ['Austin TX','Denver CO','Charlotte NC','Boston MA','Seattle WA','Chicago IL','Miami FL','Phoenix AZ','Nashville TN','New York NY','Salt Lake City UT','Minneapolis MN','Raleigh NC','Pittsburgh PA','Kansas City MO','Indianapolis IN','Cleveland OH','Sacramento CA','Tampa FL','St. Louis MO']],
+    ['UK',       8, ['Manchester','Edinburgh','Bristol','Leeds','Glasgow','Birmingham','Cardiff','Belfast']],
+    ['India',    7, ['Mumbai','Delhi','Pune','Chennai','Kolkata','Ahmedabad','Jaipur']],
+    ['Spain',    4, ['Madrid','Valencia','Seville','Bilbao']],
+    ['Ireland',  4, ['Cork','Galway','Limerick','Waterford']],
+    ['Japan',    5, ['Osaka','Kyoto','Yokohama','Fukuoka','Sapporo']],
+    ['Germany',  6, ['Munich','Hamburg','Frankfurt','Stuttgart','Cologne','Düsseldorf']],
+    ['Mexico',   2, ['Mexico City','Guadalajara']],
+    ['France',   2, ['Lyon','Marseille']],
+    ['Australia',3, ['Sydney','Melbourne','Brisbane']],
+    ['Canada',   4, ['Toronto','Vancouver','Montreal','Calgary']],
+  ];
+  const homeFor = (country) => country === 'USA' ? rand(['SFO','PDX','ATL']) : country === 'UK' ? 'LON' : country === 'India' ? rand(['BLR','HYD']) : country === 'Spain' ? 'BCN' : country === 'Ireland' ? 'DUB' : country === 'Japan' ? 'TYO' : country === 'Germany' || country === 'France' ? 'BCN' : country === 'Mexico' ? 'SFO' : country === 'Canada' ? 'PDX' : country === 'Australia' ? 'TYO' : 'SFO';
+  let id = 0; const list = [];
+  data.forEach(([country, n, cities]) => {
+    for (let i = 0; i < n; i++) {
+      list.push({ id:'r'+(++id), name: randomName(), country, city: cities[i % cities.length], home: homeFor(country) });
+    }
+  });
+  return list;
+})();
+let REMOTE_EMPLOYEES = [];   // populated by demo bootstrap when #api=mock
+
+const BCP_EVENT_TYPES = [
+  { id:'terror',    label:'Terrorist incident',          titleHint:'Terror incident — ' },
+  { id:'masscas',   label:'Mass-casualty event',         titleHint:'Mass-casualty event — ' },
+  { id:'quake',     label:'Major earthquake',            titleHint:'Major earthquake — ' },
+  { id:'hurricane', label:'Hurricane / Typhoon',         titleHint:'Hurricane — ' },
+  { id:'civil',     label:'Civil collapse / unrest',     titleHint:'Civil unrest — ' },
+  { id:'transit',   label:'Mass transit failure',        titleHint:'Transit disruption — ' },
+  { id:'geopol',    label:'Geopolitical escalation',     titleHint:'Geopolitical event — ' },
+  { id:'other',     label:'Other / Custom',              titleHint:'' },
+];
+
+const BCP_FORM = {
+  eventTypeId: 'quake', title: '', countries: [],
+  useFence: false, templateId: 'bc_announce', customMessage: '', acknowledged: false,
+};
+
+function showBCPModal() {
+  Object.assign(BCP_FORM, { title:'', countries:[], useFence:false, customMessage:'', acknowledged:false });
+  showModal(bcpModalHTML());
+  bindBCPHandlers();
+}
+
+function bcpModalHTML() {
+  return `<div style="width:min(680px,92vw);max-height:85vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(248,113,113,.08);">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:#fca5a5;">🚨 Declare Business Continuity Event</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Use this when a macro-level event has occurred and you need to coordinate response across an affected region.</div>
+      </div>
+      <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
+    </div>
+    <div id="bcp-form-body" style="flex:1;overflow-y:auto;padding:14px 18px;"></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn-ghost" onclick="App.closeModal()">Cancel</button>
+      <button id="bcp-declare-btn" class="btn-ghost" disabled style="background:rgba(248,113,113,.18);border-color:rgba(248,113,113,.5);color:#fca5a5;font-weight:700;">🚨 Declare</button>
+    </div>
+  </div>`;
+}
+
+function bcpAvailableCountries() {
+  const set = new Set();
+  OFFICES.forEach(o => set.add(o.country));
+  TRAVELERS.forEach(t => t.country && set.add(t.country));
+  REMOTE_EMPLOYEES.forEach(r => set.add(r.country));
+  return Array.from(set).filter(c => c !== 'In transit').sort();
+}
+
+function bcpExposureInScope() {
+  const useFence = BCP_FORM.useFence && STATE.fence;
+  let offices, travelers, remote;
+  if (useFence) {
+    offices = OFFICES.filter(o => pointInFence(o.lat, o.lng));
+    travelers = TRAVELERS.filter(t => pointInFence(t.lat, t.lng));
+    // Remote employees have no lat/lng; geo-fence cannot include them.
+    remote = [];
+  } else {
+    offices = OFFICES.filter(o => BCP_FORM.countries.includes(o.country));
+    travelers = TRAVELERS.filter(t => BCP_FORM.countries.includes(t.country));
+    remote = REMOTE_EMPLOYEES.filter(r => BCP_FORM.countries.includes(r.country));
+  }
+  const officeHeadcount = offices.reduce((s,o) => s + o.headcount, 0);
+  return { offices, travelers, remote, officeHeadcount,
+    travelerCount: travelers.length, remoteCount: remote.length,
+    totalExposed: officeHeadcount + travelers.length + remote.length };
+}
+
+function bcpExposureSummaryHTML(exp) {
+  const officeIds = exp.offices.length ? exp.offices.map(o => o.id).join(', ') : 'none';
+  const isMock = REMOTE_EMPLOYEES.length > 0;
+  return `
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Exposure in Scope</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;">
+      <div><b style="color:var(--blue);font-size:18px;">${exp.offices.length}</b> office${exp.offices.length===1?'':'s'} <span style="color:var(--muted);font-size:11px;">(${esc(officeIds)})</span></div>
+      <div><b style="color:var(--green);font-size:18px;">${exp.officeHeadcount.toLocaleString()}</b> office headcount</div>
+      <div><b style="color:var(--yellow);font-size:18px;">${exp.travelerCount}</b> traveler${exp.travelerCount===1?'':'s'}</div>
+      ${isMock
+        ? `<div><b style="color:#a855f7;font-size:18px;">${exp.remoteCount}</b> remote employee${exp.remoteCount===1?'':'s'}</div>`
+        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Remote employees: pending Workday integration</div>`}
+    </div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;">
+      <b style="color:var(--text);font-size:16px;">${exp.totalExposed.toLocaleString()}</b> total exposed
+    </div>`;
+}
+
+function bcpFormBodyHTML() {
+  const countries = bcpAvailableCountries();
+  const exp = bcpExposureInScope();
+  const fenceAvailable = !!STATE.fence;
+  const useFenceNow = BCP_FORM.useFence && fenceAvailable;
+  return `
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Event Type</label>
+      <select id="bcp-event-type" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);">
+        ${BCP_EVENT_TYPES.map(t => `<option value="${esc(t.id)}" ${t.id===BCP_FORM.eventTypeId?'selected':''}>${esc(t.label)}</option>`).join('')}
+      </select>
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Event Title</label>
+      <input id="bcp-title" type="text" placeholder="Concise headline operators will see" value="${esc(BCP_FORM.title)}"
+        style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);" />
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Geographic Scope</label>
+      ${fenceAvailable ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;cursor:pointer;color:var(--text);">
+        <input id="bcp-use-fence" type="checkbox" ${BCP_FORM.useFence?'checked':''} />
+        Use the currently drawn geo-fence on the map (overrides country picks)
+      </label>` : `<div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-style:italic;">Tip: draw a geo-fence on the map for sub-country events (Map Tools → Geo-fence).</div>`}
+      <div id="bcp-country-list" style="display:flex;flex-wrap:wrap;gap:5px;${useFenceNow?'opacity:0.4;pointer-events:none;':''}">
+        ${countries.map(c => `<button class="bcp-country-chip" data-country="${esc(c)}"
+          style="padding:4px 10px;border:1px solid var(--border);border-radius:14px;background:${BCP_FORM.countries.includes(c)?'var(--green)':'var(--bg3)'};color:${BCP_FORM.countries.includes(c)?'#062c1f':'var(--text)'};font-size:11px;cursor:pointer;font-weight:${BCP_FORM.countries.includes(c)?'700':'400'};">${esc(c)}</button>`).join('')}
+      </div>
+    </div>
+    <div style="margin-bottom:14px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
+      ${bcpExposureSummaryHTML(exp)}
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Recommended Template</label>
+      <select id="bcp-template" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);">
+        ${['bc_announce','bc_checkin','bc_closure','bc_travel','check'].map(k => `<option value="${k}" ${k===BCP_FORM.templateId?'selected':''}>${esc(TEMPLATES[k].name)}</option>`).join('')}
+      </select>
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Additional Context (Optional)</label>
+      <textarea id="bcp-message" rows="3" placeholder="Anything the templated message doesn't cover. Will be appended to the message body when sent."
+        style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);font-family:inherit;resize:vertical;">${esc(BCP_FORM.customMessage)}</textarea>
+    </div>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;cursor:pointer;padding:10px 12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:4px;color:var(--text);">
+      <input id="bcp-ack" type="checkbox" style="margin-top:2px;" ${BCP_FORM.acknowledged?'checked':''} />
+      <span><b>I confirm this event meets BCP escalation threshold.</b> Declaring will create a Business Continuity incident and pre-load Crisis Comms with the affected scope. No messages are sent until you click Send in the Crisis panel.</span>
+    </label>`;
+}
+
+function refreshBCPExposure() {
+  const body = document.getElementById('bcp-form-body');
+  if (body) body.innerHTML = bcpFormBodyHTML();
+  bindBCPFormHandlers();
+  updateBCPDeclareButton();
+}
+
+function updateBCPDeclareButton() {
+  const btn = document.getElementById('bcp-declare-btn'); if (!btn) return;
+  const ok = BCP_FORM.acknowledged && BCP_FORM.title.trim().length > 0 &&
+    (BCP_FORM.useFence ? !!STATE.fence : BCP_FORM.countries.length > 0);
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? '1' : '0.5';
+  btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+
+function bindBCPHandlers() {
+  document.getElementById('bcp-declare-btn').addEventListener('click', declareBCP);
+  refreshBCPExposure();
+}
+
+function bindBCPFormHandlers() {
+  document.getElementById('bcp-event-type').addEventListener('change', e => {
+    BCP_FORM.eventTypeId = e.target.value;
+    const t = BCP_EVENT_TYPES.find(x => x.id === BCP_FORM.eventTypeId);
+    const titleInput = document.getElementById('bcp-title');
+    if (t && t.titleHint && (!BCP_FORM.title || BCP_FORM.title.trim() === '' || BCP_EVENT_TYPES.some(x => x.titleHint && BCP_FORM.title === x.titleHint))) {
+      titleInput.value = t.titleHint;
+      BCP_FORM.title = t.titleHint;
+    }
+    updateBCPDeclareButton();
+  });
+  document.getElementById('bcp-title').addEventListener('input', e => {
+    BCP_FORM.title = e.target.value;
+    updateBCPDeclareButton();
+  });
+  const fenceChk = document.getElementById('bcp-use-fence');
+  if (fenceChk) fenceChk.addEventListener('change', e => {
+    BCP_FORM.useFence = e.target.checked;
+    refreshBCPExposure();
+  });
+  document.querySelectorAll('.bcp-country-chip').forEach(b => b.addEventListener('click', () => {
+    const c = b.dataset.country;
+    if (BCP_FORM.countries.includes(c)) BCP_FORM.countries = BCP_FORM.countries.filter(x => x !== c);
+    else BCP_FORM.countries.push(c);
+    refreshBCPExposure();
+  }));
+  document.getElementById('bcp-template').addEventListener('change', e => { BCP_FORM.templateId = e.target.value; });
+  document.getElementById('bcp-message').addEventListener('input', e => { BCP_FORM.customMessage = e.target.value; });
+  document.getElementById('bcp-ack').addEventListener('change', e => {
+    BCP_FORM.acknowledged = e.target.checked;
+    updateBCPDeclareButton();
+  });
+}
+
+function declareBCP() {
+  const exp = bcpExposureInScope();
+  const evt = BCP_EVENT_TYPES.find(x => x.id === BCP_FORM.eventTypeId);
+  const officeIds = exp.offices.map(o => o.id);
+  const linkAlert = ALERTS.find(a =>
+    SEV_RANK[a.sev] >= SEV_RANK.high && a.officeId && officeIds.includes(a.officeId));
+  const description = `Business Continuity event declared by operator. Type: ${evt.label}. ` +
+    `Scope: ${BCP_FORM.useFence ? 'drawn geo-fence' : BCP_FORM.countries.join(', ')}. ` +
+    `Exposure at declaration: ${exp.officeHeadcount + exp.remoteCount} employees, ` +
+    `${exp.travelerCount} travelers across ${exp.offices.length} office(s).`;
+  const inc = createIncident({
+    title: BCP_FORM.title, offices: officeIds, severity: 'ext',
+    description, alertId: linkAlert?.id || null,
+  });
+  inc.bcp = true;
+  inc.bcpEventType = evt.id;
+  inc.bcpScope = BCP_FORM.useFence ? { type:'fence' } : { type:'countries', countries: BCP_FORM.countries.slice() };
+  inc.bcpExposureSnapshot = {
+    offices: exp.offices.length, officeHeadcount: exp.officeHeadcount,
+    travelers: exp.travelerCount, remote: exp.remoteCount,
+  };
+  addIncidentLog(inc.id, 'create',
+    `🚨 <b>BCP Event</b> declared: ${esc(evt.label)}. Exposure: ${exp.officeHeadcount + exp.remoteCount} employees · ${exp.travelerCount} travelers · ${exp.offices.length} office(s).`);
+  STATE.selectedOffices = officeIds.slice();
+  STATE.template = BCP_FORM.templateId;
+  STATE.subject = `[EXTREME · BCP] ${BCP_FORM.title}`;
+  STATE.customMessage = BCP_FORM.customMessage || '';
+  STATE.linkedIncidentId = inc.id;
+  closeModal();
+  openPanel('crisis');
+  setCcTab('compose');
+  renderCC();
+  renderIncidents();
+  toast(`🚨 BCP event declared: ${BCP_FORM.title}. ${exp.totalExposed.toLocaleString()} recipients staged.`);
+}
+
+document.getElementById('btn-bcp').onclick = () => showBCPModal();
+
+/* =========================================================================
    22. DEMO MODE — cycling alert + traveler simulator
    -------------------------------------------------------------------------
    Activates ONLY when the URL explicitly carries `#api=mock`.
@@ -4477,6 +4744,8 @@ if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
     }
 
     /* Boot */
+    // 0. Load mock remote employees so the BCP exposure readout is fully populated
+    REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
     // 1. Enrich existing seed ALERTS so they pass the officeRelevantOnly filter
     ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
     renderAll();
