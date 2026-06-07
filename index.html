@@ -963,15 +963,137 @@ let EMPLOYEES = buildEmployees();
 let TRAVELERS = [];
 
 /* ---------- 3. App state ---------- */
+/* Crisis Comm templates.
+ *
+ * Each entry has:
+ *   - name      : full label (shown in dropdown options and message preview)
+ *   - body      : message body inserted into Compose; operator can edit before sending
+ *   - category  : one of TEMPLATE_CATEGORIES below — drives optgroup grouping
+ *   - priority  : ordering within the category (lower = first)
+ *
+ * IDs are stable — saved drafts and incident logs reference them. Adding new
+ * variants is safe; renaming or removing existing IDs would break those refs.
+ *
+ * Smart-suggest in App.crisisFromAlert() picks the best-matching template ID
+ * based on alert.type / alert.source / alert.title keywords. See suggestTemplate().
+ */
+const TEMPLATE_CATEGORIES = [
+  { id: 'shelter',     label: 'Shelter in Place' },
+  { id: 'evacuate',    label: 'Evacuation' },
+  { id: 'checkin',     label: 'Safety Check-in' },
+  { id: 'allclear',    label: 'All Clear' },
+  { id: 'bc_announce', label: 'BC Announcement' },
+  { id: 'bc_checkin',  label: 'BC Check-in' },
+  { id: 'bc_closure',  label: 'Office Closure' },
+  { id: 'travel',      label: 'Travel' },
+];
+
 const TEMPLATES = {
-  check:    { name:'Safety Check',    body:'A safety alert has been issued in your area. Please confirm your status. Reply OK if you are safe, HELP if you need assistance.' },
-  shelter:  { name:'Shelter in Place',body:'IMMEDIATE: A safety incident has been reported. Shelter in place inside the office. Move away from windows. Do not exit until you receive an all-clear. Reply OK / HELP.' },
-  evac:     { name:'Evacuation',      body:'IMMEDIATE: Evacuate the office now via the nearest safe exit. Proceed to the muster point. Do not use elevators. Reply OK once you are at muster.' },
-  allclear: { name:'All Clear',       body:'All clear. The earlier safety incident has been resolved. You may resume normal activity.' },
-  bc_announce: { name:'BC Announcement',         body:'New Relic is monitoring a developing situation in your region. We are in contact with regional authorities and will share updates as the picture clarifies. There is no immediate action required from you at this time. If your safety is in question, reply HELP.' },
-  bc_checkin:  { name:'Country-wide Check-in',   body:'In response to events unfolding in your region, we are conducting a wellness check. Please reply OK to confirm you are safe, or HELP if you need assistance. Your manager and CMT will be notified of your status.' },
-  bc_closure:  { name:'Office Closure Directive',body:'Due to the ongoing regional situation, the office will be closed effective immediately. Do not travel to the office. Continue work from a safe location if able. CMT will share reopening guidance directly. Reply OK to acknowledge.' },
-  bc_travel:   { name:'Travel Suspension Advisory', body:'All non-essential travel to and within the affected region is suspended until further notice. If you are currently traveling in or near the region, contact CMT at safety@newrelic.com immediately. Existing trips should be reviewed with your manager.' },
+  // ─────────── Shelter in Place ───────────
+  shelter: {
+    name: 'Shelter — Generic',
+    category: 'shelter', priority: 1,
+    body: 'IMMEDIATE: A safety incident has been reported. Shelter in place inside the office. Move away from windows. Do not exit until you receive an all-clear. Reply OK / HELP.',
+  },
+  shelter_quake: {
+    name: 'Shelter — Earthquake',
+    category: 'shelter', priority: 2,
+    body: 'EARTHQUAKE: Drop, take Cover under sturdy furniture, and Hold On until shaking stops. Stay clear of windows, glass, and exterior walls. After shaking stops, do NOT use elevators; await an all-clear before exiting. Reply OK if you are unhurt, HELP if injured or trapped. Aftershocks are likely.',
+  },
+  shelter_severe_weather: {
+    name: 'Shelter — Severe Weather / Tornado',
+    category: 'shelter', priority: 3,
+    body: 'SEVERE WEATHER WARNING: Move to the lowest level interior room, away from windows and exterior walls. Stay sheltered until the warning expires or CMT issues an all-clear. Do NOT attempt to leave the building. Reply OK / HELP.',
+  },
+  shelter_active_threat: {
+    name: 'Shelter — Active Threat / Lockdown',
+    category: 'shelter', priority: 4,
+    body: 'LOCKDOWN: An active threat has been reported in or near the office. RUN if a safe exit is clear. HIDE if not — lock and barricade doors, lights off, silence devices, stay out of sight. FIGHT only as a last resort. Do NOT open the door for anyone but uniformed first responders. Reply OK silently if able. CMT and law enforcement are coordinating response.',
+  },
+  shelter_civil_unrest: {
+    name: 'Shelter — Civil Unrest',
+    category: 'shelter', priority: 5,
+    body: 'CIVIL UNREST nearby: Remain inside the office. Do NOT engage with crowds or attempt to traverse affected streets. Move away from ground-floor windows and lobbies. CMT is monitoring; expect updates every 30 minutes. Reply OK / HELP. If you are off-site and en route, return to a safe location and contact CMT.',
+  },
+
+  // ─────────── Evacuation ───────────
+  evac: {
+    name: 'Evacuation — Generic',
+    category: 'evacuate', priority: 1,
+    body: 'IMMEDIATE: Evacuate the office now via the nearest safe exit. Proceed to the muster point. Do not use elevators. Reply OK once you are at muster.',
+  },
+  evac_fire: {
+    name: 'Evacuation — Fire',
+    category: 'evacuate', priority: 2,
+    body: 'FIRE EVACUATION: Leave immediately via the nearest stairwell. Do NOT use elevators. Do NOT collect belongings. Close doors behind you. If the door is hot, use an alternate route. Proceed to the designated muster point and check in with your floor warden. Reply OK at muster, HELP if you cannot exit safely.',
+  },
+  evac_bomb: {
+    name: 'Evacuation — Bomb / Suspicious Package',
+    category: 'evacuate', priority: 3,
+    body: 'EVACUATE: A suspicious package or bomb threat has been reported. Walk calmly via the secondary egress route (not the main lobby). Do NOT use radios or mobile devices near the suspect item. Do NOT return for personal items. Gather at the FAR muster point — minimum 300m from the building — and await accountability. Reply OK once clear, HELP if unable to evacuate.',
+  },
+
+  // ─────────── Safety Check-in ───────────
+  check: {
+    name: 'Safety Check — Office',
+    category: 'checkin', priority: 1,
+    body: 'A safety alert has been issued in your area. Please confirm your status. Reply OK if you are safe, HELP if you need assistance.',
+  },
+  check_traveler: {
+    name: 'Safety Check — Traveler',
+    category: 'checkin', priority: 2,
+    body: 'You have been flagged within the impact radius of an active safety alert in your current location. Please confirm your status — reply OK if you are safe, HELP if you need assistance. A CMT member will reach out within 15 minutes if you reply HELP or do not respond.',
+  },
+
+  // ─────────── All Clear ───────────
+  allclear: {
+    name: 'All Clear',
+    category: 'allclear', priority: 1,
+    body: 'All clear. The earlier safety incident has been resolved. You may resume normal activity.',
+  },
+
+  // ─────────── BC Announcement ───────────
+  bc_announce: {
+    name: 'BC Announcement — Generic',
+    category: 'bc_announce', priority: 1,
+    body: 'New Relic is monitoring a developing situation in your region. We are in contact with regional authorities and will share updates as the picture clarifies. There is no immediate action required from you at this time. If your safety is in question, reply HELP.',
+  },
+  bc_announce_quake: {
+    name: 'BC Announcement — Major Earthquake',
+    category: 'bc_announce', priority: 2,
+    body: 'A major earthquake has been reported in your region. Do NOT return to or enter damaged buildings. Stay clear of downed power lines, gas leaks, and unstable structures. Aftershocks are expected for hours to days; treat each one as the start of another shelter cycle. CMT is coordinating with local authorities. Reply OK if you are safe, HELP if you need assistance or shelter.',
+  },
+  bc_announce_terror: {
+    name: 'BC Announcement — Terror / Mass-Casualty',
+    category: 'bc_announce', priority: 3,
+    body: 'A serious security incident has been reported in your region. Avoid landmarks, transit hubs, government buildings, and large gatherings. Stay where you are unless authorities direct otherwise. Do NOT travel toward the affected area. Charge devices, keep them on, and reply HELP if you are near the incident or need assistance. CMT is in active contact with security partners and will share verified guidance only.',
+  },
+
+  // ─────────── BC Check-in ───────────
+  bc_checkin: {
+    name: 'Country-wide Check-in',
+    category: 'bc_checkin', priority: 1,
+    body: 'In response to events unfolding in your region, we are conducting a wellness check. Please reply OK to confirm you are safe, or HELP if you need assistance. Your manager and CMT will be notified of your status.',
+  },
+
+  // ─────────── Office Closure ───────────
+  bc_closure: {
+    name: 'Office Closure Directive',
+    category: 'bc_closure', priority: 1,
+    body: 'Due to the ongoing regional situation, the office will be closed effective immediately. Do not travel to the office. Continue work from a safe location if able. CMT will share reopening guidance directly. Reply OK to acknowledge.',
+  },
+
+  // ─────────── Travel ───────────
+  bc_travel: {
+    name: 'Travel — Suspension',
+    category: 'travel', priority: 1,
+    body: 'All non-essential travel to and within the affected region is suspended until further notice. If you are currently traveling in or near the region, contact CMT at safety@newrelic.com immediately. Existing trips should be reviewed with your manager.',
+  },
+  travel_advisory: {
+    name: 'Travel — Advisory Upgrade',
+    category: 'travel', priority: 2,
+    body: 'A travel advisory upgrade has been issued for your destination region. If you are currently traveling there, please contact CMT to confirm your itinerary and shelter plan. New non-essential travel to the region should be deferred. Existing trips will be reviewed case-by-case with your manager and CMT.',
+  },
 };
 
 const STATE = {
@@ -1754,9 +1876,113 @@ function recipientsForChannel(ch, ids) {
 }
 function allTemplates() {
   return [
-    ...Object.entries(TEMPLATES).map(([k,t]) => ({ id:k, name:t.name, body:t.body, builtin:true })),
-    ...STATE.userTemplates.map(t => ({ id:t.id, name:t.name, body:t.body, builtin:false })),
+    ...Object.entries(TEMPLATES).map(([k,t]) => ({
+      id:k, name:t.name, body:t.body, category:t.category, priority:t.priority||99, builtin:true,
+    })),
+    ...STATE.userTemplates.map(t => ({
+      id:t.id, name:t.name, body:t.body, category:'custom', priority:99, builtin:false,
+    })),
   ];
+}
+
+/* Smart-suggest the best Crisis Comm template for a given alert.
+ *
+ * Match order (most specific → least):
+ *   1. Title keywords for distinctive event sub-classes (active shooter, bomb,
+ *      fire, flood, civil unrest sub-types).
+ *   2. alert.type + source heuristics (USGS quake → shelter_quake; NWS Tornado
+ *      Warning → shelter_severe_weather).
+ *   3. Traveler vs office context (no office match but traveler in proximity
+ *      → check_traveler).
+ *   4. Generic fallback by alert.type.
+ *
+ * Returns a template id from the TEMPLATES object, or 'check' as a final
+ * fallback. The operator can override the suggestion in the dropdown.
+ */
+function suggestTemplate(alert) {
+  if (!alert) return 'check';
+  const title  = (alert.title || '').toLowerCase();
+  const type   = alert.type   || '';
+  const source = (alert.source || '').toLowerCase();
+
+  // 1. Title-keyword overrides (most specific)
+  if (/\b(active shooter|armed (?:assailant|gunman)|hostage|gunfire|shooting)\b/.test(title))
+    return 'shelter_active_threat';
+  if (/\b(bomb threat|suspicious package|ied|explosive device)\b/.test(title))
+    return 'evac_bomb';
+  if (/\b(terror|terrorist|mass[-\s]?casualty)\b/.test(title))
+    return 'bc_announce_terror';
+  if (/\b(wildfire|structure fire|fire evacuation|smoke advisory|fire warning)\b/.test(title))
+    return 'evac_fire';
+  if (/\btornado\b/.test(title))
+    return 'shelter_severe_weather';
+
+  // 2. Type + source heuristics
+  if (type === 'Natural Disaster') {
+    // Earthquake signals: USGS/EMSC adapters always quake; GDACS/EONET may include
+    if (source === 'usgs' || source === 'emsc' || /\b(earthquake|quake|seismic|m\d\.\d)\b/.test(title))
+      return 'shelter_quake';
+    // Severe weather: NWS Warnings, MeteoAlarm, GDACS tropical cyclone
+    if (source === 'nws' || source === 'meteoalarm' ||
+        /\b(severe thunderstorm|hurricane|cyclone|typhoon|flash flood|storm warning)\b/.test(title))
+      return 'shelter_severe_weather';
+    // Volcano / flood / wildfire fall through to evac_fire above; otherwise generic shelter
+    return 'shelter';
+  }
+
+  if (type === 'Civil Unrest') {
+    // Traveler-only context (no office in radius but traveler is) → traveler check
+    if (alert.affectedTravelers && alert.affectedTravelers.length > 0 && !alert.officeId)
+      return 'check_traveler';
+    return 'shelter_civil_unrest';
+  }
+
+  if (type === 'Public Safety') {
+    // Default to shelter — Public Safety covers broad ground (police incidents,
+    // utility outages, transit disruption). Operator will refine.
+    return 'shelter';
+  }
+
+  if (type === 'Travel Advisory') {
+    return 'travel_advisory';
+  }
+
+  // 3. Traveler-only context fallback (any type)
+  if (alert.affectedTravelers && alert.affectedTravelers.length > 0 && !alert.officeId)
+    return 'check_traveler';
+
+  // 4. Final fallback
+  return 'check';
+}
+
+/* Render the Compose template <select> with optgroup headers grouped by
+   TEMPLATE_CATEGORIES. Custom user templates land in a "Custom" group at
+   the end. Returns inner-HTML for the <select>. */
+function renderTemplatePickerOptions() {
+  const tpls = allTemplates();
+  const byCat = new Map();
+  for (const t of tpls) {
+    const list = byCat.get(t.category) || [];
+    list.push(t);
+    byCat.set(t.category, list);
+  }
+  for (const list of byCat.values()) list.sort((a,b) => a.priority - b.priority);
+  const optgroups = [];
+  for (const cat of TEMPLATE_CATEGORIES) {
+    const list = byCat.get(cat.id) || [];
+    if (list.length === 0) continue;
+    optgroups.push(`<optgroup label="${esc(cat.label)}">${
+      list.map(t => `<option value="${esc(t.id)}" ${STATE.template===t.id?'selected':''}>${esc(t.name)}</option>`).join('')
+    }</optgroup>`);
+  }
+  // Custom templates last
+  const custom = byCat.get('custom') || [];
+  if (custom.length > 0) {
+    optgroups.push(`<optgroup label="Custom">${
+      custom.map(t => `<option value="${esc(t.id)}" ${STATE.template===t.id?'selected':''}>${esc(t.name)}</option>`).join('')
+    }</optgroup>`);
+  }
+  return `<option value="">— select —</option>${optgroups.join('')}`;
 }
 function hasDraftContent() {
   return STATE.selectedOffices.length > 0 || STATE.customMessage || STATE.subject || STATE.template;
@@ -1837,8 +2063,7 @@ function renderComposeForm() {
       <label>Template</label>
       <div style="display:flex;gap:4px">
         <select id="cc-tpl-pick" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px">
-          <option value="">— select —</option>
-          ${allTemplates().map(t=>`<option value="${esc(t.id)}" ${STATE.template===t.id?'selected':''}>${esc(t.name)}${t.builtin?'':' (custom)'}</option>`).join('')}
+          ${renderTemplatePickerOptions()}
         </select>
         <button class="btn-ghost" id="cc-tpl-add" title="Add custom template">+</button>
       </div>
@@ -3008,11 +3233,24 @@ window.App = {
       const o = a.officeId ? OFFICE_BY_ID[a.officeId] : null;
       STATE.subject = `[${SEV_NAME[a.sev]}] ${a.title}${o?` — ${o.name}`:''}`;
     }
+    // Smart-suggest a template based on the alert. Only if the operator hasn't
+    // already picked one (e.g. via a prior Crisis click + draft persistence).
+    let suggestedTplName = '';
+    if (!STATE.template) {
+      const id = suggestTemplate(a);
+      if (id && TEMPLATES[id]) {
+        STATE.template = id;
+        suggestedTplName = TEMPLATES[id].name;
+      }
+    }
     map.closePopup();
     openPanel('crisis');
     setCcTab('compose');
     renderCC();
-    toast(`Pre-loaded Crisis Comms for "${a.title.slice(0,40)}${a.title.length>40?'…':''}"`);
+    const titleSnippet = a.title.slice(0,40) + (a.title.length>40?'…':'');
+    toast(suggestedTplName
+      ? `Pre-loaded Crisis Comms for "${titleSnippet}" · template: ${suggestedTplName}`
+      : `Pre-loaded Crisis Comms for "${titleSnippet}"`);
   },
   exportFenceCSV, fenceToCrisis, closeModal,
   showAlertDetails,
@@ -4496,7 +4734,26 @@ function bcpFormBodyHTML() {
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Recommended Template</label>
       <select id="bcp-template" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);">
-        ${['bc_announce','bc_checkin','bc_closure','bc_travel','check'].map(k => `<option value="${k}" ${k===BCP_FORM.templateId?'selected':''}>${esc(TEMPLATES[k].name)}</option>`).join('')}
+        ${
+          // Pull all built-in templates from the BC + travel + check-in categories
+          // so the new event-class BC variants (bc_announce_quake, _terror,
+          // travel_advisory, etc.) show up here too. Grouped via optgroups.
+          (() => {
+            const bcCats = ['bc_announce','bc_checkin','bc_closure','travel','checkin'];
+            const groups = bcCats.map(catId => {
+              const cat = TEMPLATE_CATEGORIES.find(c => c.id === catId);
+              const list = Object.entries(TEMPLATES)
+                .filter(([_, t]) => t.category === catId)
+                .map(([k, t]) => ({ id: k, name: t.name, priority: t.priority||99 }))
+                .sort((a,b) => a.priority - b.priority);
+              if (!list.length) return '';
+              return `<optgroup label="${esc(cat.label)}">${
+                list.map(t => `<option value="${esc(t.id)}" ${t.id===BCP_FORM.templateId?'selected':''}>${esc(t.name)}</option>`).join('')
+              }</optgroup>`;
+            }).join('');
+            return groups;
+          })()
+        }
       </select>
     </div>
     <div style="margin-bottom:14px;">
