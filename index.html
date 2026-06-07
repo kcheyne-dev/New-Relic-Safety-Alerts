@@ -1396,7 +1396,7 @@ function officePopup(o) {
   return `
     <h4>${o.name}, ${o.country}</h4>
     <div class="addr">${o.address}</div>
-    <div class="pop-row"><span>Employees</span>${o.headcount != null ? `<b>${o.headcount.toLocaleString()}</b>` : `<span style="font-size:11px;color:var(--muted);font-style:italic;">pending Workday</span>`}</div>
+    <div class="pop-row"><span>Employees</span>${o.headcount != null ? `<b>${fmtHeadcount(o.headcount)}</b>` : `<span style="font-size:11px;color:var(--muted);font-style:italic;">pending Workday integration</span>`}</div>
     <div class="pop-row"><span>Active alerts</span><b>${a.length}</b></div>
     <div class="pop-row" style="gap:4px;flex-wrap:wrap">
       ${SEVERITY.map((s,i)=>sevCounts[i]?`<span class="sev-pill ${s}">${SEV_NAME[s]}: ${sevCounts[i]}</span>`:'').join('')}
@@ -1910,7 +1910,7 @@ function recipientsForChannel(ch, ids) {
     const t = targetById(id); if (!t) return null;
     if (ch === 'slack') return `#nr-safety-${t.id.toLowerCase()}`;
     if (ch === 'email') return `${t.id.toLowerCase()}-safety@newrelic.com`;
-    if (ch === 'sms')   return `${t.headcount || '—'} numbers`;
+    if (ch === 'sms')   return `${fmtHeadcount(t.headcount)} numbers`;
     return null;
   }).filter(Boolean);
 }
@@ -3015,7 +3015,7 @@ function computeFenceResults() {
   const drop = document.getElementById('fence-results');
   drop.innerHTML = `
     <div class="fence-row"><b>Offices</b><span>${offIn.length}</span></div>
-    ${offIn.map(o=>`<div class="fence-row"><span>${o.id} · ${o.name}</span><span>${o.headcount!=null?`${o.headcount} emp`:`<span style="font-style:italic;opacity:0.7">— pending Workday</span>`}</span></div>`).join('')}
+    ${offIn.map(o=>`<div class="fence-row"><span>${o.id} · ${o.name}</span><span>${o.headcount!=null?`${fmtHeadcount(o.headcount)} emp`:`<span style="font-style:italic;opacity:0.7">pending Workday integration</span>`}</span></div>`).join('')}
     <div class="fence-row" style="margin-top:6px"><b>Alerts</b><span>${alertIn.length}</span></div>
     ${alertIn.slice(0,5).map(a=>`<div class="fence-row" style="cursor:pointer" onclick="App.showAlertDetails('${a.id}')"><span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span><span>${a.title.slice(0,30)}…</span><span style="color:var(--green);font-size:10px">Details ›</span></div>`).join('')}
   `;
@@ -3356,7 +3356,7 @@ function showAlertDetails(id) {
     <tr><th>Coordinates</th><td>${a.lat.toFixed(4)}, ${a.lng.toFixed(4)} <a href="https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}" target="_blank" style="margin-left:8px;font-size:11px">View on Google Maps ↗</a></td></tr>
     <tr><th>Impact radius</th><td>${a.radiusKm ? a.radiusKm + ' km' : '—'}</td></tr>
     <tr><th>Issued</th><td>${new Date(a.issued).toLocaleString()} <span style="color:#a1a1aa">(${relTime(a.issued)} ago)</span></td></tr>
-    <tr><th>Affected office</th><td>${o ? `<b>${o.id} · ${o.name}</b>, ${o.country}${o.headcount!=null?` — ${o.headcount.toLocaleString()} employees`:' — <span style="font-style:italic;color:#a1a1aa">headcount pending Workday</span>'}<br><span style="color:#a1a1aa;font-size:11px">${o.address}</span>` : '<span style="color:#a1a1aa">— regional / travel-only</span>'}</td></tr>
+    <tr><th>Affected office</th><td>${o ? `<b>${o.id} · ${o.name}</b>, ${o.country}${o.headcount!=null?` — ${fmtHeadcount(o.headcount)} employees`:' — <span style="font-style:italic;color:#a1a1aa">headcount pending Workday integration</span>'}<br><span style="color:#a1a1aa;font-size:11px">${o.address}</span>` : '<span style="color:#a1a1aa">— regional / travel-only</span>'}</td></tr>
     ${o?`<tr><th>Visiting travelers</th><td>${visitors} ✈</td></tr>`:''}
     <tr><th>Alert ID</th><td><code style="font-family:monospace;font-size:11px">${a.id}</code></td></tr>
   </table>
