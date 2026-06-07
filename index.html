@@ -805,6 +805,46 @@ const OFFICES = [
 ];
 const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
 
+/** Country presence — countries where NR has any meaningful footprint.
+ *
+ *  This is an EDITORIAL SEED, not Workday data. The fact that NR operates in
+ *  these countries is publicly knowable; the per-country headcount is not
+ *  (that's deferred to Workday integration — see OFFICE_HEADCOUNTS_MOCK and
+ *  REMOTE_EMPLOYEES_MOCK).
+ *
+ *  Why this exists: bcpAvailableCountries() needs the BCI scope picker to
+ *  surface every country an operator might need to declare for, including
+ *  countries with no office and no current traveler/remote-employee record.
+ *  Without this seed, declaring BCI for "Brazil" would be impossible until
+ *  someone manually showed up in the mock data — a gap for Q3 events in
+ *  countries where current data is sparse.
+ *
+ *  Always-loaded (not gated behind #api=mock). Workday integration will
+ *  verify and extend this list with authoritative per-country counts.
+ */
+const COUNTRY_PRESENCE = [
+  // Office countries (verified)
+  { code:'US', name:'USA',         region:'Americas', hasOffice:true,  officeIds:['SFO','PDX','ATL'] },
+  { code:'GB', name:'UK',          region:'EMEA',     hasOffice:true,  officeIds:['LON'] },
+  { code:'IE', name:'Ireland',     region:'EMEA',     hasOffice:true,  officeIds:['DUB'] },
+  { code:'ES', name:'Spain',       region:'EMEA',     hasOffice:true,  officeIds:['BCN'] },
+  { code:'JP', name:'Japan',       region:'APAC',     hasOffice:true,  officeIds:['TYO'] },
+  { code:'IN', name:'India',       region:'APAC',     hasOffice:true,  officeIds:['BLR','HYD'] },
+  // Likely-presence countries (no office; remote employees / regular travel)
+  // — placeholder list, verified against Workday once integrated
+  { code:'CA', name:'Canada',      region:'Americas', hasOffice:false },
+  { code:'MX', name:'Mexico',      region:'Americas', hasOffice:false },
+  { code:'BR', name:'Brazil',      region:'Americas', hasOffice:false },
+  { code:'DE', name:'Germany',     region:'EMEA',     hasOffice:false },
+  { code:'FR', name:'France',      region:'EMEA',     hasOffice:false },
+  { code:'IT', name:'Italy',       region:'EMEA',     hasOffice:false },
+  { code:'NL', name:'Netherlands', region:'EMEA',     hasOffice:false },
+  { code:'CH', name:'Switzerland', region:'EMEA',     hasOffice:false },
+  { code:'IL', name:'Israel',      region:'EMEA',     hasOffice:false },
+  { code:'AU', name:'Australia',   region:'APAC',     hasOffice:false },
+  { code:'SG', name:'Singapore',   region:'APAC',     hasOffice:false },
+];
+
 /* Headcount helpers — office.headcount is mock data populated only in
  * #api=mock (see OFFICE_HEADCOUNTS_MOCK + demo IIFE boot). In live + bare
  * Pages headcount is undefined and the UI should show pending-integration
@@ -4635,7 +4675,15 @@ function bcpModalHTML() {
 }
 
 function bcpAvailableCountries() {
+  // Union of:
+  //   - COUNTRY_PRESENCE editorial seed (always-loaded; covers countries with
+  //     no current data points — Brazil, Singapore, etc. — so operators can
+  //     still declare BCI for them)
+  //   - Live data sources (offices, travelers, remote employees) — these may
+  //     surface countries the seed missed (e.g. a traveler in Iceland)
+  // Filter out 'In transit' (a traveler value, not a real country).
   const set = new Set();
+  COUNTRY_PRESENCE.forEach(c => set.add(c.name));
   OFFICES.forEach(o => set.add(o.country));
   TRAVELERS.forEach(t => t.country && set.add(t.country));
   REMOTE_EMPLOYEES.forEach(r => set.add(r.country));
