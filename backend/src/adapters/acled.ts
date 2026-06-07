@@ -1,4 +1,5 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity, Category } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
+import { evaluateAcled } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 import { config } from '../config.js';
 
@@ -21,29 +22,15 @@ import { config } from '../config.js';
  *     country, region, admin1..admin3, location, latitude, longitude,
  *     notes, fatalities, source, source_scale, ...
  *
- * Filters we apply post-fetch:
- *  - event_type ∈ {Battles, Violence against civilians, Explosions/Remote violence,
- *                  Riots, Strategic developments}
- *    (Skip generic "Protests" — ACLED is liberal about what counts.)
- *  - Severity:
- *      Battles / Explosions / Violence-against-civilians:
- *         5+ fatalities → ext, 1-4 → high, 0 → mod
- *      Riots:
- *         5+ fatalities → high, 1-4 → mod, 0 → low
- *      Strategic developments:
- *         high if fatalities>0 else mod
+ * Severity + drop decisions live in pipeline/thresholds.ts (evaluateAcled) —
+ * see docs/severity-thresholds.md. In short: violent events with fatalities
+ * always pass; 0-fatality violent events pass only if near an office (proximity
+ * gate in persist.ts); 0-fatality riots and strategic developments drop entirely;
+ * any event_type outside the five-category whitelist drops.
  */
 
 const TOKEN_URL = 'https://acleddata.com/oauth/token';
 const READ_URL  = 'https://acleddata.com/api/acled/read';
-
-const ALLOWED_EVENT_TYPES = new Set([
-  'Battles',
-  'Violence against civilians',
-  'Explosions/Remote violence',
-  'Riots',
-  'Strategic developments',
-]);
 
 const TYPE_TO_NORMALIZED: Record<string, string> = {
   'Battles':                       'armed_conflict',
@@ -118,25 +105,6 @@ async function getToken(): Promise<string> {
   return cachedToken.value;
 }
 
-function severityFor(eventType: string, fatalities: number): Severity {
-  switch (eventType) {
-    case 'Battles':
-    case 'Explosions/Remote violence':
-    case 'Violence against civilians':
-      if (fatalities >= 5) return 'ext';
-      if (fatalities >= 1) return 'high';
-      return 'mod';
-    case 'Riots':
-      if (fatalities >= 5) return 'high';
-      if (fatalities >= 1) return 'mod';
-      return 'low';
-    case 'Strategic developments':
-      return fatalities > 0 ? 'high' : 'mod';
-    default:
-      return 'mod';
-  }
-}
-
 function isoDateNDaysAgo(n: number): string {
   const d = new Date(Date.now() - n * 24 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10);   // YYYY-MM-DD
@@ -205,10 +173,8 @@ export const acledAdapter: SourceAdapter = {
     log.debug({ count: rows.length }, 'acled.fetched');
 
     const items: RawAndNormalized[] = [];
-    let droppedType = 0, droppedGeo = 0;
+    let droppedThreshold = 0, droppedGeo = 0;
     for (const r of rows) {
-      if (!ALLOWED_EVENT_TYPES.has(r.event_type)) { droppedType++; continue; }
-
       const lat = typeof r.latitude  === 'number' ? r.latitude  : parseFloat(String(r.latitude));
       const lng = typeof r.longitude === 'number' ? r.longitude : parseFloat(String(r.longitude));
       if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
@@ -217,7 +183,11 @@ export const acledAdapter: SourceAdapter = {
       }
 
       const fatalities = typeof r.fatalities === 'number' ? r.fatalities : parseInt(String(r.fatalities ?? 0), 10) || 0;
-      const sev: Severity   = severityFor(r.event_type, fatalities);
+
+      // Threshold gate — see docs/severity-thresholds.md
+      const verdict = evaluateAcled({ eventType: r.event_type, fatalities });
+      if (!verdict.pass) { droppedThreshold++; continue; }
+
       const type            = TYPE_TO_NORMALIZED[r.event_type] ?? 'civil_unrest';
       const issuedAt        = new Date(`${r.event_date}T12:00:00Z`);          // ACLED publishes date only
 
@@ -240,7 +210,7 @@ export const acledAdapter: SourceAdapter = {
         primarySourceId: 'acled',
         title:           title.slice(0, 200),
         summary:         summary.slice(0, 1000) || `${r.event_type} in ${r.country}.`,
-        severity:        sev,
+        severity:        verdict.severity!,
         category:        'civil',
         type,
         location:        [r.location, r.admin1, r.country].filter(Boolean).join(', '),
@@ -251,9 +221,16 @@ export const acledAdapter: SourceAdapter = {
         expiresAt:       null,
         sourceUrl:       r.source ? r.source : `https://acleddata.com/dashboard/`,
       };
-      items.push({ sourceEventId: r.event_id_cnty, payload: r, normalized });
+      items.push({
+        sourceEventId: r.event_id_cnty,
+        payload: r,
+        normalized,
+        ...(verdict.requiresProximityKm
+          ? { thresholds: { requiresProximityKm: verdict.requiresProximityKm } }
+          : {}),
+      });
     }
-    log.info({ kept: items.length, droppedType, droppedGeo, totalSeen: rows.length }, 'acled.filtered');
+    log.info({ kept: items.length, droppedThreshold, droppedGeo, totalSeen: rows.length }, 'acled.filtered');
     return items;
   },
 };

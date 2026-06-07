@@ -1,5 +1,5 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Category } from '../types.js';
-import { fromCap } from '../pipeline/severity.js';
+import { evaluateNws } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -108,10 +108,15 @@ export const nwsAdapter: SourceAdapter = {
     log.debug({ count: data.features.length }, 'nws.fetched');
 
     const items: RawAndNormalized[] = [];
+    let droppedThreshold = 0;
     for (const f of data.features) {
       const p = f.properties;
       if (p.status !== 'Actual') continue;
       if (p.messageType === 'Cancel') continue;
+
+      // Threshold gate — Warnings only, see docs/severity-thresholds.md
+      const verdict = evaluateNws({ capSeverity: p.severity, eventName: p.event });
+      if (!verdict.pass) { droppedThreshold++; continue; }
 
       const center = pointFromGeometry(f.geometry);
       if (!center) continue;
@@ -127,7 +132,7 @@ export const nwsAdapter: SourceAdapter = {
         primarySourceId: 'nws',
         title: p.event,
         summary: summary || p.areaDesc,
-        severity: fromCap(p.severity),
+        severity: verdict.severity!,
         category: categoryFor(p.category),
         type: p.event.toLowerCase().replace(/\s+/g, '_'),
         location: p.areaDesc,
@@ -140,6 +145,7 @@ export const nwsAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: p.id, payload: f, normalized });
     }
+    log.debug({ kept: items.length, droppedThreshold, totalSeen: data.features.length }, 'nws.filtered');
     return items;
   },
 };

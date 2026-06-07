@@ -68,4 +68,17 @@ export interface RawAndNormalized {
   sourceEventId: string;
   payload: unknown;            // stored as-is in raw_events
   normalized: NormalizedEvent;
+  /**
+   * Optional pipeline-only metadata produced by per-source threshold rules
+   * (see pipeline/thresholds.ts). Not stored in DB or returned by the API.
+   */
+  thresholds?: {
+    /**
+     * If set, persist.ts will drop this event after PostGIS office match
+     * if no office sits within this radius (km). Used by mid-sev rules
+     * (e.g. M5+ earthquakes, ACLED 0-fatality battles, EONET wildfires)
+     * that only clear the bar when geographically close to a hub.
+     */
+    requiresProximityKm?: number;
+  };
 }

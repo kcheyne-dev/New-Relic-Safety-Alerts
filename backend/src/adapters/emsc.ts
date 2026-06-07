@@ -1,5 +1,6 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
-import { fromMagnitude, radiusFromMagnitude } from '../pipeline/severity.js';
+import { radiusFromMagnitude } from '../pipeline/severity.js';
+import { evaluateEarthquake } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -56,6 +57,7 @@ export const emscAdapter: SourceAdapter = {
     log.debug({ count: data.features?.length ?? 0 }, 'emsc.fetched');
 
     const items: RawAndNormalized[] = [];
+    let droppedThreshold = 0;
     for (const f of data.features ?? []) {
       const p = f.properties;
       if (p.evtype !== 'ke') continue;            // only confirmed earthquakes
@@ -63,7 +65,10 @@ export const emscAdapter: SourceAdapter = {
       const lng = p.lon ?? f.geometry.coordinates[0];
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-      const sev = fromMagnitude(p.mag);
+      // Threshold gate — same rules as USGS, see docs/severity-thresholds.md
+      const verdict = evaluateEarthquake({ magnitude: p.mag, depthKm: p.depth ?? null });
+      if (!verdict.pass) { droppedThreshold++; continue; }
+
       const radius = radiusFromMagnitude(p.mag);
 
       const normalized: NormalizedEvent = {
@@ -71,7 +76,7 @@ export const emscAdapter: SourceAdapter = {
         primarySourceId: 'emsc',
         title: `M${p.mag.toFixed(1)} earthquake — ${p.flynn_region}`,
         summary: `Magnitude ${p.mag.toFixed(1)} ${p.magtype} earthquake at depth ${p.depth} km. ${p.flynn_region}.`,
-        severity: sev,
+        severity: verdict.severity!,
         category: 'natural',
         type: 'earthquake',
         location: p.flynn_region,
@@ -82,8 +87,16 @@ export const emscAdapter: SourceAdapter = {
         expiresAt: null,
         sourceUrl: `https://www.seismicportal.eu/eventdetails.html?unid=${encodeURIComponent(p.unid || p.source_id)}`,
       };
-      items.push({ sourceEventId: normalized.sourceEventId, payload: f, normalized });
+      items.push({
+        sourceEventId: normalized.sourceEventId,
+        payload: f,
+        normalized,
+        ...(verdict.requiresProximityKm
+          ? { thresholds: { requiresProximityKm: verdict.requiresProximityKm } }
+          : {}),
+      });
     }
+    log.debug({ kept: items.length, droppedThreshold, totalSeen: data.features?.length ?? 0 }, 'emsc.filtered');
     return items;
   },
 };

@@ -1,5 +1,5 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Category } from '../types.js';
-import { fromGdacsAlert } from '../pipeline/severity.js';
+import { evaluateGdacs } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -78,13 +78,18 @@ export const gdacsAdapter: SourceAdapter = {
     log.debug({ count: data.features?.length ?? 0 }, 'gdacs.fetched');
 
     const items: RawAndNormalized[] = [];
+    let droppedThreshold = 0;
     for (const f of data.features ?? []) {
       const p = f.properties;
       const [lng, lat] = f.geometry.coordinates;
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
+      // Threshold gate — Orange/Red only, see docs/severity-thresholds.md
+      const verdict = evaluateGdacs({ alertLevel: p.alertlevel });
+      if (!verdict.pass) { droppedThreshold++; continue; }
+
       const mapped = TYPE_MAP[p.eventtype] ?? { type: p.eventtype.toLowerCase(), cat: 'natural' as Category };
-      const sev = fromGdacsAlert(p.alertlevel);
+      const sev = verdict.severity!;
 
       const country = p.country ?? '';
       const title = `${p.eventname || p.name} ${country ? `— ${country}` : ''}`.trim();
@@ -111,6 +116,7 @@ export const gdacsAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: String(p.eventid), payload: f, normalized });
     }
+    log.debug({ kept: items.length, droppedThreshold, totalSeen: data.features?.length ?? 0 }, 'gdacs.filtered');
     return items;
   },
 };

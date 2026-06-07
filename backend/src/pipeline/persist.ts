@@ -12,6 +12,9 @@ import { bus } from '../events_bus.js';
  *   1. Geocode if missing coords
  *   2. Upsert raw_events (audit log of every payload)
  *   3. Find offices in proximity (PostGIS ST_DWithin)
+ *   3b.Threshold proximity gate — drop borderline mid-sev events that
+ *      have no office within their requiresProximityKm radius. See
+ *      pipeline/thresholds.ts and docs/severity-thresholds.md.
  *   4. Cluster check — does an event from a different source already exist
  *      that matches this one in time/space/topic?
  *      - YES → merge into that cluster (no new row)
@@ -77,6 +80,31 @@ export async function persistBatch(
           [n.lng, n.lat, radiusForCategory * 1000]
         );
         officeIds = officeRes.rows.map((r) => r.id);
+      }
+
+      // --- 2b. Threshold proximity gate ---
+      // Some adapter rules (e.g. M5+ earthquake, ACLED 0-fat battle, EONET
+      // wildfire) only clear the bar when an office is reasonably close.
+      // requiresProximityKm is set by pipeline/thresholds.ts when the
+      // adapter's verdict was "keep, but only if near an office".
+      const requiresProximityKm = item.thresholds?.requiresProximityKm;
+      if (requiresProximityKm && officeIds.length === 0
+          && Number.isFinite(n.lat) && Number.isFinite(n.lng)) {
+        const proxRes = await client.query<{ exists: boolean }>(
+          `SELECT EXISTS(
+             SELECT 1 FROM offices
+             WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+           ) AS exists`,
+          [n.lng, n.lat, requiresProximityKm * 1000]
+        );
+        if (!proxRes.rows[0]?.exists) {
+          log.debug(
+            { source: sourceId, id: item.sourceEventId, requiresProximityKm },
+            'threshold.proximity.dropped'
+          );
+          stats.skipped++;
+          continue;
+        }
       }
 
       // --- 3. Cluster check: does an existing event match in time/space/type? ---

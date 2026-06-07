@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity } from '../types.js';
-import { fromCap, fromMeteoAlarmColor } from '../pipeline/severity.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
+import { evaluateMeteoAlarm } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -50,14 +50,6 @@ interface AtomFeed {
   };
 }
 
-function severityFor(entry: AtomEntry): Severity {
-  // Try cap:severity first (CAP standard: Minor/Moderate/Severe/Extreme)
-  const cap = entry['cap:severity'];
-  if (cap) return fromCap(cap);
-  // Fall back: scan the title for color words
-  return fromMeteoAlarmColor(entry.title || '');
-}
-
 function firstLink(entry: AtomEntry): string | null {
   const l = entry.link;
   if (!l) return null;
@@ -82,10 +74,16 @@ export const meteoalarmAdapter: SourceAdapter = {
     log.debug({ count: list.length }, 'meteoalarm.fetched');
 
     const items: RawAndNormalized[] = [];
+    let droppedThreshold = 0;
     for (const e of list) {
-      const sev = severityFor(e);
-      if (sev === 'low') continue;                  // skip green (informational)
       if (!e.id) continue;
+
+      // Threshold gate — Orange/Red only, see docs/severity-thresholds.md
+      const verdict = evaluateMeteoAlarm({
+        capSeverity: e['cap:severity'],
+        titleColor: e.title || '',
+      });
+      if (!verdict.pass) { droppedThreshold++; continue; }
 
       const area = e['cap:areaDesc'] || e.title || '';
       const eventName = e['cap:event'] || 'Weather warning';
@@ -95,7 +93,7 @@ export const meteoalarmAdapter: SourceAdapter = {
         primarySourceId: 'meteoalarm',
         title: `${eventName} — ${area}`,
         summary: (e.summary || `${eventName} active for ${area}`).replace(/<[^>]+>/g, '').slice(0, 1000),
-        severity: sev,
+        severity: verdict.severity!,
         category: 'natural',
         type: eventName.toLowerCase().replace(/\s+/g, '_'),
         location: area,
@@ -108,6 +106,7 @@ export const meteoalarmAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: e.id, payload: e, normalized });
     }
+    log.debug({ kept: items.length, droppedThreshold, totalSeen: list.length }, 'meteoalarm.filtered');
     return items;
   },
 };

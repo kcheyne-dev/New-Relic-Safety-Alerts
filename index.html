@@ -568,7 +568,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
     </div>
     <div class="h-tools">
       <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
-      <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">0</span></button>
+      <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">—</span></button>
       <button class="htn" id="btn-bcp" aria-label="Declare a Business Continuity Incident" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCI</button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
@@ -773,32 +773,51 @@ const SOURCES = [
   { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale', url:'https://openaq.org/' },
 ];
 
-/** Office directory — fictitious demo data for the prototype.
- *  Headcounts, addresses, and traveler records below are illustrative,
- *  not pulled from Workday. Real values will land via /api/offices once
- *  the backend integration ships. Safe to keep in the public repo.
+/** Office directory.
+ *  Office identity (id, name, country, lat/lng, address) is REAL and current —
+ *  these are the actual New Relic office locations. Safe to keep in the public repo.
+ *
+ *  HEADCOUNTS are mock data, populated only in #api=mock by the demo bootstrap
+ *  from OFFICE_HEADCOUNTS_MOCK (defined alongside TRAVELERS_MOCK and
+ *  REMOTE_EMPLOYEES_MOCK in the demo simulator IIFE). In live + bare GitHub
+ *  Pages, o.headcount is undefined and the UI shows "pending Workday integration"
+ *  placeholders wherever a count would render.
  */
 const OFFICES = [
-  { id:'SFO', name:'San Francisco', country:'USA',  lat:37.7898, lng:-122.3942, headcount:412,
+  { id:'SFO', name:'San Francisco', country:'USA',  lat:37.7898, lng:-122.3942,
     address:'188 Spear St, Suite 1000, San Francisco, CA 94105' },
-  { id:'PDX', name:'Portland',      country:'USA',  lat:45.5191, lng:-122.6790, headcount:188,
+  { id:'PDX', name:'Portland',      country:'USA',  lat:45.5191, lng:-122.6790,
     address:'111 SW 5th Ave, Suite 2200, Portland, OR 97204' },
-  { id:'ATL', name:'Atlanta',       country:'USA',  lat:33.7841, lng:-84.3849,  headcount:262,
+  { id:'ATL', name:'Atlanta',       country:'USA',  lat:33.7841, lng:-84.3849,
     address:'1100 Peachtree St NE, Suite 2000, Atlanta, GA 30309' },
-  { id:'BCN', name:'Barcelona',     country:'Spain',lat:41.4036, lng:2.1894,    headcount:142,
+  { id:'BCN', name:'Barcelona',     country:'Spain',lat:41.4036, lng:2.1894,
     address:'Torre Glòries, Suite 2200, Avinguda Diagonal 211, 08018 Barcelona, Spain' },
-  { id:'DUB', name:'Dublin',        country:'Ireland', lat:53.3447, lng:-6.2520, headcount:217,
+  { id:'DUB', name:'Dublin',        country:'Ireland', lat:53.3447, lng:-6.2520,
     address:'42 Pearse St, Dublin, D02 HV59, Ireland' },
-  { id:'LON', name:'London',        country:'UK',   lat:51.5125, lng:-0.1167,   headcount:305,
+  { id:'LON', name:'London',        country:'UK',   lat:51.5125, lng:-0.1167,
     address:'Strand Bridge House, 138-142 The Strand, London WC2R 1HL' },
-  { id:'TYO', name:'Tokyo',         country:'Japan',lat:35.6802, lng:139.7714,  headcount:96,
+  { id:'TYO', name:'Tokyo',         country:'Japan',lat:35.6802, lng:139.7714,
     address:'Tokyo Midtown Yaesu, Yaesu Central Tower 7F, 2-2-1 Yaesu, Chuo-ku, Tokyo 104-0028' },
-  { id:'BLR', name:'Bengaluru',     country:'India',lat:12.9353, lng:77.6485,   headcount:512,
+  { id:'BLR', name:'Bengaluru',     country:'India',lat:12.9353, lng:77.6485,
     address:'Embassy Golflinks Business Park, No 15 Challaghatta Village, KNC Valley, Bengaluru, Karnataka 560071' },
-  { id:'HYD', name:'Hyderabad',     country:'India',lat:17.4413, lng:78.3826,   headcount:484,
+  { id:'HYD', name:'Hyderabad',     country:'India',lat:17.4413, lng:78.3826,
     address:'Raheja Mindspace, 15th Floor, Building No 9, TSIIC, Software Units Layout, Madhapur, Telangana 500081, Hyderabad' },
 ];
 const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
+
+/* Headcount helpers — office.headcount is mock data populated only in
+ * #api=mock (see OFFICE_HEADCOUNTS_MOCK + demo IIFE boot). In live + bare
+ * Pages headcount is undefined and the UI should show pending-integration
+ * placeholders rather than NaN or "undefined". */
+function hasOfficeHeadcounts() {
+  return OFFICES.some(o => o.headcount != null);
+}
+function fmtHeadcount(h) {
+  return h == null ? '—' : Number(h).toLocaleString();
+}
+function sumHeadcount(offices) {
+  return offices.reduce((s, o) => s + (o.headcount || 0), 0);
+}
 
 /** Logged-in operator. Hardcoded for the prototype; will come from Okta when wired up.
  *  role: 'admin' | 'cmt' | 'office' | 'employee' */
@@ -908,11 +927,16 @@ let ALERTS = [
     summary:'72h monitoring. No immediate impact.', issued: nowMinus(1800) },
 ];
 
-/* employees: ~headcount/3 each, By-Office plot at office; By-ZIP plot scattered */
+/* employees: ~headcount/3 each, By-Office plot at office; By-ZIP plot scattered.
+   These dots are mock visualization data ("here are the people at this office").
+   In live + bare Pages mode where o.headcount is undefined (Workday not yet
+   integrated), produce zero dots — no fake employees. Mock mode populates
+   o.headcount via the demo bootstrap and the dots scatter as before. */
 function buildEmployees() {
   const list = [];
   OFFICES.forEach(o => {
-    const n = Math.min(60, Math.max(8, Math.round(o.headcount/8)));
+    if (o.headcount == null) return;   // no Workday → no synthetic employees
+    const n = Math.min(60, Math.max(8, Math.round(o.headcount / 8)));
     for (let i=0;i<n;i++) {
       const dLat = (Math.random()-.5)*.18; const dLng = (Math.random()-.5)*.22;
       list.push({
@@ -929,59 +953,14 @@ function buildEmployees() {
 }
 let EMPLOYEES = buildEmployees();
 
-/* Mock traveler manifest. Pending Navan integration — fields below are
-   illustrative; production will receive same shape from the Navan API. */
-const TRAVELERS_INIT = [
-  { id:'t1', name:'A. Patel', home:'BLR', destCity:'Singapore', country:'Singapore',
-    type:'hotel', lat:1.3521, lng:103.8198, atOffice:null,
-    hotel:{ name:'Marina Bay Sands', address:'10 Bayfront Ave, Singapore 018956', checkIn:'2026-06-01', checkOut:'2026-06-05', confirm:'MBS-7821' },
-    lastKnownTs:'2026-06-03T08:12:00Z' },
-  { id:'t2', name:'M. Diaz', home:'SFO', destCity:'Mexico City', country:'Mexico',
-    type:'hotel', lat:19.4326, lng:-99.1332, atOffice:null,
-    hotel:{ name:'Four Seasons Mexico City', address:'Paseo de la Reforma 500, CDMX', checkIn:'2026-06-02', checkOut:'2026-06-06', confirm:'FS-44102' },
-    lastKnownTs:'2026-06-03T07:35:00Z' },
-  { id:'t3', name:'R. Chen', home:'LON', destCity:'Dubai', country:'UAE',
-    type:'hotel', lat:25.2048, lng:55.2708, atOffice:null,
-    hotel:{ name:'Jumeirah Emirates Towers', address:'Sheikh Zayed Rd, Dubai', checkIn:'2026-05-30', checkOut:'2026-06-04', confirm:'JET-9930' },
-    lastKnownTs:'2026-06-03T06:50:00Z' },
-  { id:'t4', name:'L. Okafor', home:'DUB', destCity:'Paris', country:'France',
-    type:'hotel', lat:48.8566, lng:2.3522, atOffice:null,
-    hotel:{ name:'Le Meurice', address:'228 Rue de Rivoli, 75001 Paris', checkIn:'2026-06-03', checkOut:'2026-06-07', confirm:'LM-3318' },
-    lastKnownTs:'2026-06-03T08:40:00Z' },
-  { id:'t5', name:'J. Park', home:'TYO', destCity:'Seoul', country:'South Korea',
-    type:'hotel', lat:37.5665, lng:126.978, atOffice:null,
-    hotel:{ name:'Lotte Hotel Seoul', address:'30 Eulji-ro, Jung-gu, Seoul', checkIn:'2026-06-02', checkOut:'2026-06-05', confirm:'LHS-2207' },
-    lastKnownTs:'2026-06-03T08:05:00Z' },
-  { id:'t6', name:'S. Nakamura', home:'TYO', destCity:'San Francisco', country:'USA',
-    type:'office', lat:OFFICE_BY_ID.SFO.lat, lng:OFFICE_BY_ID.SFO.lng, atOffice:'SFO',
-    office:{ id:'SFO', arriveDate:'2026-06-01', departDate:'2026-06-07' },
-    lastKnownTs:'2026-06-03T08:30:00Z' },
-  { id:'t7', name:'V. Romano', home:'BCN', destCity:'London', country:'UK',
-    type:'office', lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, atOffice:'LON',
-    office:{ id:'LON', arriveDate:'2026-06-02', departDate:'2026-06-09' },
-    lastKnownTs:'2026-06-03T07:55:00Z' },
-  { id:'t8', name:'P. Banerjee', home:'BLR', destCity:'Berlin', country:'Germany',
-    type:'hotel', lat:52.52, lng:13.405, atOffice:null,
-    hotel:{ name:'Hotel Adlon Kempinski', address:'Unter den Linden 77, 10117 Berlin', checkIn:'2026-06-03', checkOut:'2026-06-08', confirm:'HAK-5541' },
-    lastKnownTs:'2026-06-03T08:18:00Z' },
-  { id:'t9', name:'K. Liu', home:'PDX', destCity:'JFK→LHR', country:'In transit',
-    type:'flight', lat:30.0, lng:-40.0, atOffice:null,
-    flight:{ airline:'British Airways', number:'BA178', origin:'JFK', dest:'LHR', departure:'2026-06-02T22:00:00Z', arrival:'2026-06-03T10:00:00Z' },
-    lastKnownTs:'2026-06-03T03:20:00Z' },
-  { id:'t10', name:'O. Adeyemi', home:'LON', destCity:'Dublin', country:'Ireland',
-    type:'office', lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, atOffice:'DUB',
-    office:{ id:'DUB', arriveDate:'2026-06-03', departDate:'2026-06-06' },
-    lastKnownTs:'2026-06-03T08:45:00Z' },
-  { id:'t11', name:'H. Tanaka', home:'TYO', destCity:'Bengaluru', country:'India',
-    type:'office', lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, atOffice:'BLR',
-    office:{ id:'BLR', arriveDate:'2026-05-30', departDate:'2026-06-10' },
-    lastKnownTs:'2026-06-03T07:48:00Z' },
-  { id:'t12', name:'N. Walsh', home:'DUB', destCity:'Reykjavik', country:'Iceland',
-    type:'hotel', lat:64.1466, lng:-21.9426, atOffice:null,
-    hotel:{ name:'Hotel Borg', address:'Pósthússtræti 11, 101 Reykjavík', checkIn:'2026-06-01', checkOut:'2026-06-05', confirm:'HB-1190' },
-    lastKnownTs:'2026-06-03T08:02:00Z' },
-];
-let TRAVELERS = TRAVELERS_INIT.slice();
+/* Travelers — populated only in #api=mock by the demo bootstrap (TRAVELERS_MOCK
+   defined alongside the demo simulator). Live + bare GitHub Pages keep
+   TRAVELERS = [] and the Travelers modal / BCI exposure readout show
+   "Pending Navan integration" placeholders, mirroring the existing
+   Workday-pending pattern for REMOTE_EMPLOYEES. The Navan API will return
+   the same record shape as TRAVELERS_MOCK below; production will swap the
+   bootstrap line for a fetch. */
+let TRAVELERS = [];
 
 /* ---------- 3. App state ---------- */
 const TEMPLATES = {
@@ -1239,7 +1218,9 @@ function renderOffices() {
     const sev = maxSevForOffice(o.id);
     const sevClass = sev ? 's-'+sev : 's-none';
     const visitors = travelersAtOffice(o.id).length;
-    const html = `<div class="office-mk"><span class="sev-dot ${sevClass}"></span>${o.id} ${o.headcount}${visitors?`<span class="v-badge">${visitors}✈</span>`:''}</div>`;
+    // Show headcount only in mock mode; in live mode the bubble is just IATA + visitor badge.
+    const hcLabel = o.headcount != null ? ` ${o.headcount}` : '';
+    const html = `<div class="office-mk"><span class="sev-dot ${sevClass}"></span>${o.id}${hcLabel}${visitors?`<span class="v-badge">${visitors}✈</span>`:''}</div>`;
     const icon = L.divIcon({ html, className:'', iconSize:[100,22], iconAnchor:[50,11] });
     const m = L.marker([o.lat, o.lng], { icon }).addTo(layers.offices);
     m.bindPopup(officePopup(o));
@@ -1253,7 +1234,7 @@ function officePopup(o) {
   return `
     <h4>${o.name}, ${o.country}</h4>
     <div class="addr">${o.address}</div>
-    <div class="pop-row"><span>Employees</span><b>${o.headcount}</b></div>
+    <div class="pop-row"><span>Employees</span>${o.headcount != null ? `<b>${o.headcount.toLocaleString()}</b>` : `<span style="font-size:11px;color:var(--muted);font-style:italic;">pending Workday</span>`}</div>
     <div class="pop-row"><span>Active alerts</span><b>${a.length}</b></div>
     <div class="pop-row" style="gap:4px;flex-wrap:wrap">
       ${SEVERITY.map((s,i)=>sevCounts[i]?`<span class="sev-pill ${s}">${SEV_NAME[s]}: ${sevCounts[i]}</span>`:'').join('')}
@@ -1350,9 +1331,15 @@ function renderTravelers() {
       <div class="pop-row"><span>Booking</span><b>${t.type==='flight'?'✈ air':'🏨 hotel'}</b></div>`);
     layers.trav.addLayer(m);
   });
-  document.getElementById('trav-count').textContent = `${TRAVELERS.length} travelers loaded`;
+  // When TRAVELERS is empty (live mode without Navan integration), show an em
+  // dash rather than "0" so operators can tell "no integration yet" apart from
+  // "the answer is zero". Mock-mode populates TRAVELERS via the demo IIFE.
+  const empty = TRAVELERS.length === 0;
+  document.getElementById('trav-count').textContent = empty
+    ? 'Travelers — pending Navan integration'
+    : `${TRAVELERS.length} travelers loaded`;
   const badge = document.getElementById('trav-count-badge');
-  if (badge) badge.textContent = TRAVELERS.length;
+  if (badge) badge.textContent = empty ? '—' : TRAVELERS.length;
 }
 
 /* ---------- 9. Hazard overlays (mock) ---------- */
@@ -1811,7 +1798,7 @@ function renderComposeForm() {
       </div>
       <select id="cc-office-pick" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px;margin-bottom:6px">
         <option value="">Select an office...</option>
-        ${OFFICES.filter(o=>!STATE.selectedOffices.includes(o.id)).map(o=>`<option value="${o.id}">${o.id} · ${o.name} · ${o.headcount.toLocaleString()}</option>`).join('')}
+        ${OFFICES.filter(o=>!STATE.selectedOffices.includes(o.id)).map(o=>`<option value="${o.id}">${o.id} · ${o.name}${o.headcount!=null?` · ${o.headcount.toLocaleString()}`:''}</option>`).join('')}
         ${STATE.customLocations.filter(c=>!STATE.selectedOffices.includes(c.id)).map(c=>`<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)} (custom)</option>`).join('')}
       </select>
       <div style="display:flex;gap:4px;margin-bottom:6px">
@@ -2763,7 +2750,7 @@ function computeFenceResults() {
   const drop = document.getElementById('fence-results');
   drop.innerHTML = `
     <div class="fence-row"><b>Offices</b><span>${offIn.length}</span></div>
-    ${offIn.map(o=>`<div class="fence-row"><span>${o.id} · ${o.name}</span><span>${o.headcount} emp</span></div>`).join('')}
+    ${offIn.map(o=>`<div class="fence-row"><span>${o.id} · ${o.name}</span><span>${o.headcount!=null?`${o.headcount} emp`:`<span style="font-style:italic;opacity:0.7">— pending Workday</span>`}</span></div>`).join('')}
     <div class="fence-row" style="margin-top:6px"><b>Alerts</b><span>${alertIn.length}</span></div>
     ${alertIn.slice(0,5).map(a=>`<div class="fence-row" style="cursor:pointer" onclick="App.showAlertDetails('${a.id}')"><span class="sev-pill ${a.sev}">${SEV_NAME[a.sev]}</span><span>${a.title.slice(0,30)}…</span><span style="color:var(--green);font-size:10px">Details ›</span></div>`).join('')}
   `;
@@ -3091,7 +3078,7 @@ function showAlertDetails(id) {
     <tr><th>Coordinates</th><td>${a.lat.toFixed(4)}, ${a.lng.toFixed(4)} <a href="https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}" target="_blank" style="margin-left:8px;font-size:11px">View on Google Maps ↗</a></td></tr>
     <tr><th>Impact radius</th><td>${a.radiusKm ? a.radiusKm + ' km' : '—'}</td></tr>
     <tr><th>Issued</th><td>${new Date(a.issued).toLocaleString()} <span style="color:#a1a1aa">(${relTime(a.issued)} ago)</span></td></tr>
-    <tr><th>Affected office</th><td>${o ? `<b>${o.id} · ${o.name}</b>, ${o.country} — ${o.headcount.toLocaleString()} employees<br><span style="color:#a1a1aa;font-size:11px">${o.address}</span>` : '<span style="color:#a1a1aa">— regional / travel-only</span>'}</td></tr>
+    <tr><th>Affected office</th><td>${o ? `<b>${o.id} · ${o.name}</b>, ${o.country}${o.headcount!=null?` — ${o.headcount.toLocaleString()} employees`:' — <span style="font-style:italic;color:#a1a1aa">headcount pending Workday</span>'}<br><span style="color:#a1a1aa;font-size:11px">${o.address}</span>` : '<span style="color:#a1a1aa">— regional / travel-only</span>'}</td></tr>
     ${o?`<tr><th>Visiting travelers</th><td>${visitors} ✈</td></tr>`:''}
     <tr><th>Alert ID</th><td><code style="font-family:monospace;font-size:11px">${a.id}</code></td></tr>
   </table>
@@ -3240,7 +3227,7 @@ function exportIncidentReport(incidentId) {
     })()}`:''}</td></tr>
     ${inc.reopens?.length?`<tr><th>Reopened</th><td>${inc.reopens.length}× — last ${new Date(inc.reopens[inc.reopens.length-1].when).toLocaleString()}</td></tr>`:''}
     <tr><th>Affected offices</th><td>${offices.map(o => `${o.id} · ${esc(o.name)}`).join(', ')||'—'}</td></tr>
-    <tr><th>Total headcount</th><td>${offices.reduce((s,o)=>s+o.headcount,0).toLocaleString()} employees</td></tr>
+    <tr><th>Total headcount</th><td>${hasOfficeHeadcounts() ? `${sumHeadcount(offices).toLocaleString()} employees` : '<span style="font-style:italic;color:#a1a1aa">pending Workday integration</span>'}</td></tr>
     <tr><th>Messages sent</th><td>${messages.length}${messages.length?` · last ${relTime(messages[messages.length-1].when)} ago`:''}</td></tr>
     <tr><th>Response tracking</th><td>${total ? `${ok} OK · ${help} need help · ${no} no response (${pct}% responded)` : 'No tracked responses'}</td></tr>
     <tr><th>Notes recorded</th><td>${notes.length}</td></tr>
@@ -3311,7 +3298,7 @@ function exportIncidentReport(incidentId) {
       <td>${esc(o.name)}</td>
       <td>${esc(o.country)}</td>
       <td>${esc(o.address)}</td>
-      <td style="text-align:right">${o.headcount.toLocaleString()}</td>
+      <td style="text-align:right">${fmtHeadcount(o.headcount)}</td>
       <td><a href="https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lng}" target="_blank" rel="noopener">📍 Maps ↗</a></td>
     </tr>`).join('')}
   </table>
@@ -4041,22 +4028,30 @@ function showTravelersList() {
 
 function travListBodyHTML() {
   const filt = (t, label) => `<button data-trav-filter="${t}" class="trav-filt" style="padding:6px 12px;background:${t===TRAV_VIEW.typeFilter?'var(--green)':'var(--bg3)'};color:${t===TRAV_VIEW.typeFilter?'#062c1f':'var(--text)'};border:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;font-weight:${t===TRAV_VIEW.typeFilter?'700':'400'};">${label}</button>`;
+  // In live + bare Pages mode TRAVELERS is empty (no Navan integration yet).
+  // Show a placeholder header subtitle and hide the search/filter/CSV toolbar
+  // since there's nothing to search, filter, or export.
+  const isMock   = TRAVELERS.length > 0;
+  const subtitle = isMock
+    ? 'Mock data — Navan integration pending. Displayed values are illustrative.'
+    : 'Pending Navan integration. Traveler itineraries will populate once Navan is connected.';
+  const headerLabel = isMock ? `✈ Travelers (${TRAVELERS.length})` : '✈ Travelers';
   return `<div style="width:min(960px,92vw);max-height:85vh;display:flex;flex-direction:column;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);">
       <div>
-        <div style="font-size:16px;font-weight:700;">✈ Travelers (${TRAVELERS.length})</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Mock data — Navan integration pending. Displayed values are illustrative.</div>
+        <div style="font-size:16px;font-weight:700;">${headerLabel}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${subtitle}</div>
       </div>
       <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
     </div>
-    <div style="display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
+    ${isMock ? `<div style="display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
       <input id="trav-search" type="text" placeholder="Search name, city, country, hotel, airline..." value="${esc(TRAV_VIEW.search)}"
         style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);" />
       <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">
         ${filt('all','All')}${filt('flight','✈ Flight')}${filt('hotel','🏨 Hotel')}${filt('office','🏢 Office')}
       </div>
       <button class="btn-ghost" id="trav-export-csv">⬇ CSV</button>
-    </div>
+    </div>` : ''}
     <div id="trav-list-body" style="flex:1;overflow-y:auto;"></div>
   </div>`;
 }
@@ -4074,6 +4069,15 @@ function travSortValue(t, key) {
 }
 
 function travListRowsHTML() {
+  // Distinguish "no data at all" (Navan not integrated yet — live + bare Pages)
+  // from "user filtered the list to nothing" (mock mode with no matches).
+  if (TRAVELERS.length === 0) {
+    return `<div style="padding:60px 40px;text-align:center;color:var(--muted);">
+      <div style="font-size:36px;margin-bottom:12px;opacity:0.5;">✈</div>
+      <div style="font-size:14px;margin-bottom:6px;color:var(--text);">No traveler data available</div>
+      <div style="font-size:12px;line-height:1.5;max-width:420px;margin:0 auto;">Pending Navan integration. Traveler itineraries (flights, hotels, office visits) will populate here once Navan is connected to the dashboard.</div>
+    </div>`;
+  }
   const { sortKey, sortDir, search, typeFilter } = TRAV_VIEW;
   let rows = TRAVELERS.slice();
   if (typeFilter !== 'all') rows = rows.filter(t => t.type === typeFilter);
@@ -4137,10 +4141,15 @@ function refreshTravList() {
 }
 
 function bindTravListHandlers() {
-  document.getElementById('trav-search').addEventListener('input', e => {
-    TRAV_VIEW.search = e.target.value;
-    refreshTravList();
-  });
+  // Toolbar controls only exist when TRAVELERS has data — guard the lookups
+  // so an empty list (live mode without Navan) doesn't throw.
+  const searchEl = document.getElementById('trav-search');
+  if (searchEl) {
+    searchEl.addEventListener('input', e => {
+      TRAV_VIEW.search = e.target.value;
+      refreshTravList();
+    });
+  }
   document.querySelectorAll('[data-trav-filter]').forEach(b => b.addEventListener('click', () => {
     TRAV_VIEW.typeFilter = b.dataset.travFilter;
     // Re-render the whole modal so chip styling refreshes
@@ -4148,7 +4157,8 @@ function bindTravListHandlers() {
     if (back) back.querySelector('.modal').innerHTML = travListBodyHTML();
     bindTravListHandlers();
   }));
-  document.getElementById('trav-export-csv').addEventListener('click', exportTravelersCSV);
+  const csvBtn = document.getElementById('trav-export-csv');
+  if (csvBtn) csvBtn.addEventListener('click', exportTravelersCSV);
   refreshTravList();
 }
 
@@ -4214,6 +4224,71 @@ document.getElementById('btn-travelers').onclick = () => showTravelersList();
    exposure (offices + travelers + remote employees in demo mode), creates
    an Incident tagged BCP, pre-fills Crisis Comms with affected scope.
    ========================================================================= */
+
+/* Mock office headcounts — populated onto OFFICES only in demo mode (see
+   boot below). Live + bare Pages leave o.headcount undefined and the UI
+   shows "pending Workday integration" placeholders. Office identity itself
+   (location, address, name) is real and lives in OFFICES at the top of file. */
+const OFFICE_HEADCOUNTS_MOCK = {
+  SFO: 412, PDX: 188, ATL: 262,
+  BCN: 142, DUB: 217, LON: 305,
+  TYO: 96,  BLR: 512, HYD: 484,
+};
+
+/* Mock travelers — populated only in demo mode (see boot below).
+   Live + bare Pages keep TRAVELERS = [] and the Travelers modal /
+   BCI exposure readout show "Pending Navan integration" instead of fake names.
+   Companion to REMOTE_EMPLOYEES_MOCK below; same pattern. */
+const TRAVELERS_MOCK = [
+  { id:'t1', name:'A. Patel', home:'BLR', destCity:'Singapore', country:'Singapore',
+    type:'hotel', lat:1.3521, lng:103.8198, atOffice:null,
+    hotel:{ name:'Marina Bay Sands', address:'10 Bayfront Ave, Singapore 018956', checkIn:'2026-06-01', checkOut:'2026-06-05', confirm:'MBS-7821' },
+    lastKnownTs:'2026-06-03T08:12:00Z' },
+  { id:'t2', name:'M. Diaz', home:'SFO', destCity:'Mexico City', country:'Mexico',
+    type:'hotel', lat:19.4326, lng:-99.1332, atOffice:null,
+    hotel:{ name:'Four Seasons Mexico City', address:'Paseo de la Reforma 500, CDMX', checkIn:'2026-06-02', checkOut:'2026-06-06', confirm:'FS-44102' },
+    lastKnownTs:'2026-06-03T07:35:00Z' },
+  { id:'t3', name:'R. Chen', home:'LON', destCity:'Dubai', country:'UAE',
+    type:'hotel', lat:25.2048, lng:55.2708, atOffice:null,
+    hotel:{ name:'Jumeirah Emirates Towers', address:'Sheikh Zayed Rd, Dubai', checkIn:'2026-05-30', checkOut:'2026-06-04', confirm:'JET-9930' },
+    lastKnownTs:'2026-06-03T06:50:00Z' },
+  { id:'t4', name:'L. Okafor', home:'DUB', destCity:'Paris', country:'France',
+    type:'hotel', lat:48.8566, lng:2.3522, atOffice:null,
+    hotel:{ name:'Le Meurice', address:'228 Rue de Rivoli, 75001 Paris', checkIn:'2026-06-03', checkOut:'2026-06-07', confirm:'LM-3318' },
+    lastKnownTs:'2026-06-03T08:40:00Z' },
+  { id:'t5', name:'J. Park', home:'TYO', destCity:'Seoul', country:'South Korea',
+    type:'hotel', lat:37.5665, lng:126.978, atOffice:null,
+    hotel:{ name:'Lotte Hotel Seoul', address:'30 Eulji-ro, Jung-gu, Seoul', checkIn:'2026-06-02', checkOut:'2026-06-05', confirm:'LHS-2207' },
+    lastKnownTs:'2026-06-03T08:05:00Z' },
+  { id:'t6', name:'S. Nakamura', home:'TYO', destCity:'San Francisco', country:'USA',
+    type:'office', lat:OFFICE_BY_ID.SFO.lat, lng:OFFICE_BY_ID.SFO.lng, atOffice:'SFO',
+    office:{ id:'SFO', arriveDate:'2026-06-01', departDate:'2026-06-07' },
+    lastKnownTs:'2026-06-03T08:30:00Z' },
+  { id:'t7', name:'V. Romano', home:'BCN', destCity:'London', country:'UK',
+    type:'office', lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, atOffice:'LON',
+    office:{ id:'LON', arriveDate:'2026-06-02', departDate:'2026-06-09' },
+    lastKnownTs:'2026-06-03T07:55:00Z' },
+  { id:'t8', name:'P. Banerjee', home:'BLR', destCity:'Berlin', country:'Germany',
+    type:'hotel', lat:52.52, lng:13.405, atOffice:null,
+    hotel:{ name:'Hotel Adlon Kempinski', address:'Unter den Linden 77, 10117 Berlin', checkIn:'2026-06-03', checkOut:'2026-06-08', confirm:'HAK-5541' },
+    lastKnownTs:'2026-06-03T08:18:00Z' },
+  { id:'t9', name:'K. Liu', home:'PDX', destCity:'JFK→LHR', country:'In transit',
+    type:'flight', lat:30.0, lng:-40.0, atOffice:null,
+    flight:{ airline:'British Airways', number:'BA178', origin:'JFK', dest:'LHR', departure:'2026-06-02T22:00:00Z', arrival:'2026-06-03T10:00:00Z' },
+    lastKnownTs:'2026-06-03T03:20:00Z' },
+  { id:'t10', name:'O. Adeyemi', home:'LON', destCity:'Dublin', country:'Ireland',
+    type:'office', lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, atOffice:'DUB',
+    office:{ id:'DUB', arriveDate:'2026-06-03', departDate:'2026-06-06' },
+    lastKnownTs:'2026-06-03T08:45:00Z' },
+  { id:'t11', name:'H. Tanaka', home:'TYO', destCity:'Bengaluru', country:'India',
+    type:'office', lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, atOffice:'BLR',
+    office:{ id:'BLR', arriveDate:'2026-05-30', departDate:'2026-06-10' },
+    lastKnownTs:'2026-06-03T07:48:00Z' },
+  { id:'t12', name:'N. Walsh', home:'DUB', destCity:'Reykjavik', country:'Iceland',
+    type:'hotel', lat:64.1466, lng:-21.9426, atOffice:null,
+    hotel:{ name:'Hotel Borg', address:'Pósthússtræti 11, 101 Reykjavík', checkIn:'2026-06-01', checkOut:'2026-06-05', confirm:'HB-1190' },
+    lastKnownTs:'2026-06-03T08:02:00Z' },
+];
 
 /* Mock remote employees — populated only in demo mode (see boot below).
    Live + bare Pages keep REMOTE_EMPLOYEES = [] and the BCP modal shows
@@ -4342,7 +4417,7 @@ function bcpExposureInScope() {
     travelers = TRAVELERS.filter(t => BCP_FORM.countries.includes(t.country));
     remote = REMOTE_EMPLOYEES.filter(r => BCP_FORM.countries.includes(r.country));
   }
-  const officeHeadcount = offices.reduce((s,o) => s + o.headcount, 0);
+  const officeHeadcount = sumHeadcount(offices);   // safe with undefined headcounts
   return { offices, travelers, remote, officeHeadcount,
     travelerCount: travelers.length, remoteCount: remote.length,
     totalExposed: officeHeadcount + travelers.length + remote.length };
@@ -4350,20 +4425,37 @@ function bcpExposureInScope() {
 
 function bcpExposureSummaryHTML(exp) {
   const officeIds = exp.offices.length ? exp.offices.map(o => o.id).join(', ') : 'none';
-  const isMock = REMOTE_EMPLOYEES.length > 0;
+  // Three independent integrations gate the people-impact math:
+  //   office headcounts ← Workday  (per-office headcount field)
+  //   travelers          ← Navan
+  //   remote employees   ← Workday  (per-individual records)
+  // When any of these is empty (live mode), show a "pending" placeholder
+  // rather than a fake-zero count, so operators can tell "no integration"
+  // from "the answer is zero".
+  const hasHeadcounts = hasOfficeHeadcounts();
+  const hasTravelers  = TRAVELERS.length > 0;
+  const hasRemote     = REMOTE_EMPLOYEES.length > 0;
   return `
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Exposure in Scope</div>
     <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;">
       <div><b style="color:var(--blue);font-size:18px;">${exp.offices.length}</b> office${exp.offices.length===1?'':'s'} <span style="color:var(--muted);font-size:11px;">(${esc(officeIds)})</span></div>
-      <div><b style="color:var(--green);font-size:18px;">${exp.officeHeadcount.toLocaleString()}</b> office headcount</div>
-      <div><b style="color:var(--yellow);font-size:18px;">${exp.travelerCount}</b> traveler${exp.travelerCount===1?'':'s'}</div>
-      ${isMock
+      ${hasHeadcounts
+        ? `<div><b style="color:var(--green);font-size:18px;">${exp.officeHeadcount.toLocaleString()}</b> office headcount</div>`
+        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Office headcount: pending Workday integration</div>`}
+      ${hasTravelers
+        ? `<div><b style="color:var(--yellow);font-size:18px;">${exp.travelerCount}</b> traveler${exp.travelerCount===1?'':'s'}</div>`
+        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Travelers: pending Navan integration</div>`}
+      ${hasRemote
         ? `<div><b style="color:#a855f7;font-size:18px;">${exp.remoteCount}</b> remote employee${exp.remoteCount===1?'':'s'}</div>`
         : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Remote employees: pending Workday integration</div>`}
     </div>
-    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;">
-      <b style="color:var(--text);font-size:16px;">${exp.totalExposed.toLocaleString()}</b> total exposed
-    </div>`;
+    ${(hasHeadcounts || hasTravelers || hasRemote)
+      ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;">
+          <b style="color:var(--text);font-size:16px;">${exp.totalExposed.toLocaleString()}</b> total exposed${(!hasHeadcounts || !hasTravelers || !hasRemote) ? ` <span style="color:var(--muted);font-size:11px;font-style:italic;">(partial — pending integrations above)</span>` : ''}
+        </div>`
+      : `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);font-style:italic;">
+          Total exposure unavailable — Workday + Navan integrations pending.
+        </div>`}`;
 }
 
 function bcpFormBodyHTML() {
@@ -4855,7 +4947,17 @@ if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
     }
 
     /* Boot */
-    // 0. Load mock remote employees so the BCP exposure readout is fully populated
+    // 0. Load mock people-data: office headcounts, travelers, remote employees.
+    //    All three surfaces (Travelers modal, ✈ proximity badges, BCI exposure
+    //    readout, office bubbles, alert cards) need this to render with numbers.
+    //    All three stay empty / undefined in live + bare Pages mode and the UI
+    //    shows "pending Workday/Navan integration" placeholders instead.
+    OFFICES.forEach(o => { o.headcount = OFFICE_HEADCOUNTS_MOCK[o.id]; });
+    // buildEmployees() ran on initial parse with no headcounts (returned []).
+    // Now that OFFICES.headcount is populated, rebuild the synthetic employee
+    // scatter so map dots / By-Office plotting / Office Manager view all populate.
+    EMPLOYEES = buildEmployees();
+    TRAVELERS = TRAVELERS_MOCK.slice();
     REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
     // 1. Enrich existing seed ALERTS so they pass the officeRelevantOnly filter
     ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
@@ -4870,6 +4972,226 @@ if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
     scheduleNext();
     setTimeout(moveTraveler, 8000);  // first traveler hop ~8s in so it's visible quickly
     DEMO.timers.travMove = setInterval(moveTraveler, DEMO.travelerMoveEverySec * 1000);
+  })();
+}
+
+/* =========================================================================
+   23. SYNTHETIC TEST SCENARIOS — operator-triggered fixtures
+   -------------------------------------------------------------------------
+   Activates when the URL carries `#api=mock` (same gate as the demo cycler).
+   Adds a small launcher button that opens a modal with three preset
+   scenarios. Useful for validating the alert / Crisis Comm / Incident /
+   BCI flows end-to-end without waiting for real events.
+
+   Synthetic alerts are tagged with id prefix `test-` so the Clear button
+   can remove them in one shot without touching real or demo events
+   (which use `demo-` prefix). They flow through the same
+   enrichEventWithImpact + ALERTS + renderAll pipeline as everything else,
+   so the dashboard treats them identically.
+   ========================================================================= */
+if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
+  (function bootTestScenarios() {
+    function syntheticCount() {
+      return ALERTS.filter(a => String(a.id).startsWith('test-')).length;
+    }
+
+    /* Single top-center container that holds all three mock-mode pills:
+       Tests · Clear · DEMO MODE. Built lazily; we move the existing
+       demo-badge into it once both IIFEs have run. */
+    function ensurePillContainer() {
+      let c = document.getElementById('mock-pill-container');
+      if (c) return c;
+      c = document.createElement('div');
+      c.id = 'mock-pill-container';
+      c.style.cssText = [
+        'position:fixed', 'top:10px', 'left:50%', 'transform:translateX(-50%)',
+        'z-index:9999', 'display:flex', 'gap:8px', 'align-items:center',
+        'pointer-events:none',  // child elements override; lets clicks pass through gaps
+      ].join(';');
+      document.body.appendChild(c);
+      return c;
+    }
+
+    /* Common pill styling — only color/text varies per pill. */
+    function pillStyleBase(bg, fg) {
+      return [
+        `background:${bg}`, `color:${fg}`, 'padding:5px 11px',
+        'border-radius:14px', 'font:11px/1.4 system-ui,-apple-system,sans-serif',
+        'cursor:pointer', 'opacity:0.92', 'box-shadow:0 2px 8px rgba(0,0,0,0.35)',
+        'user-select:none', 'letter-spacing:0.3px', 'font-weight:700',
+        'pointer-events:auto',  // re-enable click handling on the pill itself
+      ].join(';');
+    }
+
+    function refreshClearPill() {
+      const existing = document.getElementById('test-clear-pill');
+      const n = syntheticCount();
+      if (n === 0) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (existing) {
+        existing.textContent = `🧹 Clear ${n}`;
+        return;
+      }
+      const container = ensurePillContainer();
+      const p = document.createElement('div');
+      p.id = 'test-clear-pill';
+      p.style.cssText = pillStyleBase('#f87171', '#1a0808');
+      p.textContent = `🧹 Clear ${n}`;
+      p.title = 'Clear all synthetic test events';
+      p.addEventListener('click', clearSynthetic);
+      // Insert after Tests, before DEMO MODE (if both exist)
+      const launcher = document.getElementById('test-launcher');
+      if (launcher && launcher.parentNode === container) {
+        container.insertBefore(p, launcher.nextSibling);
+      } else {
+        container.appendChild(p);
+      }
+    }
+
+    function injectAndRender(alert) {
+      const enriched = enrichEventWithImpact(alert);
+      ALERTS = [enriched, ...ALERTS.filter(a => a.id !== alert.id)];
+      renderAll();
+      refreshClearPill();
+      try { toast(`🧪 Injected: ${alert.title}`); } catch (_) {}
+    }
+
+    // Scenario 1 — Office threat: M6.5 quake 28 km E of SFO
+    function fireOfficeThreat() {
+      const sfo = OFFICE_BY_ID.SFO;
+      injectAndRender({
+        id: 'test-office-' + Date.now(),
+        sev: 'ext',
+        type: 'Natural Disaster',
+        source: 'USGS',
+        officeId: 'SFO',
+        lat: sfo.lat + 0.05,           // ~5 km N
+        lng: sfo.lng + 0.30,           // ~25 km E (combined ~28 km)
+        radiusKm: 200,
+        title: 'M6.5 earthquake — 28 km E of San Francisco, depth 12 km',
+        summary: 'Strong shaking reported near Hayward fault. Initial reports of facade damage downtown. No tsunami advisory issued.',
+        issued: new Date().toISOString(),
+      });
+      App.closeModal();
+    }
+
+    // Scenario 2 — Traveler threat: civil unrest at a current non-office traveler's city
+    function fireTravelerThreat() {
+      const t = TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || TRAVELERS[0];
+      if (!t) {
+        try { toast('No traveler available for synthetic threat.'); } catch (_) {}
+        App.closeModal();
+        return;
+      }
+      injectAndRender({
+        id: 'test-traveler-' + Date.now(),
+        sev: 'high',
+        type: 'Civil Unrest',
+        source: 'ACLED',
+        officeId: null,
+        lat: t.lat,
+        lng: t.lng,
+        radiusKm: 5,
+        title: `Mass demonstration with confrontations — ${t.destCity}`,
+        summary: `Multiple injuries reported. Curfew possible in affected districts. Traveler ${t.name} flagged within proximity radius.`,
+        issued: new Date().toISOString(),
+      });
+      App.closeModal();
+    }
+
+    // Scenario 3 — BCI declaration: pre-fill the existing BCI modal for a Japan quake
+    function fireBciScenario() {
+      App.closeModal();
+      Object.assign(BCP_FORM, {
+        eventTypeId: 'quake',
+        title: 'M7.4 earthquake — Tohoku coast, Japan',
+        countries: ['Japan'],
+        useFence: false,
+        templateId: 'bc_announce',
+        customMessage: '',
+        acknowledged: false,
+      });
+      showBCPModal(true);   // preserve=true so our pre-fill isn't wiped
+      try { toast('🚨 BCI pre-filled — review and Declare'); } catch (_) {}
+    }
+
+    // Clear all synthetic events (does not touch demo or real events).
+    // Callable from either the in-modal Clear button or the floating pill.
+    function clearSynthetic() {
+      const before = ALERTS.length;
+      ALERTS = ALERTS.filter(a => !String(a.id).startsWith('test-'));
+      const removed = before - ALERTS.length;
+      renderAll();
+      refreshClearPill();
+      App.closeModal();   // idempotent — fine when called from the floating pill
+      try { toast(`🧹 Cleared ${removed} synthetic event${removed === 1 ? '' : 's'}`); } catch (_) {}
+    }
+
+    function openTestModal() {
+      const t = TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || TRAVELERS[0];
+      const travelerLabel = t ? `${t.destCity} (${t.name})` : 'no traveler available';
+      const html = `<div style="width:min(560px,92vw);">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
+          <div style="font-size:15px;font-weight:700;">🧪 Synthetic Test Scenarios</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Mock-mode only. Each scenario injects a tagged event you can clear in one click.</div>
+        </div>
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
+          <button class="btn-ghost" id="test-office-btn" style="text-align:left;padding:10px 12px;">
+            <div style="font-weight:600;">🏢 Office threat — M6.5 near SFO</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Validates Extreme alert card, status-strip wash, impact badges, Crisis Comm pre-fill.</div>
+          </button>
+          <button class="btn-ghost" id="test-traveler-btn" style="text-align:left;padding:10px 12px;">
+            <div style="font-weight:600;">✈ Traveler threat — civil unrest at ${esc(travelerLabel)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Validates traveler-proximity badge and Crisis Comm traveler context. Picks the first non-office traveler at injection time.</div>
+          </button>
+          <button class="btn-ghost" id="test-bci-btn" style="text-align:left;padding:10px 12px;">
+            <div style="font-weight:600;">🚨 BCI declaration — Tohoku M7.4 earthquake (Japan)</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Pre-fills the BCI modal. Validates exposure readout (TYO + travelers + remote employees in Japan).</div>
+          </button>
+        </div>
+        <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;">
+          <button class="btn-ghost" id="test-clear-btn" style="font-size:11px;">🧹 Clear synthetic events</button>
+          <button class="btn-ghost" onclick="App.closeModal()">Close</button>
+        </div>
+      </div>`;
+      showModal(html);
+      document.getElementById('test-office-btn').onclick   = fireOfficeThreat;
+      document.getElementById('test-traveler-btn').onclick = fireTravelerThreat;
+      document.getElementById('test-bci-btn').onclick      = fireBciScenario;
+      document.getElementById('test-clear-btn').onclick    = clearSynthetic;
+    }
+
+    /* Launcher pill — first slot in the shared top-center container. We also
+       move the demo simulator's badge into the container here (it was
+       absolute-positioned by its own IIFE; we strip those styles and
+       re-flow it as a flex child so the three pills line up cleanly). */
+    function injectLauncher() {
+      const container = ensurePillContainer();
+
+      // Tests pill
+      const b = document.createElement('div');
+      b.id = 'test-launcher';
+      b.style.cssText = pillStyleBase('#06b6d4', '#062c34');
+      b.textContent = '🧪 Tests';
+      b.title = 'Synthetic test scenarios — Office / Traveler / BCI';
+      b.addEventListener('click', openTestModal);
+      container.appendChild(b);
+
+      // Adopt the DEMO MODE badge: strip its position:fixed/top/right and
+      // make it a flex child so it sits next to the Tests pill.
+      const demoBadge = document.getElementById('demo-badge');
+      if (demoBadge) {
+        demoBadge.style.position = 'static';
+        demoBadge.style.top = '';
+        demoBadge.style.right = '';
+        demoBadge.style.pointerEvents = 'auto';
+        container.appendChild(demoBadge);  // re-append moves it to end
+      }
+    }
+
+    injectLauncher();
   })();
 }
 </script>

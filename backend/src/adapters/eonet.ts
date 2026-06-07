@@ -1,4 +1,5 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Severity, Category } from '../types.js';
+import type { SourceAdapter, RawAndNormalized, NormalizedEvent, Category } from '../types.js';
+import { evaluateEonet } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 import { config } from '../config.js';
 
@@ -10,16 +11,12 @@ import { config } from '../config.js';
  * Format:   JSON. Each event has 1+ "geometry" entries (Point or Polygon)
  *           timestamped — we use the most recent.
  *
- * EONET doesn't publish severity, just categories. We map:
- *   wildfires       → high (active fires are dangerous by definition)
- *   severeStorms    → high
- *   volcanoes       → high
- *   earthquakes     → mod (we have USGS for these; just for redundancy)
- *   floods          → high
- *   drought         → mod
- *   manmade         → mod
- *   tempExtremes    → mod
- *   default         → mod
+ * EONET doesn't publish severity, just categories. Severity + drop decisions
+ * live in pipeline/thresholds.ts (evaluateEonet) — see docs/severity-thresholds.md.
+ * In short: volcanoes always pass; wildfires/floods/severeStorms/earthquakes
+ * pass only if near an office (proximity gate in persist.ts); other categories
+ * (drought, dust, snow, ...) drop entirely. Recency floor and prescribed-fire
+ * filter run before the threshold gate, as before.
  */
 
 interface EonetGeometry {
@@ -49,23 +46,23 @@ interface EonetFeed {
 
 const FEED_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open';
 
-// Severities are intentionally conservative. EONET doesn't publish severity, just
-// categories — and most events are not corporate-CMT-actionable on their own. We
-// rely on (a) cross-source corroboration, (b) office-proximity matching, and
-// (c) magnitude when present, to promote anything to "high".
-const CATEGORY_MAP: Record<string, { sev: Severity; type: string; cat: Category }> = {
-  wildfires:    { sev: 'mod',  type: 'wildfire',     cat: 'natural' },
-  severeStorms: { sev: 'mod',  type: 'severe_storm', cat: 'natural' },
-  volcanoes:    { sev: 'high', type: 'volcano',      cat: 'natural' },  // less common; usually meaningful
-  earthquakes:  { sev: 'mod',  type: 'earthquake',   cat: 'natural' },
-  floods:       { sev: 'mod',  type: 'flood',        cat: 'natural' },
-  drought:      { sev: 'low',  type: 'drought',      cat: 'natural' },
-  manmade:      { sev: 'mod',  type: 'manmade',      cat: 'natural' },
-  tempExtremes: { sev: 'mod',  type: 'temp_extreme', cat: 'natural' },
-  dustHaze:     { sev: 'low',  type: 'dust',         cat: 'natural' },
-  seaLakeIce:   { sev: 'low',  type: 'sea_lake_ice', cat: 'natural' },
-  snow:         { sev: 'low',  type: 'snow',         cat: 'natural' },
-  waterColor:   { sev: 'low',  type: 'water_color',  cat: 'natural' },
+// EONET doesn't publish severity, just categories. Severity now comes from
+// pipeline/thresholds.ts (evaluateEonet). This map only carries type + category
+// for normalization; the threshold gate decides whether each category is kept
+// at all and what severity to assign.
+const CATEGORY_MAP: Record<string, { type: string; cat: Category }> = {
+  wildfires:    { type: 'wildfire',     cat: 'natural' },
+  severeStorms: { type: 'severe_storm', cat: 'natural' },
+  volcanoes:    { type: 'volcano',      cat: 'natural' },
+  earthquakes:  { type: 'earthquake',   cat: 'natural' },
+  floods:       { type: 'flood',        cat: 'natural' },
+  drought:      { type: 'drought',      cat: 'natural' },
+  manmade:      { type: 'manmade',      cat: 'natural' },
+  tempExtremes: { type: 'temp_extreme', cat: 'natural' },
+  dustHaze:     { type: 'dust',         cat: 'natural' },
+  seaLakeIce:   { type: 'sea_lake_ice', cat: 'natural' },
+  snow:         { type: 'snow',         cat: 'natural' },
+  waterColor:   { type: 'water_color',  cat: 'natural' },
 };
 
 /** Heuristic: EONET groups prescribed/managed fires under "wildfires" with no flag.
@@ -110,7 +107,7 @@ export const eonetAdapter: SourceAdapter = {
     const cutoffMs = Date.now() - config.quality.eonetMaxAgeDays * 24 * 60 * 60 * 1000;
 
     const items: RawAndNormalized[] = [];
-    let droppedOld = 0, droppedRx = 0;
+    let droppedOld = 0, droppedRx = 0, droppedThreshold = 0;
     for (const e of data.events) {
       if (e.closed) continue;                       // ignore closed events
       if (!e.categories.length || !e.geometry.length) continue;
@@ -121,19 +118,24 @@ export const eonetAdapter: SourceAdapter = {
       const latestMs = new Date(latest.date).getTime();
       if (Number.isFinite(latestMs) && latestMs < cutoffMs) { droppedOld++; continue; }
 
+      const cat = e.categories[0]!;
+
+      // Threshold gate — see docs/severity-thresholds.md
+      const verdict = evaluateEonet({ categoryId: cat.id });
+      if (!verdict.pass) { droppedThreshold++; continue; }
+
       const point = pointFromGeometry(latest);
       if (!point) continue;
       const [lng, lat] = point;
 
-      const cat = e.categories[0]!;
-      const mapped = CATEGORY_MAP[cat.id] ?? { sev: 'mod' as Severity, type: cat.id, cat: 'natural' as Category };
+      const mapped = CATEGORY_MAP[cat.id] ?? { type: cat.id, cat: 'natural' as Category };
 
       const normalized: NormalizedEvent = {
         sourceEventId: e.id,
         primarySourceId: 'eonet',
         title: e.title,
         summary: e.description?.trim() || `${cat.title} event tracked by NASA EONET. ${e.sources.length} contributing source(s).`,
-        severity: mapped.sev,
+        severity: verdict.severity!,
         category: mapped.cat,
         type: mapped.type,
         location: e.title,                          // EONET doesn't publish a clean place name
@@ -144,9 +146,16 @@ export const eonetAdapter: SourceAdapter = {
         expiresAt: null,
         sourceUrl: e.link,
       };
-      items.push({ sourceEventId: e.id, payload: e, normalized });
+      items.push({
+        sourceEventId: e.id,
+        payload: e,
+        normalized,
+        ...(verdict.requiresProximityKm
+          ? { thresholds: { requiresProximityKm: verdict.requiresProximityKm } }
+          : {}),
+      });
     }
-    log.debug({ kept: items.length, droppedOld, droppedRx, totalSeen: data.events.length }, 'eonet.filtered');
+    log.debug({ kept: items.length, droppedOld, droppedRx, droppedThreshold, totalSeen: data.events.length }, 'eonet.filtered');
     return items;
   },
 };

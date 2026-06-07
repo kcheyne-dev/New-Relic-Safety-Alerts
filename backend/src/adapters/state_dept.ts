@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
-import { fromTravelLevel } from '../pipeline/severity.js';
+import { evaluateStateDept } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -43,6 +43,15 @@ function countryFromTitle(title: string | undefined): string {
   return title.split(' - ')[0]!.trim();
 }
 
+/** Pull the Level number (1-4) out of the RSS category text. */
+function levelFromCategory(category: string | string[] | undefined): number | null {
+  const s = Array.isArray(category) ? category.join(' ') : category ?? '';
+  const m = s.match(/Level\s*(\d)/i);
+  if (!m) return null;
+  const n = parseInt(m[1]!, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function getGuid(item: RssItem): string {
   if (typeof item.guid === 'string') return item.guid;
   if (item.guid && typeof item.guid === 'object') return item.guid['#text'];
@@ -66,9 +75,12 @@ export const stateDeptAdapter: SourceAdapter = {
     log.debug({ count: list.length }, 'state_dept.fetched');
 
     const items: RawAndNormalized[] = [];
+    let droppedThreshold = 0;
     for (const it of list) {
-      const sev = fromTravelLevel(it.category);
-      if (sev === 'low') continue;                  // skip Level 1 (most countries) for noise
+      // Threshold gate — Level 3+ only, see docs/severity-thresholds.md
+      const verdict = evaluateStateDept({ level: levelFromCategory(it.category) });
+      if (!verdict.pass) { droppedThreshold++; continue; }
+
       const country = countryFromTitle(it.title);
       if (!country) continue;
 
@@ -77,7 +89,7 @@ export const stateDeptAdapter: SourceAdapter = {
         primarySourceId: 'state_dept',
         title: it.title ?? country,
         summary: (it.description ?? '').replace(/<[^>]+>/g, '').slice(0, 1500) || `Travel advisory for ${country}.`,
-        severity: sev,
+        severity: verdict.severity!,
         category: 'travel',
         type: 'travel_advisory',
         location: country,
@@ -90,6 +102,7 @@ export const stateDeptAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: normalized.sourceEventId, payload: it, normalized });
     }
+    log.debug({ kept: items.length, droppedThreshold, totalSeen: list.length }, 'state_dept.filtered');
     return items;
   },
 };
