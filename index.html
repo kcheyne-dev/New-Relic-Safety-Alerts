@@ -5490,18 +5490,30 @@ function riskModalHTML() {
   </div>`;
 }
 
+/* Debounce handle for the Risk modal search input. Module-level so it
+   survives the re-bind cycle that happens on every modal re-render —
+   bindRiskModalHandlers() is called both on initial open and after every
+   re-render, and we want a single shared timer rather than one per call. */
+let _riskSearchDebounce = null;
+
 function bindRiskModalHandlers() {
   const search = document.getElementById('risk-search');
   if (search) {
     search.addEventListener('input', e => {
       RISK_VIEW.search = e.target.value;
-      // Re-render only the body; preserve focus on search input by not re-rendering the whole modal
-      const back = document.getElementById('modal-back');
-      if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
-      bindRiskModalHandlers();
-      // Restore focus to search after re-render
-      const s = document.getElementById('risk-search');
-      if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+      // Debounce the re-render — typing fast shouldn't rebuild the modal
+      // on every keystroke. 150ms after the last keystroke avoids 3-4
+      // unnecessary HTML regenerations while typing a normal word.
+      if (_riskSearchDebounce) clearTimeout(_riskSearchDebounce);
+      _riskSearchDebounce = setTimeout(() => {
+        _riskSearchDebounce = null;
+        const back = document.getElementById('modal-back');
+        if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
+        bindRiskModalHandlers();
+        // Restore focus + caret position after the re-render replaces the input
+        const s = document.getElementById('risk-search');
+        if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+      }, 150);
     });
   }
   document.querySelectorAll('[data-risk-region]').forEach(b => b.addEventListener('click', () => {
