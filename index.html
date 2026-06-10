@@ -569,6 +569,7 @@ body.resizing-panel * { cursor: ew-resize !important; }
     <div class="h-tools">
       <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
       <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">—</span></button>
+      <button class="htn" id="btn-risk" aria-label="ACLED Country Risk Profile — vetted civil-unrest counts by country">🌐 Risk Profile</button>
       <button class="htn" id="btn-bcp" aria-label="Declare a Business Continuity Incident" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCI</button>
       <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
       <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
@@ -882,6 +883,140 @@ function aggregateAcledRisk(countryNames) {
     totals.fatalities   += r.fatalities   || 0;
   }
   totals.totalEvents = totals.battles + totals.vac + totals.explosions + totals.riots + totals.strategicDev;
+  return totals;
+}
+
+/* WHO Disease Outbreak helpers — same gating pattern as ACLED. Empty in
+ * live + bare Pages until the WHO adapter ships; populated from
+ * WHO_OUTBREAKS_MOCK by the demo bootstrap in #api=mock mode. */
+function hasWhoOutbreaks() {
+  return WHO_OUTBREAKS.length > 0;
+}
+function outbreaksForCountry(countryName) {
+  return WHO_OUTBREAKS.filter(o => o.country === countryName);
+}
+function outbreaksAggregated(countryNames) {
+  const all = [];
+  for (const name of countryNames) {
+    for (const o of outbreaksForCountry(name)) all.push(o);
+  }
+  return all;
+}
+
+/* Live-hazards helpers — aggregate the EXISTING alert pipeline data
+ * (NWS / MeteoAlarm / GDACS / USGS / EMSC / EONET / State Dept) into
+ * a per-country snapshot for the Risk Profile modal. Distinct from
+ * ACLED, which is historical context. Live hazards is "what's
+ * currently active" — same data the dashboard's primary alert feed
+ * shows, just grouped by country.
+ *
+ * Works in BOTH live and mock modes (no integration gating needed —
+ * uses ALERTS state directly). In live mode, the backend feeds it
+ * real data. In mock mode, the seed ALERTS + demo cycler feed it.
+ */
+
+/** Map an alert to a country name. Tries office country first (most
+ *  reliable), then keyword-matches the alert's location/title text
+ *  against COUNTRY_PRESENCE names (handles Travel Advisories etc.
+ *  whose alerts have no officeId). */
+function alertCountryFor(alert) {
+  if (!alert) return null;
+  if (alert.officeId) {
+    const o = OFFICE_BY_ID[alert.officeId];
+    if (o) return o.country;
+  }
+  if (Array.isArray(alert.affectedOfficeIds) && alert.affectedOfficeIds.length > 0) {
+    const o = OFFICE_BY_ID[alert.affectedOfficeIds[0]];
+    if (o) return o.country;
+  }
+  // Fall back to text match against known countries (case-insensitive)
+  const haystack = ((alert.location || '') + ' ' + (alert.title || '')).toLowerCase();
+  for (const cp of COUNTRY_PRESENCE) {
+    if (haystack.includes(cp.name.toLowerCase())) return cp.name;
+  }
+  return null;
+}
+
+/** Empty hazard rollup with all keys zeroed and travelAdvisoryLevel null. */
+function _emptyHazardRollup() {
+  return {
+    travelAdvisoryLevel: null,   // 'L1' | 'L2' | 'L3' | 'L4' | null
+    severeWeather: 0,            // NWS / MeteoAlarm severe warnings
+    gdacsActive: 0,              // GDACS Orange/Red active
+    earthquakes: 0,              // USGS / EMSC seismic events
+    wildfires: 0,                // wildfire-tagged alerts
+    volcanoes: 0,                // volcano-tagged alerts
+    civilUnrest: 0,              // ACLED-style or Civil Unrest type
+    publicSafety: 0,             // Public Safety type catch-all
+    total: 0,                    // sum of all counts (excl advisory level)
+  };
+}
+
+/** Aggregate active alerts in the given country into a single hazard rollup.
+ *  Looks at ALERTS state — the same array the dashboard renders. */
+function liveHazardsForCountry(countryName) {
+  const out = _emptyHazardRollup();
+  if (!countryName) return out;
+  const SEV_TO_LEVEL = { low: 'L1', mod: 'L2', high: 'L3', ext: 'L4' };
+  const LEVEL_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 };
+
+  for (const a of ALERTS) {
+    if (alertCountryFor(a) !== countryName) continue;
+    const src = (a.source || '').toLowerCase();
+    const ttl = (a.title  || '').toLowerCase();
+
+    if (a.type === 'Travel Advisory') {
+      const lvl = SEV_TO_LEVEL[a.sev] || 'L1';
+      if (!out.travelAdvisoryLevel || LEVEL_RANK[lvl] > LEVEL_RANK[out.travelAdvisoryLevel]) {
+        out.travelAdvisoryLevel = lvl;
+      }
+      continue;
+    }
+
+    if (a.type === 'Civil Unrest') { out.civilUnrest++; out.total++; continue; }
+    if (a.type === 'Public Safety') { out.publicSafety++; out.total++; continue; }
+
+    // Natural Disaster — sub-categorize by source / title keyword
+    if (src === 'usgs' || src === 'emsc' || /earthquake|quake|m\d\.\d/.test(ttl)) {
+      out.earthquakes++; out.total++;
+    } else if (/volcano/.test(ttl) || /volcano/.test(a.type || '')) {
+      out.volcanoes++; out.total++;
+    } else if (/wildfire|fire/.test(ttl)) {
+      out.wildfires++; out.total++;
+    } else if (src === 'gdacs' && (a.sev === 'high' || a.sev === 'ext')) {
+      out.gdacsActive++; out.total++;
+    } else if (src === 'nws' || src === 'meteoalarm') {
+      out.severeWeather++; out.total++;
+    } else {
+      // Catch-all natural disaster — count toward weather as the closest bucket
+      out.severeWeather++; out.total++;
+    }
+  }
+  return out;
+}
+
+/** Sum live-hazard rollups across multiple countries. Travel Advisory level
+ *  takes the MAX across countries (highest sev wins). */
+function liveHazardsAggregated(countryNames) {
+  const totals = _emptyHazardRollup();
+  const LEVEL_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 };
+  for (const name of countryNames) {
+    const r = liveHazardsForCountry(name);
+    totals.severeWeather += r.severeWeather;
+    totals.gdacsActive   += r.gdacsActive;
+    totals.earthquakes   += r.earthquakes;
+    totals.wildfires     += r.wildfires;
+    totals.volcanoes     += r.volcanoes;
+    totals.civilUnrest   += r.civilUnrest;
+    totals.publicSafety  += r.publicSafety;
+    totals.total         += r.total;
+    if (r.travelAdvisoryLevel) {
+      if (!totals.travelAdvisoryLevel ||
+          LEVEL_RANK[r.travelAdvisoryLevel] > LEVEL_RANK[totals.travelAdvisoryLevel]) {
+        totals.travelAdvisoryLevel = r.travelAdvisoryLevel;
+      }
+    }
+  }
   return totals;
 }
 
@@ -4519,6 +4654,7 @@ function exportTravelersCSV() {
 }
 
 document.getElementById('btn-travelers').onclick = () => showTravelersList();
+document.getElementById('btn-risk').onclick = () => showRiskProfileModal();
 
 /* =========================================================================
    21c. BCP DECLARATION — operator-triggered Business Continuity event
@@ -4673,6 +4809,41 @@ const ACLED_RISK_MOCK = {
 };
 let ACLED_RISK = {};  // populated by demo bootstrap when #api=mock
 
+/* Mock WHO Disease Outbreak News — active disease outbreaks the operator
+ * should know about when assessing country risk. Populated only in demo
+ * mode (see boot below). Live + bare Pages: WHO_OUTBREAKS = [] (the Live
+ * Hazards row is conditionally rendered, so no explicit placeholder needed).
+ *
+ * Source pattern: the real WHO Disease Outbreak News feed is at
+ *   https://www.who.int/emergencies/disease-outbreak-news/
+ * and publishes a structured RSS. A future backend adapter (`who_don.ts`)
+ * will fetch + parse + persist; this mock matches the schema that adapter
+ * will produce so the swap is data-only, not UI work.
+ *
+ * Schema per entry:
+ *   country   — country name (matches COUNTRY_PRESENCE.name)
+ *   disease   — outbreak label (Cholera / Marburg / Dengue / etc.)
+ *   severity  — 'low' | 'mod' | 'high' | 'ext' (CMT-internal interpretation)
+ *   cases     — reported cases as of the latest WHO update (optional)
+ *   since     — ISO date the outbreak was first published in WHO DON
+ *   link      — direct WHO DON URL for the operator to read full detail
+ *   summary   — one-sentence operator-facing summary
+ *
+ * Numbers are illustrative — not factual. Real numbers swap in once the
+ * WHO adapter ships.
+ */
+const WHO_OUTBREAKS_MOCK = [
+  { country:'Yemen',       disease:'Cholera',         severity:'high', cases:14820, since:'2025-11-15', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Active cholera transmission across 8 governorates; treatment centers stretched.' },
+  { country:'Sudan',       disease:'Cholera',         severity:'high', cases:8421,  since:'2026-02-08', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Cholera outbreak driven by displacement and damaged water infrastructure.' },
+  { country:'Sudan',       disease:'Measles',         severity:'mod',  cases:2104,  since:'2026-03-22', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Measles among under-5 children in IDP camps; vaccination campaigns underway.' },
+  { country:'India',       disease:'Nipah virus',     severity:'high', cases:18,    since:'2026-04-30', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Localized Nipah cluster in Kerala; contact tracing active. 6 fatalities.' },
+  { country:'Brazil',      disease:'Dengue',          severity:'mod',  cases:412000,since:'2026-01-12', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Major dengue season; SP and RJ states reporting elevated transmission.' },
+  { country:'Mexico',      disease:'Dengue',          severity:'mod',  cases:78400, since:'2026-04-08', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Dengue activity above 5-year average; coastal states most affected.' },
+  { country:'USA',         disease:'Measles',         severity:'low',  cases:121,   since:'2026-03-04', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Multi-state measles clusters; under-vaccinated communities.' },
+  { country:'Australia',   disease:'Japanese encephalitis', severity:'low', cases:14, since:'2026-04-18', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'JE virus expansion in NSW/VIC; rural exposure risk.' },
+];
+let WHO_OUTBREAKS = [];  // populated by demo bootstrap when #api=mock
+
 const BCP_EVENT_TYPES = [
   { id:'terror',    label:'Terrorist incident',          titleHint:'Terror incident — ' },
   { id:'masscas',   label:'Mass-casualty event',         titleHint:'Mass-casualty event — ' },
@@ -4786,61 +4957,42 @@ function bcpExposureInScope() {
     totalExposed: officeHeadcount + travelers.length + remote.length };
 }
 
-/* Country Risk Profile panel — shown inside the BCI Declaration modal, just
- * below the Exposure in Scope card. ACLED records what HAPPENED in a region
- * (battles, VAC, explosions, riots, strategic developments) over the last
- * 30 days. The panel gives operators qualitative context to inform BCI
- * scope and comm framing — distinct from Exposure, which is "who of ours
- * is here." See ACLED_RISK_MOCK for the data shape.
+/* Country Risk Profile compact summary — shown inside the BCI Declaration
+ * modal, just below the Exposure in Scope card. Gives operators a one-line
+ * qualitative read on what's happening in the selected countries, with a
+ * link to the full standalone Risk Profile modal for deeper exploration.
+ *
+ * Full standalone modal (header 🌐 Risk Profile button) renders the
+ * detailed view; see riskModalHTML(). This keeps the BCI flow uncluttered
+ * without losing decision-time context.
  *
  * Three render states:
  *   - live + bare Pages (no ACLED data): pending-integration placeholder
  *   - mock mode + 0 countries selected: empty-state hint
- *   - mock mode + 1+ countries: aggregated counts + per-country breakdown
- *     when more than one country is selected
+ *   - mock mode + 1+ countries: compact aggregate one-liner + link
  */
 function bcpAcledRiskHTML() {
-  const header = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Country Risk Profile <span style="text-transform:none;letter-spacing:0;">· last 30 days · ACLED</span></div>`;
+  const header = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Country Risk Profile <span style="text-transform:none;letter-spacing:0;">· ACLED · last 30 days</span></div>`;
 
   // Live + bare Pages: pending-integration placeholder
   if (!hasAcledRisk()) {
     return `${header}<div style="font-size:11px;color:var(--muted);font-style:italic;">Pending ACLED license &amp; integration. Vetted civil-unrest and conflict counts will populate here once ACLED is connected.</div>`;
   }
 
-  // Mock mode + no country selected: empty-state hint
+  // Mock mode + no country selected: empty-state hint with link to full modal
   if (BCP_FORM.countries.length === 0) {
-    return `${header}<div style="font-size:11px;color:var(--muted);font-style:italic;">Pick one or more countries above to see vetted ACLED counts (battles, violence-against-civilians, explosions, riots, strategic developments) and total fatalities.</div>`;
+    return `${header}<div style="font-size:11px;color:var(--muted);">Pick one or more countries above for a quick read, or <a href="#" id="bcp-open-risk" style="color:var(--green);">browse the full Risk Profile →</a></div>`;
   }
 
   const total = aggregateAcledRisk(BCP_FORM.countries);
-  const showBreakdown = BCP_FORM.countries.length > 1;
-
-  // Per-country breakdown (only when multiple countries selected)
-  const breakdownRows = showBreakdown
-    ? BCP_FORM.countries.map(country => {
-        const r = ACLED_RISK[country] || { battles:0, vac:0, explosions:0, riots:0, strategicDev:0, fatalities:0 };
-        const events = r.battles + r.vac + r.explosions + r.riots + r.strategicDev;
-        return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-top:1px solid var(--border);">
-          <span style="color:var(--text);">${esc(country)}</span>
-          <span style="color:var(--muted);">${events} events · ${r.fatalities} fatalities</span>
-        </div>`;
-      }).join('')
-    : '';
-
   return `${header}
-    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;">
-      <div><b style="color:#ef4444;font-size:18px;">${total.battles}</b> battles</div>
-      <div><b style="color:#f87171;font-size:18px;">${total.vac}</b> VAC</div>
-      <div><b style="color:#fb923c;font-size:18px;">${total.explosions}</b> explosions</div>
-      <div><b style="color:#facc15;font-size:18px;">${total.riots}</b> riots</div>
-      <div><b style="color:#a3a3a3;font-size:18px;">${total.strategicDev}</b> strategic dev</div>
-    </div>
-    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;display:flex;justify-content:space-between;align-items:baseline;">
-      <span><b style="color:var(--text);font-size:16px;">${total.totalEvents.toLocaleString()}</b> violent events</span>
-      <span><b style="color:#ef4444;font-size:16px;">${total.fatalities.toLocaleString()}</b> fatalities reported</span>
-    </div>
-    ${showBreakdown ? `<div style="margin-top:8px;">${breakdownRows}</div>` : ''}
-    <div style="margin-top:8px;font-size:10px;color:var(--muted);font-style:italic;">VAC = violence against civilians. ACLED data has a typical 5-14 day publication lag — this is contextual baseline, not real-time detection.</div>`;
+    <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;gap:14px;flex-wrap:wrap;">
+      <span style="color:var(--text);">
+        <b style="color:var(--text);font-size:16px;">${total.totalEvents.toLocaleString()}</b> violent events · <b style="color:#ef4444;font-size:16px;">${total.fatalities.toLocaleString()}</b> fatalities
+        <span style="color:var(--muted);font-size:11px;">(across ${BCP_FORM.countries.length} ${BCP_FORM.countries.length===1?'country':'countries'})</span>
+      </span>
+      <a href="#" id="bcp-open-risk" style="color:var(--green);font-size:12px;white-space:nowrap;">View full Risk Profile →</a>
+    </div>`;
 }
 
 function bcpExposureSummaryHTML(exp) {
@@ -5024,6 +5176,18 @@ function bindBCPFormHandlers() {
     BCP_FORM.acknowledged = e.target.checked;
     updateBCPDeclareButton();
   });
+  // "View full Risk Profile →" link in the compact BCI risk panel — opens
+  // the standalone modal pre-populated with whatever countries are currently
+  // selected. The modal is layered on top via showModal() (single-modal
+  // architecture means closing the Risk modal will dismiss the BCI; that's
+  // a known limitation we can revisit if it becomes annoying).
+  const openRisk = document.getElementById('bcp-open-risk');
+  if (openRisk) {
+    openRisk.addEventListener('click', e => {
+      e.preventDefault();
+      showRiskProfileModal(BCP_FORM.countries);
+    });
+  }
 }
 
 function declareBCP() {
@@ -5086,7 +5250,277 @@ function declareBCP() {
 document.getElementById('btn-bcp').onclick = () => showBCPModal();
 
 /* =========================================================================
-   22. DEMO MODE — cycling alert + traveler simulator
+   21d. COUNTRY RISK PROFILE — standalone modal accessed from header
+   -------------------------------------------------------------------------
+   ACLED-backed view of vetted civil-unrest / armed-conflict counts per
+   country over the last 30 days. Designed for browsing, comparison, and
+   pre-trip / pre-incident situational awareness — NOT for live alerting
+   (ACLED has a typical 5-14 day publication lag).
+
+   Two entry points:
+   • Header button 🌐 Risk Profile → opens this modal cold (empty selection)
+   • BCI modal "View full Risk Profile →" link → opens this modal pre-
+     populated with BCP_FORM.countries
+
+   Live + bare Pages mode: shows pending-integration placeholder.
+   Mock mode: full UI populated from ACLED_RISK / ACLED_RISK_MOCK.
+   ========================================================================= */
+const RISK_VIEW = { selected: [], search: '', regionFilter: 'all' };
+
+function showRiskProfileModal(prefilledCountries) {
+  RISK_VIEW.selected = Array.isArray(prefilledCountries) ? prefilledCountries.slice() : [];
+  RISK_VIEW.search = '';
+  RISK_VIEW.regionFilter = 'all';
+  showModal(riskModalHTML());
+  bindRiskModalHandlers();
+}
+
+/* Build the country list for the chip grid:
+ *   - Union of COUNTRY_PRESENCE (always loaded) + ACLED_RISK (mock-only)
+ *   - Filtered by search (substring on name) and region filter
+ *   - Sorted by ACLED total event count DESC when available so high-incident
+ *     countries surface first; alphabetical when no ACLED data
+ *   - Each entry carries totals so chips can render the count inline
+ *
+ * This works in BOTH live and mock modes. Mock mode: chips show ACLED counts
+ * inline. Live mode: chips show no count (or "—"); operator can still pick
+ * countries to view Live Hazards from the active alert pipeline.
+ */
+function riskCountryList() {
+  // Build a name → entry map starting from COUNTRY_PRESENCE
+  const byName = new Map();
+  for (const cp of COUNTRY_PRESENCE) {
+    byName.set(cp.name, { name: cp.name, region: cp.region, total: 0, fatalities: 0, hasAcled: false });
+  }
+  // Overlay ACLED data when available
+  for (const [name, r] of Object.entries(ACLED_RISK)) {
+    const total = (r.battles||0) + (r.vac||0) + (r.explosions||0) + (r.riots||0) + (r.strategicDev||0);
+    const existing = byName.get(name);
+    if (existing) {
+      existing.total = total;
+      existing.fatalities = r.fatalities || 0;
+      existing.hasAcled = true;
+    } else {
+      // ACLED has data for a country not in COUNTRY_PRESENCE — surface it anyway
+      // (e.g. Ukraine, Yemen — not necessarily NR-presence countries but
+      // operationally relevant for traveler safety / BCI scope).
+      byName.set(name, { name, region: '—', total, fatalities: r.fatalities || 0, hasAcled: true });
+    }
+  }
+  const all = Array.from(byName.values());
+  const filtered = all.filter(c => {
+    if (RISK_VIEW.regionFilter !== 'all' && c.region !== RISK_VIEW.regionFilter) return false;
+    if (RISK_VIEW.search && !c.name.toLowerCase().includes(RISK_VIEW.search.toLowerCase())) return false;
+    return true;
+  });
+  filtered.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  return filtered;
+}
+
+/* Live Hazards panel for the Risk Profile modal — aggregates the existing
+ * alert pipeline (NWS / MeteoAlarm / GDACS / USGS / EMSC / EONET / State Dept)
+ * for the selected countries. Renders quietly when no live hazards are
+ * detected. Distinct from ACLED (historical context) below it.
+ */
+function riskLiveHazardsHTML() {
+  if (RISK_VIEW.selected.length === 0) return '';
+  const h = liveHazardsAggregated(RISK_VIEW.selected);
+  const outbreaks = outbreaksAggregated(RISK_VIEW.selected);
+  const header = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Live Hazards <span style="text-transform:none;letter-spacing:0;">· current · from active alert pipeline + WHO</span></div>`;
+
+  // Quiet state — nothing active in the selected scope
+  if (h.total === 0 && !h.travelAdvisoryLevel && outbreaks.length === 0) {
+    return `<div style="margin:14px 18px 0 18px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
+      ${header}
+      <div style="font-size:12px;color:var(--muted);font-style:italic;">No active hazards detected in the selected ${RISK_VIEW.selected.length===1?'country':'countries'}. The alert pipeline will refresh as new events come in.</div>
+    </div>`;
+  }
+
+  // Build the visible rows — only show categories with non-zero counts,
+  // plus the advisory level if elevated above L1.
+  const rows = [];
+  if (h.travelAdvisoryLevel) {
+    const ADVISORY_TEXT = { L1: 'Exercise Normal Precautions', L2: 'Exercise Increased Caution', L3: 'Reconsider Travel', L4: 'Do Not Travel' };
+    const ADVISORY_COLOR = { L1: 'var(--muted)', L2: '#facc15', L3: '#fb923c', L4: '#ef4444' };
+    rows.push(`<div style="font-size:13px;display:flex;align-items:center;gap:8px;">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${ADVISORY_COLOR[h.travelAdvisoryLevel]};"></span>
+      <span style="color:var(--text);"><b>Travel Advisory: ${h.travelAdvisoryLevel}</b> · ${ADVISORY_TEXT[h.travelAdvisoryLevel]}</span>
+      <span style="color:var(--muted);font-size:11px;">State Dept</span>
+    </div>`);
+  }
+  if (h.earthquakes)   rows.push(`<div style="font-size:13px;">🌍 <b>${h.earthquakes}</b> recent earthquake${h.earthquakes===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· USGS / EMSC</span></div>`);
+  if (h.severeWeather) rows.push(`<div style="font-size:13px;">🌪 <b>${h.severeWeather}</b> severe weather warning${h.severeWeather===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· NWS / MeteoAlarm</span></div>`);
+  if (h.gdacsActive)   rows.push(`<div style="font-size:13px;">🚨 <b>${h.gdacsActive}</b> GDACS Orange/Red event${h.gdacsActive===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· global disaster coordination</span></div>`);
+  if (h.wildfires)     rows.push(`<div style="font-size:13px;">🔥 <b>${h.wildfires}</b> wildfire${h.wildfires===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· EONET / NWS</span></div>`);
+  if (h.volcanoes)     rows.push(`<div style="font-size:13px;">🌋 <b>${h.volcanoes}</b> volcanic event${h.volcanoes===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· EONET</span></div>`);
+  if (h.civilUnrest)   rows.push(`<div style="font-size:13px;">⚠️ <b>${h.civilUnrest}</b> civil unrest event${h.civilUnrest===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· live feed</span></div>`);
+  if (h.publicSafety)  rows.push(`<div style="font-size:13px;">🚓 <b>${h.publicSafety}</b> public safety incident${h.publicSafety===1?'':'s'}</div>`);
+  // WHO Disease Outbreak News — show one row summarizing diseases. The
+  // detail (per-country, with cases / since dates) is below the rollup
+  // for operators who want to read the WHO source. Rendered only when
+  // outbreaks exist for the selected countries.
+  if (outbreaks.length > 0) {
+    const diseases = [...new Set(outbreaks.map(o => o.disease))];
+    const SEV_RANK_LOCAL = { low: 1, mod: 2, high: 3, ext: 4 };
+    const maxSev = outbreaks.reduce((max, o) => SEV_RANK_LOCAL[o.severity] > SEV_RANK_LOCAL[max] ? o.severity : max, 'low');
+    const maxColor = maxSev === 'ext' ? '#ef4444' : maxSev === 'high' ? '#fb923c' : maxSev === 'mod' ? '#facc15' : 'var(--muted)';
+    rows.push(`<div style="font-size:13px;">🦠 <b style="color:${maxColor};">${outbreaks.length}</b> active disease outbreak${outbreaks.length===1?'':'s'} <span style="color:var(--muted);font-size:11px;">· ${esc(diseases.join(', '))} · WHO</span></div>`);
+  }
+
+  // Optional WHO outbreak detail block — only shown if outbreaks exist;
+  // gives the operator the per-country, per-disease breakdown with WHO
+  // source links. Compact list, scrollable if it grows.
+  const outbreakDetail = outbreaks.length === 0 ? '' : `
+    <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">WHO Outbreak Detail</div>
+      ${outbreaks.map(o => {
+        const sevDot = o.severity === 'ext' ? '#ef4444' : o.severity === 'high' ? '#fb923c' : o.severity === 'mod' ? '#facc15' : 'var(--muted)';
+        const cases = o.cases ? ` · ${o.cases.toLocaleString()} cases` : '';
+        return `<div style="font-size:12px;padding:3px 0;display:flex;align-items:center;gap:8px;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sevDot};flex-shrink:0;"></span>
+          <span style="color:var(--text);"><b>${esc(o.country)}</b> · ${esc(o.disease)}</span>
+          <span style="color:var(--muted);font-size:11px;">since ${esc(o.since)}${cases}</span>
+          <a href="${esc(o.link)}" target="_blank" rel="noopener" style="color:var(--green);font-size:11px;margin-left:auto;">WHO ↗</a>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  return `<div style="margin:14px 18px 0 18px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
+    ${header}
+    <div style="display:flex;flex-direction:column;gap:6px;">${rows.join('')}</div>
+    ${outbreakDetail}
+  </div>`;
+}
+
+function riskModalHTML() {
+  const countries = riskCountryList();
+  const totalAvailable = countries.length;   // total countries in the picker (presence ∪ ACLED)
+  const selectedCount = RISK_VIEW.selected.length;
+  const aclLoaded = hasAcledRisk();
+  const aggregated = (selectedCount > 0 && aclLoaded) ? aggregateAcledRisk(RISK_VIEW.selected) : null;
+
+  const regionChip = (id, label) => `<button data-risk-region="${id}" style="padding:5px 11px;background:${id===RISK_VIEW.regionFilter?'var(--green)':'var(--bg3)'};color:${id===RISK_VIEW.regionFilter?'#062c1f':'var(--text)'};border:0;border-radius:14px;font-size:11px;cursor:pointer;font-weight:${id===RISK_VIEW.regionFilter?'700':'400'};">${esc(label)}</button>`;
+
+  // ACLED aggregated panel — three states:
+  //   1. ACLED data present + countries selected: full counts + breakdown
+  //   2. ACLED data present + nothing selected: empty hint
+  //   3. ACLED not loaded (live + bare Pages): pending placeholder with note
+  //      that Live Hazards above still works
+  const aclHeader = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">ACLED Historical Context <span style="text-transform:none;letter-spacing:0;">· last 30 days</span></div>`;
+  let aggregatedPanel;
+  if (!aclLoaded) {
+    aggregatedPanel = `<div style="margin:14px 18px 0 18px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
+      ${aclHeader}
+      <div style="font-size:12px;color:var(--muted);font-style:italic;">Pending ACLED license &amp; integration. Vetted civil-unrest and conflict counts (battles, violence-against-civilians, explosions, riots, strategic developments) will populate here once ACLED is connected. Live Hazards above pulls from the active alert pipeline regardless.</div>
+    </div>`;
+  } else if (aggregated) {
+    aggregatedPanel = `<div style="margin:14px 18px 0 18px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
+      ${aclHeader}
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;">
+        <div><b style="color:#ef4444;font-size:18px;">${aggregated.battles}</b> battles</div>
+        <div><b style="color:#f87171;font-size:18px;">${aggregated.vac}</b> VAC</div>
+        <div><b style="color:#fb923c;font-size:18px;">${aggregated.explosions}</b> explosions</div>
+        <div><b style="color:#facc15;font-size:18px;">${aggregated.riots}</b> riots</div>
+        <div><b style="color:#a3a3a3;font-size:18px;">${aggregated.strategicDev}</b> strategic dev</div>
+      </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;display:flex;justify-content:space-between;align-items:baseline;">
+        <span><b style="color:var(--text);font-size:16px;">${aggregated.totalEvents.toLocaleString()}</b> violent events</span>
+        <span><b style="color:#ef4444;font-size:16px;">${aggregated.fatalities.toLocaleString()}</b> fatalities reported</span>
+      </div>
+      ${selectedCount > 1 ? `<div style="margin-top:8px;">${
+        RISK_VIEW.selected.map(c => {
+          const r = ACLED_RISK[c] || { battles:0, vac:0, explosions:0, riots:0, strategicDev:0, fatalities:0 };
+          const events = r.battles + r.vac + r.explosions + r.riots + r.strategicDev;
+          return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-top:1px solid var(--border);">
+            <span style="color:var(--text);">${esc(c)}</span>
+            <span style="color:var(--muted);">${events} events · ${r.fatalities} fatalities</span>
+          </div>`;
+        }).join('')
+      }</div>` : ''}
+    </div>`;
+  } else {
+    aggregatedPanel = `<div style="margin:14px 18px 0 18px;padding:14px 18px;color:var(--muted);font-size:12px;font-style:italic;text-align:center;background:var(--bg3);border:1px dashed var(--border);border-radius:4px;">
+      Click one or more country chips below to see aggregated ACLED counts.
+    </div>`;
+  }
+
+  const chipGrid = countries.length === 0
+    ? `<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;font-style:italic;">No countries match the filter.</div>`
+    : `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 18px;">${
+        countries.map(c => {
+          const isSel = RISK_VIEW.selected.includes(c.name);
+          const heat = c.total >= 100 ? '#ef4444' : c.total >= 30 ? '#f59e0b' : c.total >= 5 ? '#a3a3a3' : '#525252';
+          // Show ACLED count badge only when data is available — in live mode
+          // c.hasAcled is false and a "0" badge would mislead the operator into
+          // thinking the country had zero events instead of "no ACLED data yet".
+          const badge = c.hasAcled
+            ? `<span style="background:${isSel?'rgba(0,0,0,0.18)':heat};color:${isSel?'#062c1f':'#fff'};border-radius:9px;padding:1px 7px;font-size:10px;font-weight:700;">${c.total}</span>`
+            : '';
+          return `<button class="risk-country-chip" data-country="${esc(c.name)}"
+            style="padding:5px 10px;border:1px solid ${isSel?'var(--green)':'var(--border)'};border-radius:14px;background:${isSel?'var(--green)':'var(--bg3)'};color:${isSel?'#062c1f':'var(--text)'};font-size:11px;cursor:pointer;font-weight:${isSel?'700':'500'};display:inline-flex;align-items:center;gap:6px;">
+            <span>${esc(c.name)}</span>${badge}
+          </button>`;
+        }).join('')
+      }</div>`;
+
+  return `<div style="width:min(720px,92vw);max-height:85vh;display:flex;flex-direction:column;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-size:16px;font-weight:700;">🌐 Country Risk Profile <span style="font-weight:400;color:var(--muted);font-size:13px;">· last 30 days · ACLED</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">Vetted civil-unrest and conflict counts. Note: ACLED has a typical 5-14 day publication lag — this is contextual baseline, not real-time detection.</div>
+      </div>
+      <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
+    </div>
+    <div style="display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
+      <input id="risk-search" type="text" placeholder="Search country..." value="${esc(RISK_VIEW.search)}"
+        style="flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);font-size:12px;" />
+      <div style="display:flex;gap:4px;">
+        ${regionChip('all','All')}${regionChip('Americas','Americas')}${regionChip('EMEA','EMEA')}${regionChip('APAC','APAC')}
+      </div>
+      <div style="font-size:11px;color:var(--muted);">${countries.length} of ${totalAvailable} countries</div>
+    </div>
+    ${riskLiveHazardsHTML()}
+    ${aggregatedPanel}
+    <div style="padding:12px 0 0 0;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding-left:18px;">
+      Countries by event count · click to add/remove
+    </div>
+    <div id="risk-chip-body" style="flex:1;overflow-y:auto;padding:10px 0 16px 0;">
+      ${chipGrid}
+    </div>
+  </div>`;
+}
+
+function bindRiskModalHandlers() {
+  const search = document.getElementById('risk-search');
+  if (search) {
+    search.addEventListener('input', e => {
+      RISK_VIEW.search = e.target.value;
+      // Re-render only the body; preserve focus on search input by not re-rendering the whole modal
+      const back = document.getElementById('modal-back');
+      if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
+      bindRiskModalHandlers();
+      // Restore focus to search after re-render
+      const s = document.getElementById('risk-search');
+      if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); }
+    });
+  }
+  document.querySelectorAll('[data-risk-region]').forEach(b => b.addEventListener('click', () => {
+    RISK_VIEW.regionFilter = b.dataset.riskRegion;
+    const back = document.getElementById('modal-back');
+    if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
+    bindRiskModalHandlers();
+  }));
+  document.querySelectorAll('.risk-country-chip').forEach(b => b.addEventListener('click', () => {
+    const c = b.dataset.country;
+    if (RISK_VIEW.selected.includes(c)) RISK_VIEW.selected = RISK_VIEW.selected.filter(x => x !== c);
+    else RISK_VIEW.selected.push(c);
+    const back = document.getElementById('modal-back');
+    if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
+    bindRiskModalHandlers();
+  }));
+}
+
+
    -------------------------------------------------------------------------
    Activates ONLY when the URL explicitly carries `#api=mock`.
    • The bare GitHub Pages URL (auto-detected mock mode) does NOT run the
@@ -5403,6 +5837,7 @@ if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
     EMPLOYEES = buildEmployees();
     TRAVELERS = TRAVELERS_MOCK.slice();
     ACLED_RISK = { ...ACLED_RISK_MOCK };
+    WHO_OUTBREAKS = WHO_OUTBREAKS_MOCK.slice();
     REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
     // 1. Enrich existing seed ALERTS so they pass the officeRelevantOnly filter
     ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
