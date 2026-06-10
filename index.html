@@ -859,6 +859,32 @@ function sumHeadcount(offices) {
   return offices.reduce((s, o) => s + (o.headcount || 0), 0);
 }
 
+/* ACLED risk-rollup helpers — ACLED_RISK is mock data populated only in
+ * #api=mock (see ACLED_RISK_MOCK + demo IIFE boot). In live + bare Pages
+ * the BCI Country Risk Profile panel shows a "pending ACLED" placeholder. */
+function hasAcledRisk() {
+  return Object.keys(ACLED_RISK).length > 0;
+}
+
+/* Sum the per-country rollups across the supplied country names. Returns
+ * the same schema each ACLED_RISK_MOCK entry has, with totalEvents added.
+ * Countries the operator selected that aren't in ACLED_RISK contribute 0. */
+function aggregateAcledRisk(countryNames) {
+  const totals = { battles: 0, vac: 0, explosions: 0, riots: 0, strategicDev: 0, fatalities: 0, totalEvents: 0 };
+  for (const name of countryNames) {
+    const r = ACLED_RISK[name];
+    if (!r) continue;
+    totals.battles      += r.battles      || 0;
+    totals.vac          += r.vac          || 0;
+    totals.explosions   += r.explosions   || 0;
+    totals.riots        += r.riots        || 0;
+    totals.strategicDev += r.strategicDev || 0;
+    totals.fatalities   += r.fatalities   || 0;
+  }
+  totals.totalEvents = totals.battles + totals.vac + totals.explosions + totals.riots + totals.strategicDev;
+  return totals;
+}
+
 /** Logged-in operator. Hardcoded for the prototype; will come from Okta when wired up.
  *  role: 'admin' | 'cmt' | 'office' | 'employee' */
 /**
@@ -4596,6 +4622,57 @@ const REMOTE_EMPLOYEES_MOCK = (() => {
 })();
 let REMOTE_EMPLOYEES = [];   // populated by demo bootstrap when #api=mock
 
+/* Mock ACLED country risk rollups — last 30 days of vetted civil-unrest /
+ * armed-conflict events per country. Populated only in demo mode (see boot
+ * below). Live + bare Pages keep ACLED_RISK = {} and the BCI modal shows
+ * "pending ACLED license & integration" placeholder.
+ *
+ * Numbers below are illustrative — they're meant to look plausible for
+ * what ACLED would report for each region (Yemen high, Switzerland zero,
+ * etc.) but should NOT be cited as factual. Real numbers will land via
+ * the ACLED API once licensed; until then this lets the Risk Profile
+ * panel render and the demo workflow hang together.
+ *
+ * Schema per entry:
+ *   battles      — Battles event_type
+ *   vac          — Violence against civilians
+ *   explosions   — Explosions/Remote violence
+ *   riots        — Riots
+ *   strategicDev — Strategic developments
+ *   fatalities   — total across all event types in the window
+ */
+const ACLED_RISK_MOCK = {
+  // Office countries
+  USA:         { battles: 0, vac: 3,  explosions: 1,  riots: 38,  strategicDev: 14, fatalities: 6 },
+  UK:          { battles: 0, vac: 1,  explosions: 0,  riots: 4,   strategicDev: 6,  fatalities: 0 },
+  Ireland:     { battles: 0, vac: 0,  explosions: 0,  riots: 1,   strategicDev: 2,  fatalities: 0 },
+  Spain:       { battles: 0, vac: 1,  explosions: 0,  riots: 6,   strategicDev: 4,  fatalities: 0 },
+  Japan:       { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 3,  fatalities: 0 },
+  India:       { battles: 4, vac: 22, explosions: 8,  riots: 51,  strategicDev: 18, fatalities: 41 },
+  // COUNTRY_PRESENCE additions (no office)
+  Canada:      { battles: 0, vac: 1,  explosions: 0,  riots: 3,   strategicDev: 2,  fatalities: 0 },
+  Mexico:      { battles: 12, vac: 87, explosions: 14, riots: 19,  strategicDev: 9,  fatalities: 142 },
+  Brazil:      { battles: 6, vac: 41, explosions: 2,  riots: 12,  strategicDev: 7,  fatalities: 68 },
+  Germany:     { battles: 0, vac: 2,  explosions: 0,  riots: 9,   strategicDev: 5,  fatalities: 0 },
+  France:      { battles: 0, vac: 3,  explosions: 1,  riots: 14,  strategicDev: 6,  fatalities: 1 },
+  Italy:       { battles: 0, vac: 1,  explosions: 0,  riots: 5,   strategicDev: 4,  fatalities: 0 },
+  Netherlands: { battles: 0, vac: 0,  explosions: 0,  riots: 2,   strategicDev: 1,  fatalities: 0 },
+  Switzerland: { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 1,  fatalities: 0 },
+  Israel:      { battles: 31, vac: 12, explosions: 84, riots: 18, strategicDev: 22, fatalities: 96 },
+  Australia:   { battles: 0, vac: 1,  explosions: 0,  riots: 2,   strategicDev: 2,  fatalities: 0 },
+  Singapore:   { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 1,  fatalities: 0 },
+  // High-incident countries operators are likely to check during a BCI
+  Ukraine:     { battles: 142, vac: 28, explosions: 218, riots: 4, strategicDev: 47, fatalities: 312 },
+  Russia:      { battles: 38, vac: 14, explosions: 91, riots: 7,  strategicDev: 33, fatalities: 84 },
+  Yemen:       { battles: 47, vac: 18, explosions: 73, riots: 8,  strategicDev: 12, fatalities: 156 },
+  Sudan:       { battles: 64, vac: 38, explosions: 22, riots: 6,  strategicDev: 14, fatalities: 281 },
+  // Travel-destination countries that may surface in the picker
+  UAE:         { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 2,  fatalities: 0 },
+  'South Korea': { battles: 0, vac: 0, explosions: 0, riots: 1,   strategicDev: 4,  fatalities: 0 },
+  Iceland:     { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 0,  fatalities: 0 },
+};
+let ACLED_RISK = {};  // populated by demo bootstrap when #api=mock
+
 const BCP_EVENT_TYPES = [
   { id:'terror',    label:'Terrorist incident',          titleHint:'Terror incident — ' },
   { id:'masscas',   label:'Mass-casualty event',         titleHint:'Mass-casualty event — ' },
@@ -4709,6 +4786,63 @@ function bcpExposureInScope() {
     totalExposed: officeHeadcount + travelers.length + remote.length };
 }
 
+/* Country Risk Profile panel — shown inside the BCI Declaration modal, just
+ * below the Exposure in Scope card. ACLED records what HAPPENED in a region
+ * (battles, VAC, explosions, riots, strategic developments) over the last
+ * 30 days. The panel gives operators qualitative context to inform BCI
+ * scope and comm framing — distinct from Exposure, which is "who of ours
+ * is here." See ACLED_RISK_MOCK for the data shape.
+ *
+ * Three render states:
+ *   - live + bare Pages (no ACLED data): pending-integration placeholder
+ *   - mock mode + 0 countries selected: empty-state hint
+ *   - mock mode + 1+ countries: aggregated counts + per-country breakdown
+ *     when more than one country is selected
+ */
+function bcpAcledRiskHTML() {
+  const header = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Country Risk Profile <span style="text-transform:none;letter-spacing:0;">· last 30 days · ACLED</span></div>`;
+
+  // Live + bare Pages: pending-integration placeholder
+  if (!hasAcledRisk()) {
+    return `${header}<div style="font-size:11px;color:var(--muted);font-style:italic;">Pending ACLED license &amp; integration. Vetted civil-unrest and conflict counts will populate here once ACLED is connected.</div>`;
+  }
+
+  // Mock mode + no country selected: empty-state hint
+  if (BCP_FORM.countries.length === 0) {
+    return `${header}<div style="font-size:11px;color:var(--muted);font-style:italic;">Pick one or more countries above to see vetted ACLED counts (battles, violence-against-civilians, explosions, riots, strategic developments) and total fatalities.</div>`;
+  }
+
+  const total = aggregateAcledRisk(BCP_FORM.countries);
+  const showBreakdown = BCP_FORM.countries.length > 1;
+
+  // Per-country breakdown (only when multiple countries selected)
+  const breakdownRows = showBreakdown
+    ? BCP_FORM.countries.map(country => {
+        const r = ACLED_RISK[country] || { battles:0, vac:0, explosions:0, riots:0, strategicDev:0, fatalities:0 };
+        const events = r.battles + r.vac + r.explosions + r.riots + r.strategicDev;
+        return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-top:1px solid var(--border);">
+          <span style="color:var(--text);">${esc(country)}</span>
+          <span style="color:var(--muted);">${events} events · ${r.fatalities} fatalities</span>
+        </div>`;
+      }).join('')
+    : '';
+
+  return `${header}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;">
+      <div><b style="color:#ef4444;font-size:18px;">${total.battles}</b> battles</div>
+      <div><b style="color:#f87171;font-size:18px;">${total.vac}</b> VAC</div>
+      <div><b style="color:#fb923c;font-size:18px;">${total.explosions}</b> explosions</div>
+      <div><b style="color:#facc15;font-size:18px;">${total.riots}</b> riots</div>
+      <div><b style="color:#a3a3a3;font-size:18px;">${total.strategicDev}</b> strategic dev</div>
+    </div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;display:flex;justify-content:space-between;align-items:baseline;">
+      <span><b style="color:var(--text);font-size:16px;">${total.totalEvents.toLocaleString()}</b> violent events</span>
+      <span><b style="color:#ef4444;font-size:16px;">${total.fatalities.toLocaleString()}</b> fatalities reported</span>
+    </div>
+    ${showBreakdown ? `<div style="margin-top:8px;">${breakdownRows}</div>` : ''}
+    <div style="margin-top:8px;font-size:10px;color:var(--muted);font-style:italic;">VAC = violence against civilians. ACLED data has a typical 5-14 day publication lag — this is contextual baseline, not real-time detection.</div>`;
+}
+
 function bcpExposureSummaryHTML(exp) {
   const officeIds = exp.offices.length ? exp.offices.map(o => o.id).join(', ') : 'none';
   // Three independent integrations gate the people-impact math:
@@ -4778,6 +4912,9 @@ function bcpFormBodyHTML() {
     </div>
     <div style="margin-bottom:14px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
       ${bcpExposureSummaryHTML(exp)}
+    </div>
+    <div style="margin-bottom:14px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
+      ${bcpAcledRiskHTML()}
     </div>
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Recommended Template</label>
@@ -5252,17 +5389,20 @@ if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
     }
 
     /* Boot */
-    // 0. Load mock people-data: office headcounts, travelers, remote employees.
-    //    All three surfaces (Travelers modal, ✈ proximity badges, BCI exposure
-    //    readout, office bubbles, alert cards) need this to render with numbers.
-    //    All three stay empty / undefined in live + bare Pages mode and the UI
-    //    shows "pending Workday/Navan integration" placeholders instead.
+    // 0. Load mock people-data: office headcounts, travelers, remote employees,
+    //    plus ACLED risk rollups for the BCI Country Risk Profile panel.
+    //    All four surfaces (Travelers modal, ✈ proximity badges, BCI exposure
+    //    readout, office bubbles, alert cards, BCI risk profile) need this to
+    //    render with numbers. All four stay empty / undefined in live + bare
+    //    Pages mode and the UI shows "pending Workday/Navan/ACLED integration"
+    //    placeholders instead.
     OFFICES.forEach(o => { o.headcount = OFFICE_HEADCOUNTS_MOCK[o.id]; });
     // buildEmployees() ran on initial parse with no headcounts (returned []).
     // Now that OFFICES.headcount is populated, rebuild the synthetic employee
     // scatter so map dots / By-Office plotting / Office Manager view all populate.
     EMPLOYEES = buildEmployees();
     TRAVELERS = TRAVELERS_MOCK.slice();
+    ACLED_RISK = { ...ACLED_RISK_MOCK };
     REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
     // 1. Enrich existing seed ALERTS so they pass the officeRelevantOnly filter
     ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
