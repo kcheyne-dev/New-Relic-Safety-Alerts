@@ -8,14 +8,15 @@ Internal Crisis Management Team (CMT) dashboard. Real-time threat monitoring, cr
 
 The docs are living markdown — edit, commit, push, and the GitHub-rendered version updates within ~30 seconds.
 
-| Doc | Purpose |
-| --- | --- |
-| [`docs/build-synopsis.md`](./docs/build-synopsis.md) | Comprehensive system synopsis — architecture, what's shipped, what's mock, what's pending. **The doc to share with stakeholders.** |
-| [`docs/user-manual.md`](./docs/user-manual.md) | Full operator manual — every feature explained section by section |
-| [`docs/quick-reference.md`](./docs/quick-reference.md) | One-page operator card — workflow + keyboard moves + diagnostic queries |
-| [`docs/severity-thresholds.md`](./docs/severity-thresholds.md) | Per-source severity rule tables, tuning principle, proximity gate |
+| Doc | Format | Purpose |
+| --- | --- | --- |
+| [`docs/build-synopsis.md`](./docs/build-synopsis.md) | markdown | Comprehensive system synopsis — architecture, what's shipped, what's mock, what's pending. **The doc to share with stakeholders.** |
+| [`docs/user-manual.md`](./docs/user-manual.md) · [`docs/user-manual.html`](./docs/user-manual.html) | markdown + html | Full operator manual — every feature explained, with visual examples in the HTML |
+| [`docs/quick-reference.md`](./docs/quick-reference.md) · [`docs/quick-reference.html`](./docs/quick-reference.html) | markdown + html | One-page operator card — workflow + smart-suggest table + diagnostic queries. HTML version is print-friendly with the full visual workflow flow |
+| [`docs/severity-thresholds.md`](./docs/severity-thresholds.md) | markdown | Per-source severity rule tables, tuning principle, proximity gate |
+| [`docs/project-overview.html`](./docs/project-overview.html) | html | Original (pre-rebuild) project overview — historical context |
 
-Original pre-rebuild HTML docs are preserved for historical reference at `docs/project-overview.html`, `docs/user-manual.html`, `docs/quick-reference.html`. They predate today's threshold work, mock-data gating, Crisis Comm template expansion, Risk Profile, and Live Hazards — treat as historical context, not current truth.
+The HTML versions of the user manual and quick reference share content with the markdown versions but render with full dashboard styling (dark theme, NR green accent, color-coded severity pills, mock alert cards, exposure readouts, country chip examples). Use whichever format suits the audience — markdown for engineers reading on GitHub, HTML for stakeholder demos and printing.
 
 ## Three operating modes
 
