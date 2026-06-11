@@ -107,7 +107,13 @@ export const sfPoliceAdapter: SourceAdapter = {
         radiusKm: 1,                                    // local incident
         issuedAt: new Date(r.incident_datetime),
         expiresAt: null,
-        sourceUrl: `https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports-2018-to-Present/wg3w-h783/explore?qid=${encodeURIComponent(id)}`,
+        // Socrata's `qid=` is a SAVED-QUERY ID, not a row ID — passing the
+        // incident_id there made the page silently fall through to a default
+        // exploration view (years-old unrelated data). The Socrata API
+        // endpoint below filters to the exact incident as JSON. There's no
+        // friendly per-row page on Socrata for this dataset, so JSON is
+        // the best we can do for a stable per-incident link.
+        sourceUrl: `https://data.sfgov.org/resource/wg3w-h783.json?$where=${encodeURIComponent(`incident_id='${id}'`)}`,
       };
       items.push({ sourceEventId: id, payload: r, normalized });
     }

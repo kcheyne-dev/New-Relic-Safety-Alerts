@@ -78,24 +78,53 @@ export function fromTravelLevel(category: string | string[] | undefined): Severi
   }
 }
 
-/** TfL line status severity (1-20 numeric scale). */
+/** TfL line status severity (1-20 numeric scale).
+ *
+ *  Reference (TfL Unified API):
+ *    0  Special Service          7  Reduced Service
+ *    1  Closed                   8  Bus Service (replacement)
+ *    2  Suspended                9  Minor Delays      ← common, NOT high
+ *    3  Part Suspended          10  Good Service
+ *    4  Planned Closure         11  Part Closed
+ *    5  Part Closure            14  Change of Frequency
+ *    6  Severe Delays           17  Issues Reported
+ *                               19  Information
+ *                               20  Service Closed
+ *
+ *  CMT-relevance bar: only real disruptions (closures + severe delays).
+ *  Minor delays, reduced service, bus replacements, and informational
+ *  status updates are dropped at ingest time.
+ */
 export function fromTflStatusSeverity(n: number): Severity {
-  // TfL severity: 0-3 = severe disruption, 4-9 = major, 10-19 = minor, 20 = good service
-  if (n <= 3)  return 'ext';
-  if (n <= 9)  return 'high';
-  if (n <= 19) return 'mod';
-  return 'low';
+  if (n >= 1 && n <= 3) return 'ext';   // Closed / Suspended / Part Suspended
+  if (n >= 4 && n <= 6) return 'high';  // Planned/Part Closure / Severe Delays
+  return 'low';                          // everything else: filter out
 }
 
-/** Police-incident category → severity. Used by SF + ATL adapters. */
+/** Police-incident category → severity. Used by SF + ATL adapters.
+ *
+ *  CMT-relevance bar: only events that meaningfully threaten employee
+ *  safety inside or around an office. Property crime, drug offenses,
+ *  trespass, and ordinary assault don't clear that bar — even close
+ *  to an office, they're a routine-policing concern, not a CMT one.
+ *
+ *  Result tiers:
+ *    ext  — active life threat (mass-casualty / active shooter / bomb)
+ *    high — imminent armed danger (armed robbery, aggravated assault,
+ *           weapon-involved, carjacking, arson)
+ *    low  — everything else (filtered out by the adapter)
+ *
+ *  No mod tier here on purpose. Earlier mappings sent 'drug', 'burglary',
+ *  'disturbance' into mod, which produced a noisy SFPD incident wall.
+ */
 export function fromPoliceCategory(category: string): Severity {
   const c = category.toLowerCase();
-  // Lethal / armed
-  if (/(homicide|murder|shooting|stabbing|kidnap|hostage|terrorism|active shooter|bomb|explosion)/.test(c)) return 'ext';
-  // Violent / weapon
-  if (/(armed robbery|aggravated assault|weapon|firearm|carjacking|arson|sexual assault|battery)/.test(c)) return 'high';
-  // Theft / property / disturbance
-  if (/(robbery|burglary|assault|narcotics|disturbance|drug|gang|domestic|trespass)/.test(c)) return 'mod';
-  // Misc / non-violent
+  // Active life threat
+  if (/(homicide|murder|shooting|stabbing|kidnap|hostage|terrorism|active shooter|bomb|explosion|mass.?(casualty|shooting))/.test(c))
+    return 'ext';
+  // Imminent armed danger
+  if (/(armed robbery|aggravated assault|weapon|firearm|carjacking|arson|sexual assault)/.test(c))
+    return 'high';
+  // Everything else: drop
   return 'low';
 }
