@@ -61,5 +61,9 @@ export const config = {
       password:        process.env.ACLED_PASSWORD ?? '',
       lookbackDays:    num(process.env.ACLED_LOOKBACK_DAYS, 7),
     },
+    whoDon:         {
+      disabled:        flag(process.env.WHO_DON_DISABLED),
+      intervalSeconds: num(process.env.WHO_DON_FETCH_INTERVAL, 21600),  // 6 hours
+    },
   },
 };

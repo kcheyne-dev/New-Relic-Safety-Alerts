@@ -12,6 +12,7 @@ import { pdxFlashalertAdapter } from '../adapters/pdx_flashalert.js';
 import { londonTflAdapter } from '../adapters/london_tfl.js';
 import { gdeltAdapter } from '../adapters/gdelt.js';
 import { acledAdapter } from '../adapters/acled.js';
+import { whoDonAdapter } from '../adapters/who_don.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
 import { persistBatch, markSourceOk, markSourceError } from '../pipeline/persist.js';
@@ -46,6 +47,21 @@ async function runOnce(adapter: SourceAdapter): Promise<void> {
   }
 }
 
+/** WHO DON has its own custom path — persists to who_outbreaks table, not events.
+ *  Same source-health bookkeeping as regular adapters so the dashboard's
+ *  Sources X/Y indicator covers it consistently. */
+async function runWhoOnce(): Promise<void> {
+  try {
+    log.debug({ source: whoDonAdapter.id }, 'fetch.start');
+    await whoDonAdapter.run();
+    await markSourceOk(whoDonAdapter.id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ source: whoDonAdapter.id, err: msg }, 'fetch.failed');
+    await markSourceError(whoDonAdapter.id, msg);
+  }
+}
+
 export function startScheduler(): void {
   for (const { adapter, disabled } of ADAPTERS) {
     if (disabled) {
@@ -57,6 +73,16 @@ export function startScheduler(): void {
     const stagger = Math.floor(Math.random() * 3000);
     setTimeout(() => runOnce(adapter), stagger);
     setInterval(() => runOnce(adapter), adapter.intervalSeconds * 1000);
+  }
+
+  // WHO DON — separate path because it persists to its own table.
+  // Disable knob: WHO_DON_DISABLED=true (defaults to enabled).
+  if (config.sources.whoDon?.disabled) {
+    log.warn({ source: whoDonAdapter.id }, 'source.disabled');
+  } else {
+    log.info({ source: whoDonAdapter.id, intervalSeconds: whoDonAdapter.intervalSeconds }, 'source.scheduled');
+    setTimeout(runWhoOnce, Math.floor(Math.random() * 3000));
+    setInterval(runWhoOnce, whoDonAdapter.intervalSeconds * 1000);
   }
 }
 

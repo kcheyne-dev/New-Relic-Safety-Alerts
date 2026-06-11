@@ -5,9 +5,14 @@ import { log } from '../log.js';
 /**
  * Transport for London — line status / disruption feed.
  *
- * Endpoint: https://api.tfl.gov.uk/Line/Mode/tube,bus,dlr,overground,tflrail/Status?detail=true
+ * Endpoint: https://api.tfl.gov.uk/Line/Mode/{modes}/Status?detail=true
  * Auth:     none for low-volume use; commercial use requires a free API key
+ *           (set TFL_APP_KEY env var to pass it as ?app_key=...)
  * Format:   JSON array of Line objects
+ *
+ * Mode list is rail-only — bus disruptions flooded the feed without adding
+ * actionable signal for an office dashboard, and TfL's older `tflrail` mode
+ * was renamed to `elizabeth-line` (sending the old name produces HTTP 400).
  *
  * TfL uses a 1-20 statusSeverity scale (lower = worse). We map:
  *   ≤3   → ext   (severe disruption)
@@ -20,9 +25,17 @@ import { log } from '../log.js';
  * dashboard view, an office-anchored circle is fine.
  */
 
-const FEED_URL = 'https://api.tfl.gov.uk/Line/Mode/tube,bus,dlr,overground,tflrail/Status?detail=true';
+const MODES = 'tube,dlr,overground,elizabeth-line';
 const LON_LAT = 51.5145;
 const LON_LNG = -0.1037;
+
+function buildFeedUrl(): string {
+  const url = `https://api.tfl.gov.uk/Line/Mode/${MODES}/Status?detail=true`;
+  if (process.env.TFL_APP_KEY) {
+    return `${url}&app_key=${encodeURIComponent(process.env.TFL_APP_KEY)}`;
+  }
+  return url;
+}
 
 interface TflLineStatus {
   statusSeverity?: number;
@@ -44,8 +57,8 @@ export const londonTflAdapter: SourceAdapter = {
   intervalSeconds: 600,
 
   async fetch(): Promise<RawAndNormalized[]> {
-    const resp = await globalThis.fetch(FEED_URL, {
-      headers: { Accept: 'application/json' },
+    const resp = await globalThis.fetch(buildFeedUrl(), {
+      headers: { Accept: 'application/json', 'User-Agent': 'nr-safety-alerts/0.1' },
     });
     if (!resp.ok) throw new Error(`TfL returned HTTP ${resp.status}`);
     const data = (await resp.json()) as TflLine[];

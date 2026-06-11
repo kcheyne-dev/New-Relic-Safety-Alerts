@@ -7,9 +7,15 @@ import { log } from '../log.js';
  * MeteoAlarm — European weather warnings (per-country Atom feeds aggregated
  * to a Europe-wide entry list).
  *
- * Endpoint: https://feeds.meteoalarm.org/api/v1/warnings/feeds-europe
+ * Endpoint: https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-europe
  * Auth:     none
- * Format:   Atom XML; each <entry> has CAP-style severity color and area names
+ * Format:   Atom XML
+ *
+ * MeteoAlarm has gone through several API redesigns. The previous endpoints
+ * returned 404 or 406:
+ *   - feeds.meteoalarm.org/api/v1/warnings/feeds-europe (404 — deprecated)
+ *   - With XML Accept headers (406 — JSON-only on that path)
+ * The legacy Atom endpoint above is the most stable for read-only consumers.
  *
  * Severity colors map to:
  *   green  → low      (no awareness needed; we keep these out by default)
@@ -21,7 +27,7 @@ import { log } from '../log.js';
  * geocoding layer to resolve them.
  */
 
-const FEED_URL = 'https://feeds.meteoalarm.org/api/v1/warnings/feeds-europe';
+const FEED_URL = 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-europe';
 const xml = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -64,14 +70,45 @@ export const meteoalarmAdapter: SourceAdapter = {
 
   async fetch(): Promise<RawAndNormalized[]> {
     const resp = await globalThis.fetch(FEED_URL, {
-      headers: { 'User-Agent': 'nr-safety-alerts/0.1', Accept: 'application/atom+xml,application/xml,text/xml' },
+      headers: {
+        'User-Agent': 'nr-safety-alerts/0.1',
+        Accept: 'application/atom+xml,application/xml,text/xml,application/json,*/*',
+      },
     });
     if (!resp.ok) throw new Error(`MeteoAlarm feed returned HTTP ${resp.status}`);
-    const text = await resp.text();
-    const parsed = xml.parse(text) as AtomFeed;
-    const entries = parsed.feed?.entry;
-    const list: AtomEntry[] = Array.isArray(entries) ? entries : entries ? [entries] : [];
-    log.debug({ count: list.length }, 'meteoalarm.fetched');
+
+    // Handle both XML (legacy Atom feed) and JSON (newer v1 API) responses.
+    const ct = resp.headers.get('content-type') || '';
+    let list: AtomEntry[] = [];
+    if (ct.includes('json')) {
+      const json = await resp.json() as { warnings?: any[] };
+      const warnings = Array.isArray(json?.warnings) ? json.warnings : [];
+      // Map JSON v1 schema → the AtomEntry-like shape the rest of this adapter expects.
+      // v1 entries have feedSource + code + country + info[] (per-language).
+      list = warnings.flatMap((w: any) => {
+        const en = (Array.isArray(w?.info) ? w.info : []).find((i: any) => i?.language === 'en') ?? w?.info?.[0];
+        if (!en) return [];
+        return [{
+          id:               w.identifier ?? `${w.feedSource ?? 'meteoalarm'}-${w.code ?? Math.random().toString(36)}`,
+          title:            en.event ?? '',
+          summary:          en.description ?? en.headline ?? '',
+          updated:          w.sent ?? en.effective ?? '',
+          link:             en.web ? { '@_href': en.web } : undefined,
+          'cap:areaDesc':   Array.isArray(en.area) ? en.area.map((a: any) => a.areaDesc).filter(Boolean).join(', ') : (en.area?.areaDesc ?? ''),
+          'cap:event':      en.event ?? '',
+          'cap:severity':   en.severity ?? '',
+          'cap:onset':      en.onset ?? '',
+          'cap:expires':    en.expires ?? '',
+          'cap:effective':  en.effective ?? '',
+        }];
+      });
+    } else {
+      const text = await resp.text();
+      const parsed = xml.parse(text) as AtomFeed;
+      const entries = parsed.feed?.entry;
+      list = Array.isArray(entries) ? entries : entries ? [entries] : [];
+    }
+    log.debug({ count: list.length, format: ct.includes('json') ? 'json' : 'xml' }, 'meteoalarm.fetched');
 
     const items: RawAndNormalized[] = [];
     let droppedThreshold = 0;

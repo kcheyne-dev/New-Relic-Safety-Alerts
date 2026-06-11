@@ -4420,6 +4420,27 @@ function subscribeLiveStream() {
   es.onerror = () => { /* EventSource auto-reconnects; no log spam */ };
 }
 
+async function backfillWhoOutbreaks() {
+  // WHO Disease Outbreak News — populated separately from the alert pipeline.
+  // Schema mirrors WHO_OUTBREAKS_MOCK so the swap from mock → real is data-only.
+  // Soft-fails: a missing or stale-error WHO endpoint shouldn't block the dashboard.
+  try {
+    const json = await apiFetch('/api/who-outbreaks');
+    if (Array.isArray(json?.outbreaks)) {
+      WHO_OUTBREAKS = json.outbreaks;
+      // If the Risk Profile modal is currently open, re-render it so the new data shows.
+      const back = document.getElementById('modal-back');
+      if (back && document.querySelector('.risk-country-chip')) {
+        back.querySelector('.modal').innerHTML = riskModalHTML();
+        bindRiskModalHandlers();
+      }
+    }
+  } catch (err) {
+    // Don't disrupt dashboard if WHO is unavailable — outbreak data is contextual, not critical.
+    console.warn('WHO outbreaks fetch failed:', err);
+  }
+}
+
 async function bootLiveMode() {
   try {
     const me = await apiFetch('/api/auth/me');
@@ -4430,10 +4451,14 @@ async function bootLiveMode() {
   } catch { /* token invalid → showLoginModal already handled it */ return; }
 
   await backfillAlerts();
+  await backfillWhoOutbreaks();
   subscribeLiveStream();
 
-  // Refresh-on-focus: when tab regains focus, re-pull events
-  window.addEventListener('focus', backfillAlerts);
+  // Refresh-on-focus: when tab regains focus, re-pull events + WHO outbreaks
+  window.addEventListener('focus', () => {
+    backfillAlerts();
+    backfillWhoOutbreaks();
+  });
 }
 
 if (API_BASE) {
