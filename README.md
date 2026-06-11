@@ -1,35 +1,98 @@
 # New Relic Safety Alerts
 
-A global threat-monitoring and crisis-communications dashboard for the Crisis Management Team (CMT).
+Internal Crisis Management Team (CMT) dashboard. Real-time threat monitoring, crisis communications, and incident lifecycle management for New Relic offices and travelers worldwide.
 
-Single-file static web app. Open `index.html` in a browser, or host on GitHub Pages.
+**Live demo:** https://kcheyne-dev.github.io/New-Relic-Safety-Alerts/
 
-## Features
+## Documentation
 
-- **Live map** with 9 office hubs (SFO, PDX, ATL, BCN, DUB, LON, TYO, BLR, HYD), color-coded by highest active severity (Low / Moderate / High / Extreme).
-- **Alert feed** with By-Office and Timeline tabs, fed by 15 mock data sources (NWS, USGS, EMSC, NASA EONET, GDACS, ACLED, GDELT, Flashalert, Socrata, ArcGIS APD, FEMA IPAWS, State Dept, MeteoAlarm, OpenWeatherMap, OpenAQ).
-- **Layers panel** — hazard overlays, severity threshold filter, office visibility, alert type filters, employee CSV upload (By-Office vs By-ZIP), traveler Navan CSV upload.
-- **Geo-fence** — circle / rectangle / polygon, Highlight vs Filter mode, dual results (dropdown + bottom bar with employee/traveler chips), CSV export, Crisis fast-path.
-- **Crisis Communications** — Compose / Log / Room tabs, multi-office targeting with chips, Slack/Email channels (SMS coming-soon), 5 templates, Response Required tracking, configurable reminder interval, send confirmation.
-- **Incidents** — Details / Messages / Notes / Log tabs, per-employee OK/Help responses, traveler subsection, color-coded activity timeline, sealed close-out.
-- **Travelers** plotted at destination — office badge ("N✈"), airplane (air booking), hotel (hotel booking), cluster.
-- **Theme toggle** — dark (default) / light, with matching CartoDB tiles.
-- **Data freshness indicator** — green/yellow/red per source.
+The docs are living markdown — edit, commit, push, and the GitHub-rendered version updates within ~30 seconds.
 
-## Hosting on GitHub Pages
+| Doc | Purpose |
+| --- | --- |
+| [`docs/build-synopsis.md`](./docs/build-synopsis.md) | Comprehensive system synopsis — architecture, what's shipped, what's mock, what's pending. **The doc to share with stakeholders.** |
+| [`docs/user-manual.md`](./docs/user-manual.md) | Full operator manual — every feature explained section by section |
+| [`docs/quick-reference.md`](./docs/quick-reference.md) | One-page operator card — workflow + keyboard moves + diagnostic queries |
+| [`docs/severity-thresholds.md`](./docs/severity-thresholds.md) | Per-source severity rule tables, tuning principle, proximity gate |
+
+Original pre-rebuild HTML docs are preserved for historical reference at `docs/project-overview.html`, `docs/user-manual.html`, `docs/quick-reference.html`. They predate today's threshold work, mock-data gating, Crisis Comm template expansion, Risk Profile, and Live Hazards — treat as historical context, not current truth.
+
+## Three operating modes
+
+The dashboard auto-detects mode from the URL:
+
+| URL | Mode | Data |
+| --- | --- | --- |
+| `localhost:8000` | **Live** | Real polling from local backend on `:8080`. JWT login required. |
+| GitHub Pages bare URL | **Bare Pages** | Static seed alerts only. Clean stakeholder demo. |
+| Any URL with `#api=mock` hash | **Demo** | Cycling alerts simulator + full mock people-data. Tabletop exercises. |
+
+## Architecture
+
+**Frontend** is a single-file HTML/JS prototype (`index.html`) deployed via GitHub Pages.
+
+**Backend** is a TypeScript / Fastify / Postgres+PostGIS service in `backend/`. Polls 7 active source feeds (USGS, NWS, EMSC, GDACS, EONET, State Department, ACLED-pending), applies per-source severity threshold rules at ingest time, persists to the DB, and exposes `/api/events` + SSE stream `/api/events/stream` to the frontend. Runs locally via Postgres.app + `npm run dev`. Production hosting (Hetzner / Fly.io / Railway) estimated at $10-30/month.
+
+## Source feeds
+
+| Source | Coverage | Cadence | Status |
+| --- | --- | --- | --- |
+| USGS | Global earthquakes M4.5+ | 60s | active |
+| EMSC | EU seismic | 5min | active |
+| NWS | US weather warnings | 5min | active |
+| GDACS | Global disasters Orange/Red | 10min | active |
+| EONET | NASA wildfires/storms/volcanoes | 10min | active (occasional 503s) |
+| State Department | Travel advisories L3+ | 24h | active |
+| ACLED | Civil unrest (vetted) | 15min | scaffolded; license pending |
+| GDELT | News-mention noise | — | disabled |
+| MeteoAlarm | EU weather | — | broken (HTTP 406) |
+| TfL | London transit | — | broken (HTTP 400) |
+| FlashAlert | Portland public safety | — | broken (HTTP 404) |
+| SF Socrata | SF police | — | broken (HTTP 400) |
+
+Severity thresholds in [`docs/severity-thresholds.md`](./docs/severity-thresholds.md). Threshold module in `backend/src/pipeline/thresholds.ts`.
+
+## Pending integrations
+
+- **Workday** → office headcounts, remote employees, country presence verification
+- **Navan** → traveler itineraries
+- **Okta** → SSO + role-based access (Admin / CMT / Office Manager / Employee)
+- **Slack** outbound (programmatic Crisis Comm sends) → inbound (employee OK/HELP capture)
+- **Gmail** → email-channel parity with Slack
+- **ACLED** commercial license → real civil-unrest historical data
+
+Until each integration lands, the dashboard shows "pending integration" placeholders rather than fake numbers — see [`docs/build-synopsis.md`](./docs/build-synopsis.md) for the full mock-vs-real status table.
+
+## Running locally
+
+Postgres.app must be running. Three terminals:
 
 ```bash
-git remote add origin https://github.com/<your-user>/<repo>.git
-git push -u origin main
+# Backend
+cd backend && npm run dev
+
+# Frontend
+python3 -m http.server 8000
+
+# Scratch — for psql, git, etc.
 ```
 
-Then in repo Settings → Pages → Source: `main` branch, root.
+Then open `http://localhost:8000` and log in. Default users in the local DB are `kcheyne@newrelic.com` and `kevin@newrelic.com` with role `cmt`.
+
+To reset a password:
+
+```bash
+cd backend && npm run create-user -- --email=<email> --password=<pw> --role=cmt
+```
 
 ## Stack
 
-- Pure HTML / CSS / vanilla JS — no build step.
-- [Leaflet](https://leafletjs.com/) + Leaflet.draw + Leaflet.markercluster (via CDN).
-- [CartoDB tiles](https://carto.com/) (dark/light basemaps).
-- All data is mocked client-side; CSV uploads parse Navan-style traveler exports and standard employee directories.
+- **Frontend:** vanilla HTML/CSS/JS, Leaflet + Leaflet.draw + Leaflet.markercluster (via CDN), CartoDB tiles.
+- **Backend:** TypeScript, Fastify, Postgres + PostGIS, Pino logging.
+- **Build:** none — frontend has no build step. Backend uses tsx for dev, esbuild for prod (when hosted).
+
+## Repo
+
+`git@github.com:kcheyne-dev/New-Relic-Safety-Alerts.git` — main branch deploys to GitHub Pages within 1-3 minutes of push.
 
 Built with Cowork.
