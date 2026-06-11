@@ -30,7 +30,8 @@ export interface ApiEvent {
   title: string;
   summary: string;
   sev: Severity;
-  type: string;
+  type: string;             // granular type: 'earthquake', 'assault', 'transit_disruption', etc.
+  category: string;         // coarse category: 'natural' | 'civil' | 'public_safety' | 'travel' | 'health'
   source: string;
   location: string;
   lat: number;

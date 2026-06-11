@@ -105,7 +105,12 @@ export const atlApdAdapter: SourceAdapter = {
         type: cat.toLowerCase().replace(/\s+/g, '_'),
         location: a.Location ?? 'Atlanta',
         lat, lng,
-        radiusKm: 1,
+        // Adapter pre-filters to RADIUS_METERS (8 km) around the ATL office,
+        // so any event that survives is by definition city-scoped. Match
+        // the event radius to that perimeter so the proximity test against
+        // the office agrees with the adapter's intent. (See sf_police.ts
+        // for the longer rationale.)
+        radiusKm: 8,
         issuedAt: new Date(issuedMs),
         expiresAt: null,
         sourceUrl: 'https://opendata.atlantapd.org/',

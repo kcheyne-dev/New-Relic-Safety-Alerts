@@ -51,7 +51,7 @@ export async function eventsRoutes(app: FastifyInstance): Promise<void> {
     params.push(q.limit);
 
     const sql = `
-      SELECT id, title, summary, severity, type, primary_source_id,
+      SELECT id, title, summary, severity, type, category, primary_source_id,
              location, lat, lng, radius_km, issued_at, source_url,
              affected_office_ids, contributing_sources
       FROM events
@@ -69,6 +69,7 @@ export async function eventsRoutes(app: FastifyInstance): Promise<void> {
       summary: r.summary ?? '',
       sev: r.severity,
       type: r.type ?? '',
+      category: r.category ?? '',
       source: r.primary_source_id,
       location: r.location ?? '',
       lat: Number(r.lat),

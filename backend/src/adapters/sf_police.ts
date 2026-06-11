@@ -104,7 +104,15 @@ export const sfPoliceAdapter: SourceAdapter = {
         type: cat.toLowerCase().replace(/\s+/g, '_'),
         location: r.intersection ?? 'San Francisco',
         lat, lng,
-        radiusKm: 1,                                    // local incident
+        // The adapter pre-filters to a ~20 km bounding box centered on the
+        // SF office (188 Spear St), so any event that survives is already
+        // city-scoped. We set the event radius to match that scope so the
+        // proximity test against the office agrees with the adapter's intent.
+        // A 1 km radius (truly local) would cause armed-crime incidents
+        // anywhere in the city except the few blocks around the office to
+        // fail the office-relevance test — defeating the purpose of running
+        // the SFPD adapter in the first place.
+        radiusKm: 15,
         issuedAt: new Date(r.incident_datetime),
         expiresAt: null,
         // Socrata's `qid=` is a SAVED-QUERY ID, not a row ID — passing the

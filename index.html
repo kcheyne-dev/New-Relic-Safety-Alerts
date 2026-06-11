@@ -4368,7 +4368,8 @@ function showLoginModal() {
 }
 
 // Map backend granular type ('earthquake', 'tornado_warning', etc.) to one of the
-// 4 frontend categories the filter UI knows about.
+// 4 frontend categories the filter UI knows about. Used as a fallback only —
+// the authoritative path is the API's `category` field (see mapBackendCategory).
 const BACKEND_TYPE_TO_CATEGORY = {
   earthquake: 'Natural Disaster', tropical_cyclone: 'Natural Disaster',
   severe_storm: 'Natural Disaster', tornado_warning: 'Natural Disaster',
@@ -4382,8 +4383,60 @@ const BACKEND_TYPE_TO_CATEGORY = {
   transit_disruption: 'Public Safety',
   manmade: 'Civil Unrest',
 };
+
+// Authoritative: backend writes `category` at ingest per-adapter. This 1:1 map
+// translates the backend's coarse-category enum to the frontend's display
+// names. Health entries don't currently have a frontend filter — they live
+// in the WHO outbreaks panel rather than the alert feed.
+const BACKEND_CATEGORY_TO_LABEL = {
+  natural:        'Natural Disaster',
+  civil:          'Civil Unrest',
+  public_safety:  'Public Safety',
+  travel:         'Travel Advisory',
+  health:         'Public Safety',  // best fallback — no dedicated UI bucket
+};
+
+// Source-ID fallback when neither `category` nor `type` resolves cleanly.
+// Avoids the old failure mode where SF/ATL police events fell through to
+// 'Natural Disaster'.
+const SOURCE_ID_TO_CATEGORY = {
+  usgs:           'Natural Disaster',
+  nws:            'Natural Disaster',
+  emsc:           'Natural Disaster',
+  eonet:          'Natural Disaster',
+  gdacs:          'Natural Disaster',
+  meteoalarm:     'Natural Disaster',
+  state_dept:     'Travel Advisory',
+  sf_police:      'Public Safety',
+  atl_apd:        'Public Safety',
+  pdx_flashalert: 'Public Safety',
+  london_tfl:     'Public Safety',
+  gdelt:          'Civil Unrest',
+  acled:          'Civil Unrest',
+  who_don:        'Public Safety',
+};
+
+/** Resolve an event's display category, preferring authoritative sources in
+ *  this order: API category → granular type map → source-ID fallback →
+ *  conservative default. The old code defaulted unmapped types to
+ *  'Natural Disaster' which silently mislabeled SFPD/APD/TfL events. */
+function mapBackendCategory(evt) {
+  if (evt && evt.category && BACKEND_CATEGORY_TO_LABEL[evt.category]) {
+    return BACKEND_CATEGORY_TO_LABEL[evt.category];
+  }
+  if (evt && evt.type && BACKEND_TYPE_TO_CATEGORY[evt.type]) {
+    return BACKEND_TYPE_TO_CATEGORY[evt.type];
+  }
+  if (evt && evt.source && SOURCE_ID_TO_CATEGORY[evt.source]) {
+    return SOURCE_ID_TO_CATEGORY[evt.source];
+  }
+  return 'Public Safety';   // safer default than 'Natural Disaster'
+}
+
+// Legacy entry point kept so existing call sites don't break. New code should
+// pass the full event object and call mapBackendCategory(evt).
 function mapBackendType(t) {
-  return BACKEND_TYPE_TO_CATEGORY[t] || 'Natural Disaster';
+  return BACKEND_TYPE_TO_CATEGORY[t] || 'Public Safety';
 }
 
 // Detect EONET prescribed-fire entries (controlled government burns, not threats)
@@ -4399,7 +4452,7 @@ async function backfillAlerts() {
       ALERTS = data.events
         .filter(e => !isPrescribedFire(e))
         .map(e => enrichEventWithImpact({
-          id: e.id, sev: e.sev, type: mapBackendType(e.type), source: e.source,
+          id: e.id, sev: e.sev, type: mapBackendCategory(e), source: e.source,
           title: e.title, location: e.location,
           officeId: e.officeId, affectedOfficeIds: e.affectedOfficeIds || [],
           lat: e.lat, lng: e.lng, radiusKm: e.radiusKm ?? 0,
@@ -4426,7 +4479,7 @@ function subscribeLiveStream() {
     try {
       const data = JSON.parse(msg.data);
       const mapEvt = (e) => enrichEventWithImpact({
-        ...e, type: mapBackendType(e.type), radiusKm: e.radiusKm ?? 0,
+        ...e, type: mapBackendCategory(e), radiusKm: e.radiusKm ?? 0,
         affectedOfficeIds: e.affectedOfficeIds || [],
       });
       if (data.kind === 'new' && data.event) {
