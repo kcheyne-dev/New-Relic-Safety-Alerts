@@ -31,7 +31,13 @@ import { log } from '../log.js';
  */
 
 const FEED_URL = 'https://www.who.int/api/news/diseaseoutbreaknews?sf_provider=dynamicProvider372&sf_culture=en&%24format=json&%24top=100&%24orderby=PublicationDateAndTime%20desc';
-const STALE_AFTER_DAYS = 90;   // WHO entries stay relevant for context for ~3 months
+// WHO Disease Outbreak News is contextual data — an active outbreak (Ebola,
+// cholera, mpox) is relevant to CMT travel planning long after the news entry
+// is published. WHO's own API only returns ~100 most-recent entries anyway,
+// so anything older than a year is no longer in the feed and effectively
+// already "stale" by virtue of not being refreshed. 365 days captures every
+// entry currently in WHO's feed without dropping any.
+const STALE_AFTER_DAYS = 365;
 
 const xml = new XMLParser({
   ignoreAttributes: false,
@@ -56,15 +62,42 @@ function getGuid(it: RssItem): string {
   return it.link ?? it.title ?? Math.random().toString(36);
 }
 
-/** WHO DON titles: "<Disease> – <Country>" or "<Disease> - <Country>" */
+/** WHO DON titles use a few common shapes. Regional and global entries
+ *  describe activity across many countries, so they don't fit the
+ *  Risk Profile modal's per-country lookup model and are dropped here.
+ *  Future: surface them in a separate "Regional / Global" panel by
+ *  retaining the entry and tagging it with a scope field. */
+const NON_COUNTRY_MARKERS = [
+  'multi-country',
+  'multi country',
+  'global situation',
+  'global update',
+  'global response',
+  'african region',         // (AFRO)
+  'european region',        // (EURO)
+  'eastern mediterranean',  // (EMRO)
+  'south-east asia',        // (SEARO)
+  'western pacific',        // (WPRO)
+  'region of the americas', // (PAHO/AMRO)
+  '(afro)', '(emro)', '(searo)', '(wpro)', '(euro)', '(paho)', '(amro)',
+];
+
 function parseTitleParts(title: string | undefined): { disease: string; country: string } {
   if (!title) return { disease: '', country: '' };
   // Try em-dash first, fall back to hyphen-with-spaces
   const parts = title.split(/\s+[–-]\s+/);
   if (parts.length < 2) return { disease: title.trim(), country: '' };
   const disease = parts[0]!.trim();
-  // Country may itself include a parenthetical region; keep the leading word
+  // Country may itself include a parenthetical region; keep the full tail
   const country = parts.slice(1).join(' - ').trim();
+
+  // Drop regional / multi-country / global entries — return a blank country so
+  // the upstream caller skips them.
+  const lowered = country.toLowerCase();
+  if (NON_COUNTRY_MARKERS.some(m => lowered.includes(m))) {
+    return { disease, country: '' };
+  }
+
   return { disease, country };
 }
 
@@ -188,10 +221,22 @@ export const whoDonAdapter = {
       const value = Array.isArray(json?.value) ? json.value : [];
       // Map WHO CMS schema to RssItem-like shape so the rest of the function
       // can stay generic.
+      // ItemDefaultUrl is the DON slug (e.g. "/2026-DON593"). The public WHO
+      // site serves DON entries at /emergencies/disease-outbreak-news/item/<slug>,
+      // not at the root. Build the canonical URL by prepending that path when
+      // ItemDefaultUrl looks like a bare slug.
+      const canonicalDonUrl = (rawUrl: string): string => {
+        if (!rawUrl) return '';
+        if (rawUrl.startsWith('http')) return rawUrl;
+        if (rawUrl.startsWith('/emergencies/disease-outbreak-news/'))
+          return `https://www.who.int${rawUrl}`;
+        // Bare slug like "/2026-DON593" — prepend the DON path
+        return `https://www.who.int/emergencies/disease-outbreak-news/item${rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`}`;
+      };
       list = value.map((v: any) => ({
         title:       v.Title ?? v.title ?? '',
         description: v.Summary ?? v.summary ?? v.HtmlBody ?? v.PlainText ?? '',
-        link:        v.ItemDefaultUrl ? `https://www.who.int${v.ItemDefaultUrl}` : (v.url ?? ''),
+        link:        canonicalDonUrl(v.ItemDefaultUrl ?? v.url ?? ''),
         pubDate:     v.PublicationDateAndTime ?? v.publishedAt ?? v.publicationDate ?? null,
         guid:        String(v.Id ?? v.id ?? v.ItemDefaultUrl ?? v.Title ?? ''),
       }));

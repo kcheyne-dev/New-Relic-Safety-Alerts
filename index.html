@@ -889,11 +889,37 @@ function aggregateAcledRisk(countryNames) {
 /* WHO Disease Outbreak helpers — same gating pattern as ACLED. Empty in
  * live + bare Pages until the WHO adapter ships; populated from
  * WHO_OUTBREAKS_MOCK by the demo bootstrap in #api=mock mode. */
+
+/* WHO uses long-form country names ("Democratic Republic of the Congo")
+ * but COUNTRY_PRESENCE / OFFICES use short forms ("DRC", "USA"). Map
+ * known long-forms here so per-country lookups match. Add to this list
+ * when new WHO entries surface unfamiliar long-forms. */
+const WHO_COUNTRY_ALIASES = {
+  'Democratic Republic of the Congo':                     'DRC',
+  'United Republic of Tanzania':                          'Tanzania',
+  'United States of America':                             'USA',
+  'United Kingdom of Great Britain and Northern Ireland': 'UK',
+  "Lao People's Democratic Republic":                     'Laos',
+  'Republic of Korea':                                    'South Korea',
+  "Democratic People's Republic of Korea":                'North Korea',
+  'Iran (Islamic Republic of)':                           'Iran',
+  'Russian Federation':                                   'Russia',
+  'Syrian Arab Republic':                                 'Syria',
+  'Viet Nam':                                             'Vietnam',
+  'Czechia':                                              'Czech Republic',
+  'Türkiye':                                              'Turkey',
+  'Bolivia (Plurinational State of)':                     'Bolivia',
+  'Venezuela (Bolivarian Republic of)':                   'Venezuela',
+};
+function normalizeWhoCountry(name) {
+  return WHO_COUNTRY_ALIASES[name] || name;
+}
+
 function hasWhoOutbreaks() {
   return WHO_OUTBREAKS.length > 0;
 }
 function outbreaksForCountry(countryName) {
-  return WHO_OUTBREAKS.filter(o => o.country === countryName);
+  return WHO_OUTBREAKS.filter(o => normalizeWhoCountry(o.country) === countryName);
 }
 function outbreaksAggregated(countryNames) {
   const all = [];
