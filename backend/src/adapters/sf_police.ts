@@ -113,7 +113,9 @@ export const sfPoliceAdapter: SourceAdapter = {
         // endpoint below filters to the exact incident as JSON. There's no
         // friendly per-row page on Socrata for this dataset, so JSON is
         // the best we can do for a stable per-incident link.
-        sourceUrl: `https://data.sfgov.org/resource/wg3w-h783.json?$where=${encodeURIComponent(`incident_id='${id}'`)}`,
+        // Escape single quotes in the id for SoQL safety (defensive — SF
+        // Police incident IDs are numeric so no current rows hit this).
+        sourceUrl: `https://data.sfgov.org/resource/wg3w-h783.json?$where=${encodeURIComponent(`incident_id='${String(id).replace(/'/g, "''")}'`)}`,
       };
       items.push({ sourceEventId: id, payload: r, normalized });
     }

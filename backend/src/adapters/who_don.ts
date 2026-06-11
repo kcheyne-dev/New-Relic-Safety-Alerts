@@ -186,11 +186,13 @@ async function persistOutbreak(item: {
 }
 
 /** Sweep WHO entries older than STALE_AFTER_DAYS. Mirrors the events sweeper
- *  but on its own table. */
+ *  but on its own table. STALE_AFTER_DAYS is hardcoded today, but pass it as
+ *  a parameter so the query stays safe if it later becomes config-driven. */
 async function sweepStale(): Promise<number> {
   const res = await pool.query(
     `UPDATE who_outbreaks SET is_stale = TRUE
-     WHERE NOT is_stale AND issued_at < NOW() - INTERVAL '${STALE_AFTER_DAYS} days'`
+     WHERE NOT is_stale AND issued_at < NOW() - ($1::int * INTERVAL '1 day')`,
+    [STALE_AFTER_DAYS]
   );
   return res.rowCount ?? 0;
 }
@@ -261,13 +263,28 @@ export const whoDonAdapter = {
       const summary = (it.description ?? '').replace(/<[^>]+>/g, '').trim().slice(0, 1000)
         || `${disease} outbreak reported in ${country}.`;
 
+      // pubDate is normally always present, but if WHO ever ships a malformed
+      // entry, fall back to a date well in the past rather than `new Date()` —
+      // an entry timestamped "now" would mislead the operator about freshness.
+      let issuedAt: Date;
+      if (it.pubDate) {
+        issuedAt = new Date(it.pubDate);
+        if (isNaN(issuedAt.getTime())) {
+          log.warn({ title: it.title, pubDate: it.pubDate }, 'who_don.bad_pubdate');
+          issuedAt = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+        }
+      } else {
+        log.warn({ title: it.title }, 'who_don.missing_pubdate');
+        issuedAt = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+      }
+
       const result = await persistOutbreak({
         sourceEventId: getGuid(it),
         country,
         disease,
         severity,
         cases,
-        issuedAt: it.pubDate ? new Date(it.pubDate) : new Date(),
+        issuedAt,
         link: it.link ?? null,
         summary,
         raw: it,
