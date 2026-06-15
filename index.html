@@ -2656,6 +2656,44 @@ function dispatchSend(body, channels, reach) {
   setCcTab('log');
   renderIncidents();
   if (inc) selectIncident(inc.id);
+
+  // Live mode: persist the message. Three cases:
+  //   - Linked to a server-persisted incident → POST /api/incidents/:id/messages
+  //   - Linked to a still-being-created incident → skip server (would 404);
+  //     log warning so we don't silently drop in production
+  //   - Standalone (no incident at all) → POST /api/comms
+  if (API_BASE) {
+    const apiPayload = {
+      template:         msg.template ?? undefined,
+      templateName:     msg.templateName,
+      subject:          msg.subject || undefined,
+      body:             msg.body,
+      channels:         msg.channels,
+      offices:          msg.offices,
+      recipientsCount:  msg.recipients,
+      responseRequired: msg.responseRequired,
+      reminderInterval: msg.reminder ?? undefined,
+      attachments:      msg.attachments,
+    };
+    if (inc && !inc._persistPending) {
+      incidentsApi.sendMessage(inc.id, apiPayload).then((serverMsgId) => {
+        if (serverMsgId) msg.id = serverMsgId;
+      }).catch(err => {
+        console.warn('incident-linked message persist failed:', err);
+        toast('⚠ Message logged locally — backend persist failed.');
+      });
+    } else if (inc && inc._persistPending) {
+      console.warn('skipped message persist — incident create still in flight');
+      toast('⚠ Message saved locally; incident not yet persisted to backend.');
+    } else {
+      commsApi.send(apiPayload).then((serverMsgId) => {
+        if (serverMsgId) msg.id = serverMsgId;
+      }).catch(err => {
+        console.warn('standalone comms persist failed:', err);
+        toast('⚠ Message logged locally — backend persist failed.');
+      });
+    }
+  }
 }
 
 /* ---------- 12. INCIDENTS render ---------- */
@@ -2665,11 +2703,42 @@ function createIncident({ title, offices, severity, description, messageId, aler
     opened: new Date().toISOString(), status:'open', closedNote:null, closedAt:null,
     notes: [], log: [], messages: [],
     reopens: [],   // [{ when, by }] each time the incident is reopened
+    _persistPending: !!API_BASE,   // true while the backend round-trip is in flight
   };
   STATE.incidents.unshift(inc);
   STATE.responses[inc.id] = {};
   buildResponseShells(inc.id, offices);
   addIncidentLog(inc.id, 'create', `Incident <b>${esc(title)}</b> opened.`);
+
+  // Live mode: fire-and-forget persist to backend. We use the local client
+  // ID until the server returns; on success we swap to the server-issued
+  // UUID and update STATE.responses to match. On failure we log + toast
+  // but do NOT block the user's flow — better to keep the dashboard usable
+  // and have a partial-persist scenario than to lose the incident entirely.
+  if (API_BASE) {
+    incidentsApi.create({ title, description, severity, offices, alertId: alertId || undefined })
+      .then((serverInc) => {
+        // Swap local id → server UUID across STATE so subsequent
+        // mutations (close/reopen/notes/responses) target the right row.
+        const oldId = inc.id;
+        const newId = serverInc.id;
+        if (oldId === newId) return;       // shouldn't happen, but safe
+        inc.id = newId;
+        inc.opened = serverInc.opened;
+        inc._persistPending = false;
+        STATE.responses[newId] = STATE.responses[oldId] || {};
+        delete STATE.responses[oldId];
+        if (STATE.selectedIncidentId === oldId) STATE.selectedIncidentId = newId;
+        if (STATE.linkedIncidentId === oldId) STATE.linkedIncidentId = newId;
+        renderIncidents();
+      })
+      .catch((err) => {
+        console.warn('incident create persist failed (kept local):', err);
+        inc._persistPending = false;
+        toast('⚠ Incident saved locally — backend persist failed. See console.');
+      });
+  }
+
   return inc;
 }
 function buildResponseShells(incidentId, offices) {
@@ -2689,12 +2758,24 @@ function buildResponseShells(incidentId, offices) {
 }
 function reopenIncident(incidentId) {
   const inc = STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
+  const wasClosedAt = inc.closedAt;
   inc.status = 'open';
   inc.closedAt = null;
   inc.reopens.push({ when: new Date().toISOString(), by:'cowork-3p' });
   addIncidentLog(inc.id, 'create', `Incident <b>reopened</b>.`);
   toast('Incident reopened.');
   renderIncidents();
+  // Live mode: persist (fire-and-forget). Revert if backend rejects.
+  if (API_BASE && !inc._persistPending) {
+    incidentsApi.reopen(inc.id).catch(err => {
+      console.warn('incident reopen persist failed:', err);
+      inc.status = 'closed';
+      inc.closedAt = wasClosedAt;
+      inc.reopens.pop();
+      toast('⚠ Reopen failed on backend — reverted locally.');
+      renderIncidents();
+    });
+  }
 }
 function addIncidentLog(id, kind, body) {
   const inc = STATE.incidents.find(x=>x.id===id); if (!inc) return;
@@ -2914,6 +2995,26 @@ function bindIncidentDetailHandlers() {
     STATE.responses[inc.id][eid] = { ...STATE.responses[inc.id][eid], status: st, when: new Date().toISOString(), by: 'Admin' };
     addIncidentLog(inc.id, 'msg', `Status logged for <b>${esc(eid)}</b>: ${esc(st)}`);
     renderIncidentDetail();
+    // Live mode: persist response to backend. Strip the "T-" traveler prefix
+    // from the storage key when sending — backend stores plain employee_id
+    // with a separate is_traveler bool.
+    if (API_BASE && !inc._persistPending) {
+      const isTraveler = eid.startsWith('T-');
+      const subjectId  = isTraveler ? eid.slice(2) : eid;
+      // Pull employee/traveler context for nicer audit trail server-side
+      const emp        = isTraveler ? null : EMPLOYEES.find(e => e.id === subjectId);
+      const trav       = isTraveler ? TRAVELERS.find(t => t.id === subjectId) : null;
+      const subject    = emp || trav;
+      incidentsApi.updateResponse(inc.id, subjectId, {
+        status:       st,
+        employeeName: subject?.name,
+        officeId:     emp?.office ?? trav?.atOffice ?? null,
+        isTraveler,
+      }).catch(err => {
+        console.warn('response update persist failed:', err);
+        // Don't revert — stale-on-server is less disruptive than blinking UI.
+      });
+    }
   }));
   // Note attachments zone
   wireAttZone({
@@ -2935,16 +3036,26 @@ function bindIncidentDetailHandlers() {
     const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
     const inp = document.getElementById('note-input');
     if (!inp.value.trim() && !STATE.noteAttachments.length) return;
+    const noteBody = inp.value;
+    const noteAtts = STATE.noteAttachments.slice();
     inc.notes.push({
       when: new Date().toISOString(), by:'cowork-3p',
-      body: inp.value,
-      attachments: STATE.noteAttachments.slice(),
+      body: noteBody,
+      attachments: noteAtts,
     });
-    const attCount = STATE.noteAttachments.length;
-    addIncidentLog(inc.id, 'note', `Note added: ${esc(inp.value.slice(0,80))}${inp.value.length>80?'…':''}${attCount?` <span class="src-pill">📎 ${attCount}</span>`:''}`);
+    const attCount = noteAtts.length;
+    addIncidentLog(inc.id, 'note', `Note added: ${esc(noteBody.slice(0,80))}${noteBody.length>80?'…':''}${attCount?` <span class="src-pill">📎 ${attCount}</span>`:''}`);
     inp.value = '';
     STATE.noteAttachments = [];
     renderIncidentDetail();
+    // Live mode: persist note. Don't revert local on failure — note is too
+    // valuable to vanish if the network blips. Toast the warning instead.
+    if (API_BASE && !inc._persistPending) {
+      incidentsApi.addNote(inc.id, { body: noteBody, attachments: noteAtts }).catch(err => {
+        console.warn('note add persist failed:', err);
+        toast('⚠ Note saved locally — backend persist failed.');
+      });
+    }
   });
   document.getElementById('btn-simulate')?.addEventListener('click', () => {
     const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
@@ -2987,6 +3098,17 @@ function bindIncidentDetailHandlers() {
       closeModal();
       toast('Incident closed and sealed.');
       renderIncidents();
+      // Live mode: persist to backend (fire-and-forget). Local close already
+      // applied; if API fails, re-open the incident locally so UI matches DB.
+      if (API_BASE && !inc._persistPending) {
+        incidentsApi.close(inc.id, inc.closedNote).catch(err => {
+          console.warn('incident close persist failed:', err);
+          inc.status = 'open';
+          inc.closedAt = null;
+          toast('⚠ Close failed on backend — reverted locally.');
+          renderIncidents();
+        });
+      }
     };
   });
 }
@@ -4332,6 +4454,160 @@ async function apiFetch(path, opts = {}) {
   return ct.includes('application/json') ? resp.json() : resp.text();
 }
 
+/* ---------- Incident API helpers (Sprint 5 backend) ----------
+ *
+ * Wraps the /api/incidents/* and /api/comms/* endpoints and translates
+ * the backend's snake_case payloads into the camelCase shape the
+ * frontend STATE.incidents and STATE.crisisLog use. Each helper either
+ * returns the mapped result or throws — callers should handle errors
+ * with a try/catch + toast or graceful fallback.
+ *
+ * In bare/mock mode (API_BASE === ''), these helpers short-circuit
+ * with a clear error so localStorage paths can take over.
+ */
+
+/** Map a backend incidents row into the prototype's STATE.incidents shape. */
+function mapIncidentRowToState(r, sub = {}) {
+  return {
+    id:           r.id,
+    title:        r.title,
+    description:  r.description ?? '',
+    severity:     r.severity,
+    offices:      r.offices ?? [],
+    alertId:      r.alert_id ?? null,
+    status:       r.status,
+    closedNote:   r.closed_note ?? null,
+    closedAt:     r.closed_at ?? null,
+    opened:       r.created_at,
+    reopens:      Array.isArray(r.reopens) ? r.reopens : [],
+    notes:        Array.isArray(sub.notes)    ? sub.notes.map(mapNoteRow)        : [],
+    log:          Array.isArray(sub.log)      ? sub.log.map(mapLogRow)            : [],
+    messages:     Array.isArray(sub.messages) ? sub.messages.map(mapMessageRow)   : [],
+  };
+}
+function mapNoteRow(r) {
+  return {
+    id:          r.id,
+    when:        r.added_at,
+    by:          r.added_by_user_id ?? 'system',
+    body:        r.body,
+    attachments: r.attachments ?? [],
+  };
+}
+function mapLogRow(r) {
+  return {
+    id:    r.id,
+    when:  r.at,
+    by:    r.by_user_id ?? 'system',
+    kind:  r.kind,
+    body:  r.body,
+  };
+}
+function mapMessageRow(r) {
+  return {
+    id:               r.id,
+    incidentId:       r.incident_id ?? null,
+    when:             r.sent_at,
+    by:               r.sent_by_user_id ?? 'system',
+    template:         r.template ?? null,
+    templateName:     r.template_name ?? null,
+    subject:          r.subject ?? '',
+    body:             r.body,
+    channels:         r.channels ?? [],
+    offices:          r.offices ?? [],
+    recipientsCount:  r.recipients_count ?? 0,
+    responseRequired: r.response_required ?? false,
+    reminderInterval: r.reminder_interval ?? null,
+    attachments:      r.attachments ?? [],
+  };
+}
+
+const incidentsApi = {
+  /** GET /api/incidents — list, optionally filtered by status='open'|'closed'. */
+  async list(status) {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+    const data = await apiFetch(`/api/incidents${qs}`);
+    return (data?.incidents ?? []).map(r => mapIncidentRowToState(r));
+  },
+  /** GET /api/incidents/:id — full detail with messages, responses, notes, log. */
+  async get(id) {
+    const data = await apiFetch(`/api/incidents/${encodeURIComponent(id)}`);
+    if (!data?.incident) return null;
+    return {
+      incident:  mapIncidentRowToState(data.incident, { messages: data.messages, notes: data.notes, log: data.log }),
+      responses: data.responses ?? [],
+    };
+  },
+  /** POST /api/incidents — create. Returns mapped incident. */
+  async create({ title, description, severity, offices, alertId }) {
+    const data = await apiFetch('/api/incidents', {
+      method: 'POST',
+      body: JSON.stringify({ title, description, severity, offices, alertId: alertId ?? undefined }),
+    });
+    return mapIncidentRowToState(data.incident);
+  },
+  /** POST /api/incidents/:id/close. */
+  async close(id, closureNote) {
+    return apiFetch(`/api/incidents/${encodeURIComponent(id)}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ closureNote: closureNote ?? '' }),
+    });
+  },
+  /** POST /api/incidents/:id/reopen. Body is empty semantically but we
+   *  send `{}` because Fastify rejects body-less requests when the
+   *  Content-Type is application/json (FST_ERR_CTP_EMPTY_JSON_BODY). */
+  async reopen(id) {
+    return apiFetch(`/api/incidents/${encodeURIComponent(id)}/reopen`, {
+      method: 'POST',
+      body: '{}',
+    });
+  },
+  /** POST /api/incidents/:id/messages — send incident-linked Crisis message. */
+  async sendMessage(incidentId, payload) {
+    const data = await apiFetch(`/api/incidents/${encodeURIComponent(incidentId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return data.messageId;
+  },
+  /** PUT /api/incidents/:id/responses/:employeeId — record OK/Help/No status. */
+  async updateResponse(incidentId, employeeId, payload) {
+    return apiFetch(`/api/incidents/${encodeURIComponent(incidentId)}/responses/${encodeURIComponent(employeeId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+  /** POST /api/incidents/:id/notes — add note. */
+  async addNote(incidentId, { body, attachments }) {
+    const data = await apiFetch(`/api/incidents/${encodeURIComponent(incidentId)}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ body, attachments: attachments ?? [] }),
+    });
+    return data.noteId;
+  },
+};
+
+const commsApi = {
+  /** GET /api/comms — list standalone Crisis messages.
+   *  Pass null for `incidentId` to filter to standalone-only;
+   *  pass a UUID to filter to that incident; omit for all. */
+  async list(incidentId) {
+    const qs = incidentId === null ? '?incidentId=null'
+             : incidentId         ? `?incidentId=${encodeURIComponent(incidentId)}`
+             : '';
+    const data = await apiFetch(`/api/comms${qs}`);
+    return (data?.messages ?? []).map(mapMessageRow);
+  },
+  /** POST /api/comms — send a standalone Crisis message (no incident). */
+  async send(payload) {
+    const data = await apiFetch('/api/comms', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return data.messageId;
+  },
+};
+
 function showLoginModal() {
   showModal(`<h3>Sign in</h3>
     <p style="font-size:12px;color:var(--muted)">Backend at <code style="font-size:11px">${esc(API_BASE)}</code></p>
@@ -4520,6 +4796,49 @@ async function backfillWhoOutbreaks() {
   }
 }
 
+async function backfillIncidents() {
+  // Pull incidents from the backend (Sprint 5). Soft-fail: if the call
+  // errors, leave any localStorage-loaded incidents in place rather than
+  // wiping STATE.incidents — that's better UX than empty-state on a hiccup.
+  try {
+    const incidents = await incidentsApi.list();
+    // Hydrate full detail (responses + log + messages) for each incident
+    // in parallel. For 100+ incidents this would need pagination, but
+    // we're well under that for now.
+    const details = await Promise.all(
+      incidents.map(async (inc) => {
+        try {
+          const full = await incidentsApi.get(inc.id);
+          return full ? { ...full.incident, _backendResponses: full.responses } : inc;
+        } catch (e) {
+          console.warn('incident detail fetch failed:', inc.id, e);
+          return inc;
+        }
+      })
+    );
+    STATE.incidents = details;
+    // Build STATE.responses from per-incident response rows
+    STATE.responses = {};
+    for (const inc of details) {
+      const respMap = {};
+      for (const r of (inc._backendResponses || [])) {
+        const key = r.is_traveler ? `T-${r.employee_id}` : r.employee_id;
+        respMap[key] = {
+          status: r.status,
+          when:   r.status_set_at,
+          by:     r.status_set_by_user_id ?? 'system',
+          traveler: r.is_traveler || undefined,
+        };
+      }
+      STATE.responses[inc.id] = respMap;
+      delete inc._backendResponses;
+    }
+    renderIncidents();
+  } catch (err) {
+    console.warn('backfillIncidents failed (using localStorage):', err);
+  }
+}
+
 async function bootLiveMode() {
   try {
     const me = await apiFetch('/api/auth/me');
@@ -4531,6 +4850,7 @@ async function bootLiveMode() {
 
   await backfillAlerts();
   await backfillWhoOutbreaks();
+  await backfillIncidents();
   subscribeLiveStream();
 
   // Refresh-on-focus: when tab regains focus, re-pull events + WHO outbreaks

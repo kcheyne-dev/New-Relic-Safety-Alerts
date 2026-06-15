@@ -7,6 +7,7 @@ import { sourcesRoutes } from './routes/sources.js';
 import { streamRoutes } from './routes/stream.js';
 import { authRoutes } from './routes/auth.js';
 import { incidentRoutes } from './routes/incidents.js';
+import { commsRoutes } from './routes/comms.js';
 import { whoOutbreaksRoutes } from './routes/who_outbreaks.js';
 import { startScheduler } from './workers/scheduler.js';
 import { startSweeper } from './workers/sweeper.js';
@@ -23,6 +24,7 @@ async function main() {
   await app.register(streamRoutes);
   await app.register(authRoutes);
   await app.register(incidentRoutes);
+  await app.register(commsRoutes);
   await app.register(whoOutbreaksRoutes);
 
   // Verify DB connection before binding
