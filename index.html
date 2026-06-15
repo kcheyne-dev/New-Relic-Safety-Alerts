@@ -2759,19 +2759,22 @@ function buildResponseShells(incidentId, offices) {
 function reopenIncident(incidentId) {
   const inc = STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
   const wasClosedAt = inc.closedAt;
+  const wasLogLength = inc.log.length;
   inc.status = 'open';
   inc.closedAt = null;
   inc.reopens.push({ when: new Date().toISOString(), by:'cowork-3p' });
   addIncidentLog(inc.id, 'create', `Incident <b>reopened</b>.`);
   toast('Incident reopened.');
   renderIncidents();
-  // Live mode: persist (fire-and-forget). Revert if backend rejects.
+  // Live mode: persist (fire-and-forget). Revert if backend rejects —
+  // including the audit-log entry, so the timeline stays honest.
   if (API_BASE && !inc._persistPending) {
     incidentsApi.reopen(inc.id).catch(err => {
       console.warn('incident reopen persist failed:', err);
       inc.status = 'closed';
       inc.closedAt = wasClosedAt;
       inc.reopens.pop();
+      inc.log.length = wasLogLength;     // truncate log to pre-reopen state
       toast('⚠ Reopen failed on backend — reverted locally.');
       renderIncidents();
     });
@@ -3038,11 +3041,13 @@ function bindIncidentDetailHandlers() {
     if (!inp.value.trim() && !STATE.noteAttachments.length) return;
     const noteBody = inp.value;
     const noteAtts = STATE.noteAttachments.slice();
-    inc.notes.push({
+    const noteObj = {
+      id: null,           // server-assigned on success; stays null if persist fails
       when: new Date().toISOString(), by:'cowork-3p',
       body: noteBody,
       attachments: noteAtts,
-    });
+    };
+    inc.notes.push(noteObj);
     const attCount = noteAtts.length;
     addIncidentLog(inc.id, 'note', `Note added: ${esc(noteBody.slice(0,80))}${noteBody.length>80?'…':''}${attCount?` <span class="src-pill">📎 ${attCount}</span>`:''}`);
     inp.value = '';
@@ -3051,10 +3056,12 @@ function bindIncidentDetailHandlers() {
     // Live mode: persist note. Don't revert local on failure — note is too
     // valuable to vanish if the network blips. Toast the warning instead.
     if (API_BASE && !inc._persistPending) {
-      incidentsApi.addNote(inc.id, { body: noteBody, attachments: noteAtts }).catch(err => {
-        console.warn('note add persist failed:', err);
-        toast('⚠ Note saved locally — backend persist failed.');
-      });
+      incidentsApi.addNote(inc.id, { body: noteBody, attachments: noteAtts })
+        .then(noteId => { if (noteId) noteObj.id = noteId; })
+        .catch(err => {
+          console.warn('note add persist failed:', err);
+          toast('⚠ Note saved locally — backend persist failed.');
+        });
     }
   });
   document.getElementById('btn-simulate')?.addEventListener('click', () => {
@@ -3101,11 +3108,13 @@ function bindIncidentDetailHandlers() {
       // Live mode: persist to backend (fire-and-forget). Local close already
       // applied; if API fails, re-open the incident locally so UI matches DB.
       if (API_BASE && !inc._persistPending) {
+        const noteForRevert = inc.closedNote;
         incidentsApi.close(inc.id, inc.closedNote).catch(err => {
           console.warn('incident close persist failed:', err);
           inc.status = 'open';
           inc.closedAt = null;
-          toast('⚠ Close failed on backend — reverted locally.');
+          inc.closedNote = null;     // also clear closure note — UI keys "closed view" off it
+          toast(`⚠ Close failed on backend — reverted locally. (Note "${(noteForRevert||'').slice(0,40)}" not persisted.)`);
           renderIncidents();
         });
       }
@@ -4043,10 +4052,15 @@ function stripMessageAtts(m) {
   return { ...m, attachments: (m.attachments || []).map(stripAtt) };
 }
 function stripIncident(i) {
+  // Strip Sprint-5 private bookkeeping fields before localStorage write —
+  // _persistPending getting restored as 'true' on next boot would block
+  // future API persists on this incident, and _backendResponses is a
+  // transient field used only during backfillIncidents hydration.
+  const { _persistPending, _backendResponses, ...rest } = i;
   return {
-    ...i,
-    notes: (i.notes || []).map(n => ({ ...n, attachments: (n.attachments || []).map(stripAtt) })),
-    messages: (i.messages || []).map(stripMessageAtts),
+    ...rest,
+    notes: (rest.notes || []).map(n => ({ ...n, attachments: (n.attachments || []).map(stripAtt) })),
+    messages: (rest.messages || []).map(stripMessageAtts),
   };
 }
 function buildPersistPayload() {
@@ -4797,6 +4811,10 @@ async function backfillWhoOutbreaks() {
 }
 
 async function backfillIncidents() {
+  // Defensive: bare GitHub Pages and #api=mock both have empty API_BASE.
+  // bootLiveMode already gates on API_BASE before reaching here, but
+  // guarding inside the function keeps it safe to call from elsewhere.
+  if (!API_BASE) return;
   // Pull incidents from the backend (Sprint 5). Soft-fail: if the call
   // errors, leave any localStorage-loaded incidents in place rather than
   // wiping STATE.incidents — that's better UX than empty-state on a hiccup.
