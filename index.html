@@ -261,6 +261,22 @@ body.resizing-panel * { cursor: ew-resize !important; }
   border-left-color: #22d3ee !important;
   background: rgba(34,211,238,.04);
 }
+
+/* --- Three-tier relevance chips ------------------------------------------
+   Renders inside the alert card's .a-impact row. Direct = red (an office or
+   active traveler is in the impact radius — operator should know now).
+   Indirect = amber (alert is in a country where NR has presence, but no
+   immediate proximity overlap). Watch = blue (extreme severity globally,
+   informational only — hidden from the default feed behind 🎯/🌐). */
+.tier-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; font-weight: 700; line-height: 1.4;
+  letter-spacing: .02em; border: 1px solid currentColor;
+}
+.tier-chip.direct   { color: var(--sev-ext);  background: rgba(248,113,113,.12); }
+.tier-chip.indirect { color: var(--sev-mod);  background: rgba(250,204,21,.12); }
+.tier-chip.watch    { color: var(--blue);     background: rgba(96,165,250,.12); }
 .alert-card .top-row { display: flex; gap: 6px; align-items: center; }
 .alert-card .a-title { font-weight: 600; color: var(--text); flex: 1; line-height: 1.3; }
 .alert-card .a-sub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; color: var(--muted); font-size: 10px; }
@@ -1005,6 +1021,36 @@ function alertCountryFor(alert) {
   return null;
 }
 
+/**
+ * Three-tier relevance classification for an enriched alert.
+ *
+ *   'direct'   — an office or current traveler is in the impact radius.
+ *                Highest priority; the operator should know NOW. (Q1/Q2.)
+ *   'indirect' — alert is in a country where NR has presence (office,
+ *                remote employees, or active traveler going there). Worth
+ *                tracking; not an immediate response trigger. (Q3 input.)
+ *   'watch'    — extreme severity globally with no NR presence overlap.
+ *                Useful context for BCI decisions but informational only,
+ *                hidden from the feed by default behind the 🌐 All toggle.
+ *   null       — no NR-relevant signal. Default-hidden.
+ *
+ * Computed once during enrichEventWithImpact and cached on the alert
+ * object as `relevanceTier` so the feed renderer can sort + tint without
+ * recomputing per render pass.
+ */
+function relevanceTierOf(alert) {
+  if (!alert) return null;
+  if ((alert.affectedOfficeIds || []).length > 0) return 'direct';
+  if ((alert.affectedTravelers  || []).length > 0) return 'direct';
+  const country = alertCountryFor(alert);
+  if (country) {
+    if (COUNTRY_PRESENCE.some(cp => cp.name === country)) return 'indirect';
+    if (TRAVELERS.some(t => t.country === country)) return 'indirect';
+  }
+  if (alert.sev === 'ext') return 'watch';
+  return null;
+}
+
 /** Empty hazard rollup with all keys zeroed and travelAdvisoryLevel null. */
 function _emptyHazardRollup() {
   return {
@@ -1487,14 +1533,20 @@ function enrichEventWithImpact(e) {
     ...officeMatches,
   ]));
   const totalEmployeesAffected = allOfficeIds.reduce((sum, id) => sum + ((OFFICE_BY_ID[id]?.headcount) || 0), 0);
-  return {
+  const enriched = {
     ...e,
     affectedOfficeIds:    allOfficeIds,
     officeId:             e.officeId || allOfficeIds[0] || null,
     affectedTravelers,
     totalEmployeesAffected,
-    isRelevant:           allOfficeIds.length > 0 || affectedTravelers.length > 0,
   };
+  // Three-tier relevance classification — see relevanceTierOf for semantics.
+  // Cached here so the feed render + sort can read enriched.relevanceTier
+  // directly. isRelevant retains its semantic of "show in feed by default" =
+  // direct OR indirect; watch and null are hidden until 🌐 All is toggled on.
+  enriched.relevanceTier = relevanceTierOf(enriched);
+  enriched.isRelevant    = enriched.relevanceTier === 'direct' || enriched.relevanceTier === 'indirect';
+  return enriched;
 }
 
 function passesFilter(a) {
@@ -2054,7 +2106,18 @@ function renderFeed() {
       </div>`;
     }).join('');
   } else {
-    const sorted = alerts.slice().sort((a,b)=>new Date(b.issued)-new Date(a.issued)).slice(0,20);
+    // Recent tab: tier-then-time. Tier descending (Direct → Indirect → Watch
+    // → null) so an operator scrolling the feed sees actionable items first;
+    // within a tier, newest first. The 🎯 toggle in the status strip already
+    // hides Watch + null tiers by default — toggling 🌐 All surfaces them at
+    // the bottom of this list.
+    const TIER_RANK = { direct: 3, indirect: 2, watch: 1 };
+    const sorted = alerts.slice().sort((a, b) => {
+      const ta = TIER_RANK[a.relevanceTier] || 0;
+      const tb = TIER_RANK[b.relevanceTier] || 0;
+      if (ta !== tb) return tb - ta;
+      return +new Date(b.issued) - +new Date(a.issued);
+    }).slice(0, 20);
     body.innerHTML = `<div style="padding:8px 10px;display:flex;flex-direction:column;gap:5px">${sorted.map(alertCardHTML).join('')}</div>`;
   }
   body.querySelectorAll('.alert-card').forEach(el => el.addEventListener('click', e => {
@@ -2096,8 +2159,18 @@ function alertCardHTML(a) {
   const empBadge = empCount
     ? `<span class="impact-badge impact-emp" title="${empCount} employees in office headcounts within radius">👥 ${empCount}</span>`
     : '';
-  const impactRow = (officeBadges || travBadge || empBadge)
-    ? `<div class="a-impact">${officeBadges}${travBadge}${empBadge}</div>`
+  // Three-tier relevance — see relevanceTierOf. The chip leads the impact
+  // row (left of the existing 🏢/✈/👥 badges) so an operator scanning the
+  // feed reads "is this me?" before "what's affected?".
+  const tierChip = a.relevanceTier === 'direct'
+    ? `<span class="tier-chip direct" title="Direct — an office or current traveler is within this event's impact radius">🎯 Direct</span>`
+    : a.relevanceTier === 'indirect'
+      ? `<span class="tier-chip indirect" title="Indirect — alert is in a country where NR has presence (office or active traveler)">📍 In-country</span>`
+      : a.relevanceTier === 'watch'
+        ? `<span class="tier-chip watch" title="Watch — extreme severity globally; informational, not response-trigger">👁 Watch</span>`
+        : '';
+  const impactRow = (tierChip || officeBadges || travBadge || empBadge)
+    ? `<div class="a-impact">${tierChip}${officeBadges}${travBadge}${empBadge}</div>`
     : '';
   return `<div class="alert-card s-${a.sev} ${sel}" data-id="${a.id}">
     <div class="top-row">
