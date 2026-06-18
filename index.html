@@ -236,6 +236,31 @@ body.resizing-panel * { cursor: ew-resize !important; }
 .alert-card.s-high   { border-left-color: var(--sev-high); }
 .alert-card.s-ext    { border-left-color: var(--sev-ext); background: rgba(248,113,113,.08); }
 .alert-card.s-ext:hover { background: rgba(248,113,113,.14); }
+
+/* --- Test-message badge + drill-mode compose row --------------------------
+   Cyan/teal palette to match the existing 🧪 Tests synthetic-injection pill
+   so operators learn one visual language for "this is a drill, not real". */
+.test-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(34,211,238,.14); color: #22d3ee;
+  border: 1px solid rgba(34,211,238,.45);
+  border-radius: 4px; padding: 1px 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; line-height: 1.4;
+}
+.test-mode-row {
+  border: 1px solid rgba(34,211,238,.5);
+  border-radius: 6px; padding: 8px 10px; margin: 8px 0;
+  background: rgba(34,211,238,.05);
+}
+.test-mode-row.on { background: rgba(34,211,238,.12); border-color: #22d3ee; }
+.test-mode-row label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.test-mode-row .tm-title { font-weight: 700; color: #22d3ee; font-size: 12px; }
+.test-mode-row .tm-hint { color: var(--muted); font-size: 10.5px; line-height: 1.3; flex: 1; }
+.comm-card.is-test, .crisis-log-entry.is-test, .msg-block.is-test {
+  border-left-color: #22d3ee !important;
+  background: rgba(34,211,238,.04);
+}
 .alert-card .top-row { display: flex; gap: 6px; align-items: center; }
 .alert-card .a-title { font-weight: 600; color: var(--text); flex: 1; line-height: 1.3; }
 .alert-card .a-sub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; color: var(--muted); font-size: 10px; }
@@ -1361,6 +1386,14 @@ const STATE = {
   subject: '',
   responseRequired: true,
   reminderInterval: '15m',
+  // 2026-06-18: drill-mode toggle. When true and there is no linked incident,
+  // a Send routes to TEST_ROUTING (test Slack channel + test email distro)
+  // with a [TEST] subject prefix and a drill-warning preamble in the body.
+  // The persisted message carries isTest=true everywhere it appears: incident
+  // Comms tab, standalone Crisis log, incident Log entry, and Export Report.
+  // Reset to false after a successful send. Force false whenever the operator
+  // links to an existing incident (test mode unavailable inside real incidents).
+  isTest: false,
   customLocations: [],
   userTemplates: [],
   attachments: [],          // current Compose draft attachments
@@ -2118,6 +2151,32 @@ function recipientsForChannel(ch, ids) {
     return null;
   }).filter(Boolean);
 }
+
+/* Test-mode routing — single channel + single distro shared across all offices.
+ *
+ * When STATE.isTest is true at dispatch, the message is routed exclusively
+ * to these endpoints regardless of the office picker, AND the body is
+ * prefixed with a clear drill-warning preamble. The Slack / email / SMS
+ * integrations are still simulated stubs in this build, but encoding the
+ * routing here means: when those integrations land, the dispatcher already
+ * knows where to send a test (and where NOT to send it) without touching
+ * compose UI again.
+ *
+ * Operator override path: if a per-environment test channel needs to differ
+ * (e.g., a separate Slack workspace for staging), set window.NRSA_TEST_ROUTING
+ * before script load. */
+const TEST_ROUTING = (typeof window !== 'undefined' && window.NRSA_TEST_ROUTING) || {
+  slack: '#cmt-test-channel',
+  email: 'cmt-test-distro@newrelic.com',
+  sms:   null,                             // SMS test routing intentionally absent
+};
+const TEST_PREFIX_SUBJECT = '[TEST] ';
+const TEST_PREFIX_BODY = '🧪 TEST DRILL — DO NOT ACT — this message was sent in drill mode and is logged with isTest=true. Real recipients should disregard.\n\n';
+
+function testRecipientsForChannel(ch) {
+  const dest = TEST_ROUTING[ch];
+  return dest ? [dest] : [];
+}
 function allTemplates() {
   return [
     ...Object.entries(TEMPLATES).map(([k,t]) => ({
@@ -2246,6 +2305,12 @@ function renderComposeForm() {
   if (clearBtn) clearBtn.style.display = hasDraftContent() ? '' : 'none';
 
   const linked = STATE.linkedIncidentId ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId) : null;
+  // Defensive: test mode is unavailable inside an existing incident's compose
+  // flow (operator clarification 2026-06-18, Q3). Force-clear here so the flag
+  // can never leak through unnoticed if the operator linked an incident after
+  // toggling test on. The toggle UI is also hidden when `linked`, but this is
+  // belt-and-suspenders: dispatchSend reads STATE.isTest, not the DOM.
+  if (linked && STATE.isTest) STATE.isTest = false;
   const linkedBanner = linked ? `
     <div class="linked-banner">
       <span class="linked-icon" aria-hidden="true">🔗</span>
@@ -2368,25 +2433,40 @@ function renderComposeForm() {
       </div>` : ''}`;
     })()}
 
-    <button class="btn-primary cc-send" id="btn-send" ${reachOffices&&activeChannels.length?'':'disabled'}>
-      ${linked
-        ? `Send & log to incident ▶`
-        : `Send to ${reachOffices} office${reachOffices===1?'':'s'} ▶`}
+    ${linked ? '' : `
+    <div class="test-mode-row ${STATE.isTest ? 'on' : ''}" title="Send a test (drill) message instead of a real one. The message lands in a real incident with an is_test flag so the audit trail stays clear.">
+      <label>
+        <input type="checkbox" id="cc-test-mode" ${STATE.isTest?'checked':''} style="width:auto;margin:0;flex-shrink:0;"/>
+        <span class="tm-title">🧪 Send as Test</span>
+        <span class="tm-hint">Drill mode — message logs with TEST badge, routes to ${esc(TEST_ROUTING.slack)} only, [TEST] prefix prepended.</span>
+      </label>
+    </div>`}
+
+    <button class="btn-primary cc-send" id="btn-send" ${reachOffices&&activeChannels.length?'':'disabled'}
+      style="${STATE.isTest && !linked ? 'background:#22d3ee;color:#053041;border-color:#0891b2;' : ''}">
+      ${STATE.isTest && !linked
+        ? `🧪 Send as Test to ${esc(TEST_ROUTING.slack)} ▶`
+        : linked
+          ? `Send & log to incident ▶`
+          : `Send to ${reachOffices} office${reachOffices===1?'':'s'} ▶`}
     </button>
   </div>`;
 }
 function renderCCLog() {
   if (!STATE.crisisLog.length) return '<div class="empty">No messages sent yet.</div>';
   return STATE.crisisLog.slice().reverse().map(e => `
-    <div class="crisis-log-entry">
-      <div><span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${esc(e.by)}</span></div>
+    <div class="crisis-log-entry${e.isTest?' is-test':''}">
+      <div>
+        <span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${esc(e.by)}</span>
+        ${e.isTest?' <span class="test-badge" title="Drill — sent in test mode, routed to test channel only">🧪 Test</span>':''}
+      </div>
       ${e.subject?`<div style="font-weight:600;font-size:12px;margin-top:2px">${esc(e.subject)}</div>`:''}
       <div class="body" style="white-space:pre-wrap">${linkify(esc(e.body))}</div>
       ${e.attachments?.length?`<div class="att-list">${e.attachments.map(a => attachmentChipHTML(a, false)).join('')}</div>`:''}
       <div class="meta">
         ${e.offices.map(o=>`<span class="src-pill">${esc(o)}</span>`).join('')}
         ${e.channels.map(c=>`<span class="src-pill">${esc(c)}</span>`).join('')}
-        <span class="src-pill">${e.recipients} recipients</span>
+        <span class="src-pill">${(e.recipients ?? e.recipientsCount ?? 0)} recipients</span>
         ${e.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
         ${e.attachments?.length?`<span class="src-pill">📎 ${e.attachments.length}</span>`:''}
       </div>
@@ -2550,6 +2630,13 @@ function bindCCHandlers() {
     renderCC();
   });
   document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
+  // Test-mode toggle: re-render the form so the Send button + recipient hint
+  // pick up the new state. (Cheap — Compose re-render is sub-ms.)
+  document.getElementById('cc-test-mode')?.addEventListener('change', e => {
+    STATE.isTest = !!e.target.checked;
+    saveState();
+    renderCC();
+  });
   document.getElementById('reminder')?.addEventListener('change', e => STATE.reminderInterval = e.target.value);
 
   // Send
@@ -2622,20 +2709,59 @@ function confirmSend() {
 function dispatchSend(body, channels, reach) {
   const tpl = allTemplates().find(t => t.id === STATE.template);
   const tplName = tpl?.name || 'Custom message';
+
+  // 2026-06-18: drill-mode dispatch.
+  //
+  // When STATE.isTest is on (and we are NOT linked to an existing incident,
+  // because test mode is locked off in that flow), apply three transforms
+  // ONLY to the artifact actually delivered to a recipient:
+  //   1) Subject prepended with "[TEST] " so a recipient sees TEST first.
+  //   2) Body prepended with the drill-warning preamble.
+  //   3) Channels filtered to those that have a TEST_ROUTING entry (SMS
+  //      drops out by design — no test SMS distro).
+  //
+  // EVERYTHING ELSE is left at the operator's actual selection so the drill
+  // exercises the full normal workflow (per the 2026-06-18 spec: "all of the
+  // normal features but recorded as test messages"):
+  //   - msg.offices keeps STATE.selectedOffices so the incident scope and
+  //     response-tracking shells reflect the drill scenario.
+  //   - msg.responseRequired keeps STATE.responseRequired so the operator
+  //     can rehearse the response-tracking UI inside the drill incident.
+  //   - The auto-incident-create branch fires unchanged when the operator
+  //     had Response Required on. The resulting incident is REAL (per Q1
+  //     of the design Q&A) — its drill nature is signaled by the 🧪 TEST
+  //     badge on the message inside + the "incl. test" hint on the card.
+  //
+  // The is_test flag persists everywhere downstream: msg.isTest in local
+  // state, isTest in the API payload, is_test=true in Postgres, 🧪 TEST
+  // badge in every render surface (Comms tab, standalone log, incident Log,
+  // Export Report).
+  const linkedAtSendTime = STATE.linkedIncidentId
+    ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId)
+    : null;
+  const isTest = !!STATE.isTest && !linkedAtSendTime;
+  const testChannels = isTest
+    ? channels.filter(c => TEST_ROUTING[c])           // drop SMS (no test routing)
+    : channels;
+  const sendChannels = isTest && testChannels.length ? testChannels : channels;
+  const finalSubject = isTest
+    ? TEST_PREFIX_SUBJECT + (STATE.subject || `[${tplName}]`)
+    : STATE.subject;
+  const finalBody = isTest ? TEST_PREFIX_BODY + body : body;
+
   const msg = {
     id: uid(), when: new Date().toISOString(), by:'cowork-3p',
-    offices: STATE.selectedOffices.slice(), channels: channels.slice(),
-    subject: STATE.subject,
-    body, recipients: reach, responseRequired: STATE.responseRequired,
+    offices: STATE.selectedOffices.slice(), channels: sendChannels.slice(),
+    subject: finalSubject,
+    body: finalBody, recipients: reach, responseRequired: STATE.responseRequired,
     template: STATE.template, templateName: tplName,
     reminder: STATE.reminderInterval,
     attachments: STATE.attachments.slice(),
     incidentId: null,    // filled below
+    isTest,              // persisted client-side and propagated through API
   };
 
-  let inc = STATE.linkedIncidentId
-    ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId)
-    : null;
+  let inc = linkedAtSendTime;
 
   if (inc) {
     // Append to existing incident
@@ -2666,9 +2792,22 @@ function dispatchSend(body, channels, reach) {
   }
 
   STATE.crisisLog.push(msg);
-  toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}${msg.attachments.length?` · ${msg.attachments.length} attachment${msg.attachments.length===1?'':'s'}`:''}`);
+  if (isTest) {
+    // Drill-mode toast: clearly signal that nothing went to real recipients,
+    // and that the message is logged with the test flag for audit.
+    const routingHint = sendChannels.map(c => `${c.toUpperCase()} → ${TEST_ROUTING[c]}`).join(' · ');
+    toast(`🧪 TEST logged · ${routingHint || 'logged only (no test routing for selected channels)'}`);
+  } else {
+    toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}${msg.attachments.length?` · ${msg.attachments.length} attachment${msg.attachments.length===1?'':'s'}`:''}`);
+  }
   STATE.customMessage = ''; STATE.subject = ''; STATE.template = '';
   STATE.attachments = [];
+  // Reset the test toggle after a send. Operators should opt-in deliberately
+  // each time — leaving it sticky risks a real send accidentally going to
+  // the test channel, which would be a worse failure mode than the reverse
+  // (forgetting to toggle on a drill is recoverable; sending real comms to
+  // #cmt-test-channel during an actual incident is not).
+  STATE.isTest = false;
   STATE.linkedIncidentId = inc ? inc.id : null;   // keep linked for subsequent messages in the flow
   setCcTab('log');
   renderIncidents();
@@ -2691,6 +2830,7 @@ function dispatchSend(body, channels, reach) {
       responseRequired: msg.responseRequired,
       reminderInterval: msg.reminder ?? undefined,
       attachments:      msg.attachments,
+      isTest:           msg.isTest,
     };
     if (inc && !inc._persistPending) {
       incidentsApi.sendMessage(inc.id, apiPayload).then((serverMsgId) => {
@@ -2700,8 +2840,14 @@ function dispatchSend(body, channels, reach) {
         toast('⚠ Message logged locally — backend persist failed.');
       });
     } else if (inc && inc._persistPending) {
-      console.warn('skipped message persist — incident create still in flight');
-      toast('⚠ Message saved locally; incident not yet persisted to backend.');
+      // Race fix (2026-06-18): the incident's create() round-trip is still
+      // in flight, so its server UUID isn't known yet. Park this message
+      // on a queue; createIncident's .then() handler will flush it after
+      // the UUID swap. Without this branch, the first Response-Required
+      // send silently skipped backend persist — the smoke harness caught
+      // this on its first run.
+      inc._pendingMessages = inc._pendingMessages || [];
+      inc._pendingMessages.push({ msg, apiPayload });
     } else {
       commsApi.send(apiPayload).then((serverMsgId) => {
         if (serverMsgId) msg.id = serverMsgId;
@@ -2747,12 +2893,33 @@ function createIncident({ title, offices, severity, description, messageId, aler
         delete STATE.responses[oldId];
         if (STATE.selectedIncidentId === oldId) STATE.selectedIncidentId = newId;
         if (STATE.linkedIncidentId === oldId) STATE.linkedIncidentId = newId;
+
+        // Flush any messages that were queued while this create was in
+        // flight (see dispatchSend's _pendingMessages branch). Sequential
+        // sends are fine — the queue is typically 1-2 entries — and serial
+        // ordering preserves the operator's intended message order in the
+        // incident's audit trail.
+        const queued = inc._pendingMessages || [];
+        inc._pendingMessages = [];
+        for (const q of queued) {
+          incidentsApi.sendMessage(newId, q.apiPayload).then((serverMsgId) => {
+            if (serverMsgId) q.msg.id = serverMsgId;
+          }).catch((e) => {
+            console.warn('queued message persist failed:', e);
+            toast('⚠ A queued message failed to persist to backend.');
+          });
+        }
+
         renderIncidents();
       })
       .catch((err) => {
         console.warn('incident create persist failed (kept local):', err);
         inc._persistPending = false;
-        toast('⚠ Incident saved locally — backend persist failed. See console.');
+        const stranded = (inc._pendingMessages || []).length;
+        inc._pendingMessages = [];
+        toast(stranded
+          ? `⚠ Incident + ${stranded} message(s) saved locally — backend persist failed.`
+          : '⚠ Incident saved locally — backend persist failed. See console.');
       });
   }
 
@@ -2839,6 +3006,16 @@ function renderIncidentList() {
   if (!list.length) return '<div class="empty">No incidents in this filter.</div>';
   return `<div class="incident-list">${list.map(i => {
     const msgs = (i.messages||[]).length;
+    // Surface drill messages on the card so an operator scanning the list
+    // never mistakes a drill incident for a real one without opening it.
+    // Computed from the message rows so it stays accurate as messages are
+    // added or removed; no separate flag on the incident itself.
+    const testCount = (i.messages||[]).filter(m => m.isTest).length;
+    const allTest = testCount > 0 && testCount === msgs;
+    const testBadge = testCount === 0 ? ''
+      : allTest
+        ? `<span class="test-badge" title="Every message in this incident was sent in test mode">🧪 Drill</span>`
+        : `<span class="test-badge" title="${testCount} of ${msgs} messages were sent in test mode">🧪 incl. test</span>`;
     return `
     <div class="incident-row ${STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${esc(i.id)}">
       <div class="i-title">${esc(i.title)}</div>
@@ -2847,6 +3024,7 @@ function renderIncidentList() {
         <span>${relTime(i.opened)} ago</span>
         <span>${esc(i.offices.join(', '))}</span>
         ${msgs?`<span title="messages sent">📨 ${msgs}</span>`:''}
+        ${testBadge}
         <span style="margin-left:auto;color:${i.status==='open'?'var(--red)':'var(--muted)'}">${i.status}</span>
       </div>
     </div>`;
@@ -2921,9 +3099,9 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
       ${msgs.map((m,i)=>{
         const tplName = m.templateName || allTemplates().find(t=>t.id===m.template)?.name || 'Custom';
         const sevColor = (m.template==='evac'||m.template==='shelter')?SEV_COLOR.high:m.template==='allclear'?SEV_COLOR.low:SEV_COLOR.mod;
-        return `<div class="comm-card" style="border-left-color:${sevColor}">
+        return `<div class="comm-card${m.isTest?' is-test':''}" style="border-left-color:${m.isTest?'#22d3ee':sevColor}">
           <div class="row-between">
-            <div class="comm-step">${i+1}. ${esc(tplName)}</div>
+            <div class="comm-step">${i+1}. ${esc(tplName)}${m.isTest?' <span class="test-badge" title="Drill — sent in test mode, routed to test channel only">🧪 Test</span>':''}</div>
             <div class="muted-xs">${new Date(m.when).toLocaleString()}</div>
           </div>
           ${m.subject?`<div style="font-size:12px;font-weight:600;margin-top:4px">${esc(m.subject)}</div>`:''}
@@ -2931,7 +3109,7 @@ function renderIncidentTab(inc, ok, help, no, total, pct) {
           ${m.attachments?.length?`<div class="att-list">${m.attachments.map(a => attachmentChipHTML(a, false)).join('')}</div>`:''}
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
             ${m.channels.map(c=>`<span class="src-pill">${c.toUpperCase()}</span>`).join('')}
-            <span class="src-pill">${m.recipients.toLocaleString()} recipients</span>
+            <span class="src-pill">${(m.recipients ?? m.recipientsCount ?? 0).toLocaleString()} recipients</span>
             <span class="src-pill">${esc(m.offices.join(', '))}</span>
             ${m.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
             ${m.attachments?.length?`<span class="src-pill">📎 ${m.attachments.length}</span>`:''}
@@ -3928,9 +4106,16 @@ function exportIncidentReport(incidentId) {
   <h2>Communications Sent (${messages.length})</h2>
   ${messages.length ? messages.map((m,i)=>{
     const tplName = m.templateName || allTemplates().find(t=>t.id===m.template)?.name || 'Custom';
-    return `<div class="msg-block">
+    // Test messages get an inline 🧪 TEST badge + a left-rail accent.
+    // The Export Report is the artifact CMT will share post-incident or
+    // post-drill, so the marker has to be unmissable on a printed page.
+    const testBadge = m.isTest
+      ? ' <span style="display:inline-block;background:#cffafe;color:#0e7490;border:1px solid #67e8f9;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-left:6px">🧪 TEST DRILL</span>'
+      : '';
+    const testStyle = m.isTest ? 'border-left-color:#0891b2;background:#ecfeff;' : '';
+    return `<div class="msg-block" style="${testStyle}">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span class="msg-step">${i+1}. ${esc(tplName)}</span>
+        <span class="msg-step">${i+1}. ${esc(tplName)}${testBadge}</span>
         <span class="msg-when">${new Date(m.when).toLocaleString()}</span>
       </div>
       ${m.subject?`<div class="msg-subject">${esc(m.subject)}</div>`:''}
@@ -3938,7 +4123,7 @@ function exportIncidentReport(incidentId) {
       ${m.attachments?.length?`<div style="margin-top:8px;font-size:11px"><b>Attachments:</b> ${m.attachments.map(a => `<a href="${a.data||'#'}" target="_blank" ${a.data?`download="${esc(a.name)}"`:''} style="margin-right:6px">${fileIcon(a.type)} ${esc(a.name)}${a.size?` (${fmtSize(a.size)})`:''}</a>`).join('')}</div>`:''}
       <div style="margin-top:8px">
         ${m.channels.map(c=>`<span class="pill">${c.toUpperCase()}</span>`).join('')}
-        <span class="pill">${m.recipients.toLocaleString()} recipients</span>
+        <span class="pill">${(m.recipients ?? m.recipientsCount ?? 0).toLocaleString()} recipients</span>
         <span class="pill">${esc(m.offices.join(', '))}</span>
         ${m.responseRequired?'<span class="pill" style="color:#16a34a;border-color:#16a34a">tracked</span>':''}
       </div>
@@ -4071,9 +4256,10 @@ function stripMessageAtts(m) {
 function stripIncident(i) {
   // Strip Sprint-5 private bookkeeping fields before localStorage write —
   // _persistPending getting restored as 'true' on next boot would block
-  // future API persists on this incident, and _backendResponses is a
-  // transient field used only during backfillIncidents hydration.
-  const { _persistPending, _backendResponses, ...rest } = i;
+  // future API persists on this incident, _backendResponses is a transient
+  // field used only during backfillIncidents hydration, and _pendingMessages
+  // is the in-flight message-persist queue (would be stale on reload).
+  const { _persistPending, _backendResponses, _pendingMessages, ...rest } = i;
   return {
     ...rest,
     notes: (rest.notes || []).map(n => ({ ...n, attachments: (n.attachments || []).map(stripAtt) })),
@@ -4104,6 +4290,7 @@ function buildPersistPayload() {
       attachments:      (STATE.attachments || []).map(stripAtt),
       linkedIncidentId: STATE.linkedIncidentId,
       composeAdvanced:  STATE.composeAdvanced,
+      isTest:           STATE.isTest,
     },
     noteAttachments:  (STATE.noteAttachments || []).map(stripAtt),
   };
@@ -4605,9 +4792,16 @@ function mapMessageRow(r) {
     channels:         r.channels ?? [],
     offices:          r.offices ?? [],
     recipientsCount:  r.recipients_count ?? 0,
+    // Locally-created messages use `recipients`; server-mapped messages used
+    // to drop that field, so the comm-card / crisis-log render that reads
+    // `m.recipients` would render `undefined.toLocaleString()` and crash.
+    // Mirror the count so render code doesn't have to branch on shape.
+    recipients:       r.recipients_count ?? 0,
     responseRequired: r.response_required ?? false,
     reminderInterval: r.reminder_interval ?? null,
     attachments:      r.attachments ?? [],
+    // 2026-06-18: drill flag. Backend default is FALSE for legacy rows.
+    isTest:           r.is_test ?? false,
   };
 }
 
