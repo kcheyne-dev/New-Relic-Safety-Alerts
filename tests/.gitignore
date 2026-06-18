@@ -1,0 +1,8 @@
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+# Workspace-only TypeScript verification harness — used during authoring,
+# not part of the shipped harness. Real verification is via `npm install`
+# + `npx tsc --noEmit` on the user's machine.
+.typecheck-stub/

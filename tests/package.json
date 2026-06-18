@@ -1,0 +1,17 @@
+{
+  "name": "nrsa-smoke-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright smoke harness for NRSA / S.T.A.R. View — see README.md",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "PWDEBUG=1 playwright test",
+    "report": "playwright show-report",
+    "cleanup": "bash scripts/cleanup-smoke-incidents.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "@types/node": "^20.10.0"
+  }
+}
