@@ -70,3 +70,24 @@ function bridgeReassignable(name) {
   'lastSavedAt',      // debounced localStorage save timestamp
   'lastRefreshAt',    // last successful /api/events fetch
 ].forEach(bridgeReassignable);
+
+/* Step 4: bridge pure-helper functions extracted in session 2 / step C1.
+   legacy-app.js calls these as bare globals (`esc(text)`, `fmtSize(n)`, etc.);
+   Object.assign'ing them onto window makes the calls resolve unchanged. The
+   functions don't reference any state, so order-of-load doesn't matter — but
+   they are read-only, never reassigned, so direct property assignment is fine
+   (no getter/setter needed). */
+import * as helpers from './helpers.js';
+Object.assign(window, helpers);
+
+/* Step 5: bridge constants for module-side reads. legacy-app.js still has its
+   own inline `const SEVERITY = ...` etc. declarations; those create script-
+   scope bindings (NOT window properties for `let`/`const`) so modules can't
+   see them. Bridging the constants module to window gives helpers.js (and
+   future render.js/modals.js) bare-reference access to OFFICES, OFFICE_BY_ID,
+   COUNTRY_PRESENCE, SEV_RANK, etc. without needing per-helper imports.
+   The values are drift-checked equal to the inline copies; legacy-app.js's
+   references continue to resolve through its own script-scope bindings,
+   shadowing the window copies harmlessly until session-3 inline removal. */
+import * as constants from './constants.js';
+Object.assign(window, constants);
