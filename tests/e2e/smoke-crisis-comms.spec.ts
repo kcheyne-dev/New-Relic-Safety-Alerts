@@ -190,6 +190,58 @@ test.describe('NRSA Crisis Comms smoke', () => {
     await expect(testCommCard).toBeVisible();
     await expect(testCommCard.locator('.test-badge')).toContainText(/Test/i);
 
+    // ---------------------------------------------------------------
+    // 8. Sprint 5 phase 6 — full lifecycle: note → close → reopen
+    // ---------------------------------------------------------------
+    // The test incident is currently selected (we clicked it in step 7).
+    // Switch to the Notes tab and add a tagged note, verify it round-trips.
+    await page.click('[data-i-tab="notes"]');
+    await expect(page.locator('#note-input')).toBeVisible({ timeout: 3_000 });
+    const noteText = `${RUN_ID} smoke note for Phase 6 lifecycle verification`;
+    await page.fill('#note-input', noteText);
+    await page.click('#note-add');
+
+    // Note persists fire-and-forget; poll the incident detail until it
+    // shows up on the server.
+    await pollUntil(
+      async () => {
+        const d = await fetchIncident(request, token!, testIncidentId);
+        return (d.notes || []).some((n: any) => n.body?.includes(noteText));
+      },
+      'note should round-trip to /api/incidents/:id/notes',
+    );
+
+    // Close the incident from the Details tab. The Close flow opens a modal
+    // (#close-note + #modal-confirm) — same pattern as the Send confirmation.
+    await page.click('[data-i-tab="details"]');
+    await expect(page.locator('#btn-close-inc')).toBeVisible({ timeout: 3_000 });
+    await page.click('#btn-close-inc');
+    await expect(page.locator('#close-note')).toBeVisible({ timeout: 3_000 });
+    await page.fill('#close-note', `${RUN_ID} smoke close-note for Phase 6`);
+    await page.click('#modal-confirm');
+
+    // Verify status=closed via the API.
+    await pollUntil(
+      async () => {
+        const d = await fetchIncident(request, token!, testIncidentId);
+        return d.incident?.status === 'closed';
+      },
+      'incident status should flip to closed on /api/incidents/:id/close',
+    );
+
+    // Reopen. Single click — no confirmation modal on the reopen path.
+    await expect(page.locator('#btn-reopen-inc')).toBeVisible({ timeout: 3_000 });
+    await page.click('#btn-reopen-inc');
+
+    // Verify status=open via the API.
+    await pollUntil(
+      async () => {
+        const d = await fetchIncident(request, token!, testIncidentId);
+        return d.incident?.status === 'open';
+      },
+      'incident status should flip back to open on /api/incidents/:id/reopen',
+    );
+
     // Final receipt — useful when grepping smoke output later.
     // eslint-disable-next-line no-console
     console.log(`✓ smoke complete — RUN_ID=${RUN_ID}  real=${realIncidentId}  test=${testIncidentId}`);
@@ -220,6 +272,26 @@ async function fetchIncident(
   });
   expect(resp.ok(), `GET /api/incidents/${incidentId} should succeed (got ${resp.status()})`).toBeTruthy();
   return await resp.json();
+}
+
+/**
+ * Generic polling helper — repeatedly invokes `predicate` until it returns
+ * true, with a 5s default timeout. Used for fire-and-forget API mutations
+ * (notes, close, reopen) where the UI optimistically advances before the
+ * server has acknowledged. Throws with the supplied label on timeout.
+ */
+async function pollUntil(
+  predicate: () => Promise<boolean>,
+  label: string,
+  timeoutMs = 5_000,
+  intervalMs = 250,
+): Promise<void> {
+  const max = Math.floor(timeoutMs / intervalMs);
+  for (let i = 0; i < max; i++) {
+    if (await predicate()) return;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error(`pollUntil timed out (${timeoutMs}ms): ${label}`);
 }
 
 /**

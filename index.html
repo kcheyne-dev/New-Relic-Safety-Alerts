@@ -5228,6 +5228,134 @@ async function backfillWhoOutbreaks() {
   }
 }
 
+/**
+ * Sprint 5 phase 5 — auto-migrate localStorage-only incidents to Postgres.
+ *
+ * Background: incidents created before the backend persistence layer landed
+ * (or any time the API persist failed and the user kept working) live in
+ * localStorage with a local-shape id (`i_xxx` from uid()). Once the user
+ * boots in live mode against a healthy backend, those incidents would be
+ * silently overwritten by backfillIncidents — which replaces STATE.incidents
+ * with the server's canonical list. So before we backfill, we sweep up any
+ * local-only entries and POST them.
+ *
+ * Strategy: best-effort, sequential. Create the incident on the server,
+ * swap STATE.incidents[i].id (and STATE.responses[id], STATE.selectedIncidentId,
+ * STATE.linkedIncidentId) to the new server UUID, then post each
+ * message / note / response / close in order. Each sub-resource is wrapped
+ * in its own try/catch so a single failure doesn't strand the rest of the
+ * incident's history.
+ *
+ * After migration completes, backfillIncidents runs and replaces STATE
+ * with the canonical server list — which now includes everything we just
+ * migrated, so the swap is invisible to the operator beyond a single toast.
+ */
+function isLocalIncidentId(id) {
+  return typeof id === 'string' && id.startsWith('i_');
+}
+
+async function migrateLocalIncidents() {
+  if (!API_BASE) return;
+  // _persistPending=true means createIncident's own .then is still in
+  // flight for that incident. Skip those — re-attempting here would
+  // double-create.
+  const local = (STATE.incidents || []).filter(
+    i => isLocalIncidentId(i.id) && !i._persistPending
+  );
+  if (!local.length) return;
+
+  let migrated = 0;
+  let failed   = 0;
+
+  for (const inc of local) {
+    let serverInc;
+    try {
+      serverInc = await incidentsApi.create({
+        title:       inc.title,
+        description: inc.description || '',
+        severity:    inc.severity,
+        offices:     inc.offices || [],
+        alertId:     inc.alertId || undefined,
+      });
+    } catch (err) {
+      console.warn('migrate: incident create failed (kept local):', inc.id, err);
+      failed++;
+      continue;
+    }
+
+    const oldId = inc.id;
+    const newId = serverInc.id;
+    // Swap the id across every STATE field that keys off it. After this,
+    // backfillIncidents (which runs next) will line up perfectly with the
+    // local STATE because the ids match.
+    inc.id = newId;
+    if (STATE.responses[oldId]) {
+      STATE.responses[newId] = STATE.responses[oldId];
+      delete STATE.responses[oldId];
+    }
+    if (STATE.selectedIncidentId === oldId) STATE.selectedIncidentId = newId;
+    if (STATE.linkedIncidentId   === oldId) STATE.linkedIncidentId   = newId;
+
+    // Sub-resources, sequential + best-effort. Order matters: messages
+    // before notes is just convention; close goes last because it freezes
+    // the incident on the server.
+    for (const m of (inc.messages || [])) {
+      try {
+        await incidentsApi.sendMessage(newId, {
+          template:         m.template ?? undefined,
+          templateName:     m.templateName,
+          subject:          m.subject || undefined,
+          body:             m.body,
+          channels:         m.channels || [],
+          offices:          m.offices || [],
+          recipientsCount:  m.recipients ?? m.recipientsCount ?? 0,
+          responseRequired: !!m.responseRequired,
+          reminderInterval: m.reminder ?? m.reminderInterval ?? undefined,
+          attachments:      m.attachments || [],
+          isTest:           !!m.isTest,
+        });
+      } catch (e) { console.warn('migrate: message persist failed', oldId, e); }
+    }
+    for (const n of (inc.notes || [])) {
+      try {
+        await incidentsApi.addNote(newId, {
+          body: n.body,
+          attachments: n.attachments || [],
+        });
+      } catch (e) { console.warn('migrate: note persist failed', oldId, e); }
+    }
+    // Only persist non-default responses (status='no' is the implicit shell
+    // built by buildResponseShells; no need to round-trip it).
+    const respMap = STATE.responses[newId] || {};
+    for (const [eid, r] of Object.entries(respMap)) {
+      if (!r || r.status === 'no') continue;
+      const employeeId = eid.replace(/^T-/, '');   // strip traveler prefix
+      try {
+        await incidentsApi.updateResponse(newId, employeeId, {
+          status:     r.status,
+          isTraveler: !!r.traveler,
+        });
+      } catch (e) { console.warn('migrate: response persist failed', oldId, eid, e); }
+    }
+    if (inc.status === 'closed') {
+      try {
+        await incidentsApi.close(newId, inc.closedNote || '');
+      } catch (e) { console.warn('migrate: close persist failed', oldId, e); }
+    }
+    migrated++;
+  }
+
+  if (migrated > 0) {
+    const tail = failed ? ` ${failed} failed — kept local.` : '';
+    toast(`✓ Migrated ${migrated} localStorage incident${migrated === 1 ? '' : 's'} to backend.${tail}`);
+  } else if (failed > 0) {
+    toast(`⚠ ${failed} localStorage incident${failed === 1 ? '' : 's'} could not migrate — kept local.`);
+  }
+  // STATE.incidents now has the right ids; render so the panel reflects
+  // any selection/link changes that came along with the swap.
+  renderIncidents();
+}
+
 async function backfillIncidents() {
   // Defensive: bare GitHub Pages and #api=mock both have empty API_BASE.
   // bootLiveMode already gates on API_BASE before reaching here, but
@@ -5286,6 +5414,11 @@ async function bootLiveMode() {
 
   await backfillAlerts();
   await backfillWhoOutbreaks();
+  // Migrate any localStorage-only incidents BEFORE backfillIncidents fetches
+  // the server list. backfillIncidents replaces STATE.incidents wholesale,
+  // so anything still local-only at that point would be lost on next save.
+  // See migrateLocalIncidents for the full strategy.
+  await migrateLocalIncidents();
   await backfillIncidents();
   subscribeLiveStream();
 
