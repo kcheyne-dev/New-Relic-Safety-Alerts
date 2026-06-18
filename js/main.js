@@ -118,3 +118,13 @@ Object.assign(window, persistence);
    working. The status-strip ticker fires via legacy-app.js's tail trigger. */
 import * as render from './render.js';
 Object.assign(window, render);
+
+/* Step 9: bridge modal logic extracted in session 3 step 10 — the final
+   extraction. ~33 functions across modal infrastructure (showModal/closeModal/
+   toast), Crisis Comms send flow (confirmSend/dispatchSend), Travelers list
+   modal, BCI declaration flow (showBCPModal + declareBCP + 12 supporting fns),
+   Risk Profile modal. legacy-app.js's remaining ~2,500 lines are pure boot
+   wiring + DOM event listeners + demo simulator + a few incident-state
+   helpers that didn't fit any other module cleanly. */
+import * as modals from './modals.js';
+Object.assign(window, modals);
