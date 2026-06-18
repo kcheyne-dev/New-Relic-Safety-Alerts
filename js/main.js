@@ -100,3 +100,12 @@ Object.assign(window, constants);
    the trigger fires from legacy-app.js, the api bridge is in place. */
 import * as api from './api.js';
 Object.assign(window, api);
+
+/* Step 7: bridge persistence + report-export functions extracted in session 3
+   step 8. saveState is called from every state mutation in legacy-app.js
+   (debounced to 500ms via the module-private _saveTimer); loadState runs
+   once during boot to restore from localStorage; exportData / resetData
+   are wired to the manual modal's buttons; showAlertDetails and
+   exportIncidentReport open new tabs from the incident detail UI. */
+import * as persistence from './persistence.js';
+Object.assign(window, persistence);
