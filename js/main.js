@@ -91,3 +91,12 @@ Object.assign(window, helpers);
    shadowing the window copies harmlessly until session-3 inline removal. */
 import * as constants from './constants.js';
 Object.assign(window, constants);
+
+/* Step 6: bridge api functions extracted in session 2 / step 7. Includes
+   API_BASE, token storage, apiFetch, the four backfills, SSE subscription,
+   login modal, mappers, incidentsApi/commsApi objects, and bootLiveMode
+   itself. legacy-app.js's tail boot trigger (`if (API_BASE) { bootLiveMode() }`)
+   relies on these being on window — modules execute first so by the time
+   the trigger fires from legacy-app.js, the api bridge is in place. */
+import * as api from './api.js';
+Object.assign(window, api);
