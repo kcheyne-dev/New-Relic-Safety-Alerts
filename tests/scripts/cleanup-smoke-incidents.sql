@@ -53,20 +53,24 @@ DELETE FROM crisis_messages
 
 -- 4. The big delete. ON DELETE CASCADE handles messages, responses, notes,
 --    log entries, audit log via FK relationships in migrations 005 + 008.
+--
+--    Two match patterns:
+--      a) Incident has at least one message body starting with 'smoke-'
+--         (catches the real-send + test-send incidents from the Crisis
+--         Comms smoke flow).
+--      b) Incident TITLE starts with 'smoke-'
+--         (catches BCI-declaration incidents from the smoke's BCI step,
+--         which has no message — declareBCP creates the incident and
+--         opens the Crisis Comms compose form for the operator to send
+--         a message manually; the smoke stops short of that send).
 DELETE FROM incidents
  WHERE id IN (
    SELECT DISTINCT incident_id
      FROM crisis_messages
     WHERE incident_id IS NOT NULL
       AND body LIKE 'smoke-%'
- );
--- (NB: by the time this runs, those messages are already gone via CASCADE
---  from the DELETE above — so the IN clause is fine since we're matching
---  through CASCADE chains. If you re-run after a partial delete and want to
---  catch orphaned incidents whose messages were already pruned, run with
---  the title-based fallback instead:
---    DELETE FROM incidents WHERE title LIKE 'smoke-%';
--- )
+ )
+    OR title LIKE 'smoke-%';
 
 -- DEFAULT: dry run. Change to COMMIT to actually apply.
 ROLLBACK;

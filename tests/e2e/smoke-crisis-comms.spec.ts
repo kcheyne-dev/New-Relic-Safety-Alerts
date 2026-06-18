@@ -242,9 +242,62 @@ test.describe('NRSA Crisis Comms smoke', () => {
       'incident status should flip back to open on /api/incidents/:id/reopen',
     );
 
+    // ---------------------------------------------------------------
+    // 9. Risk Profile modal — open, click a country chip, close.
+    // ---------------------------------------------------------------
+    // The Risk Profile modal aggregates Live Hazards (works in live mode),
+    // ACLED civil-unrest counts (placeholder in live), and WHO outbreaks.
+    // We're not testing the data — we're testing that the modal renders and
+    // the click-handlers don't crash. This catches regressions in render.js
+    // that the Crisis Comms smoke wouldn't see.
+    await page.click('#btn-risk');
+    await expect(page.locator('#modal-back')).toBeVisible({ timeout: 3_000 });
+    // USA is always in COUNTRY_PRESENCE so the chip is reliably present.
+    const usaChip = page.locator('.risk-country-chip[data-country="USA"]');
+    await expect(usaChip).toBeVisible({ timeout: 3_000 });
+    await usaChip.click();
+    // After the click, modal re-renders with the country selected. The
+    // re-render removes + re-adds the chip; wait for it to come back so we
+    // know the click handler didn't throw.
+    await expect(page.locator('.risk-country-chip[data-country="USA"]')).toBeVisible({ timeout: 3_000 });
+    // Close. The X button uses aria-label="Close".
+    await page.click('.modal button[aria-label="Close"]');
+    await expect(page.locator('#modal-back')).toHaveCount(0, { timeout: 3_000 });
+
+    // ---------------------------------------------------------------
+    // 10. BCI declaration — full happy path.
+    // ---------------------------------------------------------------
+    // Click Declare BCI in the header. Title field, country chip, ack
+    // checkbox, declare button. After declare, an incident with severity='ext'
+    // and the exact title we filled should round-trip to /api/incidents.
+    await page.click('#btn-bcp');
+    await expect(page.locator('#bcp-title')).toBeVisible({ timeout: 3_000 });
+    const bciTitle = `${RUN_ID} smoke BCI — Major earthquake test`;
+    await page.fill('#bcp-title', bciTitle);
+    // Pick USA (always in COUNTRY_PRESENCE; chip toggles on click).
+    await page.click('.bcp-country-chip[data-country="USA"]');
+    // Acknowledge — the Declare button is disabled until this is checked.
+    await page.check('#bcp-ack');
+    await expect(page.locator('#bcp-declare-btn')).toBeEnabled({ timeout: 3_000 });
+    await page.click('#bcp-declare-btn');
+
+    // Modal closes; Crisis Comms compose opens with BCI context. Wait for
+    // the modal to disappear before we go to the API for verification.
+    await expect(page.locator('#bcp-title')).toHaveCount(0, { timeout: 5_000 });
+
+    // Poll the API for an incident with the BCI title. createIncident persists
+    // title, severity, offices, description, alertId — that's what we verify.
+    // The bcp:true / bcpEventType / bcpExposureSnapshot fields live only on
+    // the frontend incident object and don't round-trip to the server (the
+    // existing /api/incidents schema doesn't carry them) — that's a known
+    // gap, not a regression for this smoke to catch.
+    const bciIncident = await waitForIncidentByTitle(request, token!, bciTitle);
+    expect(bciIncident, 'BCI incident should round-trip to /api/incidents').toBeTruthy();
+    expect(bciIncident.severity, 'BCI severity should be ext (set in declareBCP)').toBe('ext');
+
     // Final receipt — useful when grepping smoke output later.
     // eslint-disable-next-line no-console
-    console.log(`✓ smoke complete — RUN_ID=${RUN_ID}  real=${realIncidentId}  test=${testIncidentId}`);
+    console.log(`✓ smoke complete — RUN_ID=${RUN_ID}  real=${realIncidentId}  test=${testIncidentId}  bci=${bciIncident.id}`);
   });
 });
 
@@ -292,6 +345,35 @@ async function pollUntil(
     await new Promise(r => setTimeout(r, intervalMs));
   }
   throw new Error(`pollUntil timed out (${timeoutMs}ms): ${label}`);
+}
+
+/**
+ * Poll /api/incidents until an incident with the given exact title appears.
+ * Used for verifying BCI declaration: the BCI flow doesn't send a message
+ * (it just creates an incident with the operator-supplied title), so the
+ * message-aware poll doesn't apply. Title-based match is reliable because
+ * the smoke tags BCI titles with the unique RUN_ID prefix.
+ */
+async function waitForIncidentByTitle(
+  request: APIRequestContext,
+  token: string,
+  title: string,
+  timeoutMs = 10_000,
+): Promise<any> {
+  const intervalMs = 500;
+  const max = Math.floor(timeoutMs / intervalMs);
+  for (let i = 0; i < max; i++) {
+    const resp = await request.get(`${API_URL}/api/incidents?status=open`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (resp.ok()) {
+      const data = await resp.json();
+      const match = (data.incidents || []).find((inc: any) => inc.title === title);
+      if (match) return match;
+    }
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error(`waitForIncidentByTitle: no incident titled "${title}" appeared within ${timeoutMs}ms`);
 }
 
 /**
