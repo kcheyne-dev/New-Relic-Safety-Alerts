@@ -220,6 +220,10 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<!-- Module bridge — sets up window.state + getter/setters for window.STATE /
+     window.ALERTS / etc. so legacy-app.js can keep using bare identifiers.
+     Loaded BEFORE legacy-app.js; both are deferred and execute in document order. -->
+<script type="module" src="./js/main.js"></script>
 <script defer src="./js/legacy-app.js"></script>
 </body>
 </html>

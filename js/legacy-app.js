@@ -375,7 +375,8 @@ const API_BASE = (() => {
   return '';
 })();
 
-let OPERATOR = { name: 'Kevin Cheyne', role: 'cmt', roleLabel: 'CMT' };
+/* OPERATOR moved to state.js; default Kevin Cheyne CMT bridged via main.js. The
+   /api/auth/me handler in bootLiveMode() reassigns OPERATOR through the setter. */
 const ROLE_TAG_STYLE = {
   admin:    { bg: 'var(--green)',  fg: '#062c1f',  label: 'Admin' },
   cmt:      { bg: 'var(--blue)',   fg: '#fff',     label: 'CMT Member' },
@@ -392,7 +393,7 @@ function randomName() {
   return rand(F)+' '+rand(L);
 }
 
-let ALERTS = [
+ALERTS = [
   { id:'a1',  sev:'high', type:'Civil Unrest',     source:'GDELT',      title:'Planned protest near Westminster — possible road closures',
     location:'London, UK', officeId:'LON', lat:51.501, lng:-0.124, radiusKm:5,
     summary:'Multiple groups gathering at Parliament Square 14:00 local. MPS advising avoidance of Whitehall.', issued: nowMinus(95) },
@@ -479,7 +480,7 @@ function buildEmployees() {
   });
   return list;
 }
-let EMPLOYEES = buildEmployees();
+EMPLOYEES = buildEmployees();
 
 /* Travelers — populated only in #api=mock by the demo bootstrap (TRAVELERS_MOCK
    defined alongside the demo simulator). Live + bare GitHub Pages keep
@@ -488,7 +489,7 @@ let EMPLOYEES = buildEmployees();
    Workday-pending pattern for REMOTE_EMPLOYEES. The Navan API will return
    the same record shape as TRAVELERS_MOCK below; production will swap the
    bootstrap line for a fetch. */
-let TRAVELERS = [];
+/* TRAVELERS moved to state.js (initial: []); demo bootstrap reassigns via setter. */
 
 /* ---------- 3. App state ---------- */
 /* Crisis Comm templates.
@@ -624,58 +625,12 @@ const TEMPLATES = {
   },
 };
 
-const STATE = {
-  feedTab: 'office',
-  expandedOffices: new Set(),  // office groups showing all alerts vs top 5
-  search: '',
-  selectedAlertId: null,
-  selectedOffices: [],
-  filterMinSev: 'low',
-  officeRelevantOnly: true,           // hide global noise — only show events affecting an office, traveler, or employee population
-  visibleOffices: OFFICES.map(o => o.id),
-  visibleAlertTypes: ALERT_TYPES.slice(),
-  showEmployees: true,
-  empMode: 'office',
-  showTravelers: true,
-  ccTab: 'compose',
-  composeAdvanced: false,            // Advanced disclosure in Compose tab
-  channels: { slack:true, email:false, sms:false },
-  template: '',
-  customMessage: '',
-  subject: '',
-  responseRequired: true,
-  reminderInterval: '15m',
-  // 2026-06-18: drill-mode toggle. When true and there is no linked incident,
-  // a Send routes to TEST_ROUTING (test Slack channel + test email distro)
-  // with a [TEST] subject prefix and a drill-warning preamble in the body.
-  // The persisted message carries isTest=true everywhere it appears: incident
-  // Comms tab, standalone Crisis log, incident Log entry, and Export Report.
-  // Reset to false after a successful send. Force false whenever the operator
-  // links to an existing incident (test mode unavailable inside real incidents).
-  isTest: false,
-  customLocations: [],
-  userTemplates: [],
-  attachments: [],          // current Compose draft attachments
-  noteAttachments: [],      // current note-input attachments
-  crisisLog: [],
-  roomMessages: [
-    { from:'CMT', when: nowMinus(20), body:'Monitoring multiple regions. SF/TYO/BLR active.' },
-    { from:'cowork-3p', when: nowMinus(2), body:'On shift. Reviewing TYO seismic.' },
-  ],
-  incidents: [],
-  selectedIncidentId: null,
-  linkedIncidentId: null,           // when set, new comms append to this incident
-  incidentTab: 'details',
-  incidentListFilter: 'open',       // open | closed | all
-  msgFilter: 'all',
-  responses: {},  // { incidentId: { employeeId: { status: 'ok'|'help'|'no', when, by } } }
-  panels: { alerts:false, crisis:false, incident:false },
-  panelWidths: { alerts: 340, crisis: 360, incident: 360 },
-  fence: null,             // {layer, shape, mode, results: {offices, employees, travelers}}
-  fenceMode: 'highlight',
-  hazards: { fire:false, flood:false, quake:false, unrest:false, heat:false, aqi:false, precip:false, temp:false },
-  theme: 'dark',
-};
+/* STATE moved to state.js (as state.UI_STATE); bridged via main.js so
+   legacy `STATE.feedTab = 'time'` etc. continues to work. The two fields
+   below are derived from inline OFFICES + ALERT_TYPES which haven't been
+   wired through the module system yet — populate them here at boot. */
+STATE.visibleOffices    = OFFICES.map(o => o.id);
+STATE.visibleAlertTypes = ALERT_TYPES.slice();
 
 /* ---------- 4. Map setup ---------- */
 const map = L.map('map', { worldCopyJump: true, minZoom: 2, maxZoom: 14, zoomControl: true })
@@ -3581,7 +3536,7 @@ function exportIncidentReport(incidentId) {
 const PERSIST_KEY = 'nrsa-state-v1';
 const PERSIST_DEBOUNCE_MS = 500;
 let _saveTimer = null;
-let lastSavedAt = null;
+/* lastSavedAt moved to state.js. */
 
 /** Strip the (potentially huge) data: URL from an attachment, keep metadata. */
 function stripAtt(a) {
@@ -3726,12 +3681,8 @@ function resetData() {
 }
 
 /* ---------- 17e. Status Strip ---------- */
-// lastRefreshAt: timestamp of the most recent successful event fetch from the
-// backend (either /api/events backfill or an SSE push). null until the first
-// success — important so the "Last fetch" chip can distinguish "never fetched"
-// from "just fetched". The chip itself is only rendered when API_BASE is set
-// (live mode); in mock and bare-Pages modes there is no backend to age out.
-let lastRefreshAt = null;
+/* lastRefreshAt moved to state.js. The "Last fetch" chip uses it to age out
+   the backend connection — null until the first success, then ISO timestamp. */
 
 function renderStatusStrip() {
   const el = document.getElementById('status-strip');
@@ -4633,7 +4584,7 @@ if (API_BASE) {
    filter (flight/hotel/office), CSV export, and per-row actions: 📍 zoom
    map to the traveler, ✉ pre-fill Crisis Comms with traveler context.
    ========================================================================= */
-const TRAV_VIEW = { sortKey: 'name', sortDir: 'asc', search: '', typeFilter: 'all' };
+/* TRAV_VIEW moved to state.js. */
 
 function _fmtTravDate(iso) {
   if (!iso) return '—';
@@ -4942,7 +4893,7 @@ const REMOTE_EMPLOYEES_MOCK = (() => {
   });
   return list;
 })();
-let REMOTE_EMPLOYEES = [];   // populated by demo bootstrap when #api=mock
+/* REMOTE_EMPLOYEES moved to state.js. */
 
 /* Mock ACLED country risk rollups — last 30 days of vetted civil-unrest /
  * armed-conflict events per country. Populated only in demo mode (see boot
@@ -4993,7 +4944,7 @@ const ACLED_RISK_MOCK = {
   'South Korea': { battles: 0, vac: 0, explosions: 0, riots: 1,   strategicDev: 4,  fatalities: 0 },
   Iceland:     { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 0,  fatalities: 0 },
 };
-let ACLED_RISK = {};  // populated by demo bootstrap when #api=mock
+/* ACLED_RISK moved to state.js. */
 
 /* Mock WHO Disease Outbreak News — active disease outbreaks the operator
  * should know about when assessing country risk. Populated only in demo
@@ -5028,7 +4979,7 @@ const WHO_OUTBREAKS_MOCK = [
   { country:'USA',         disease:'Measles',         severity:'low',  cases:121,   since:'2026-03-04', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Multi-state measles clusters; under-vaccinated communities.' },
   { country:'Australia',   disease:'Japanese encephalitis', severity:'low', cases:14, since:'2026-04-18', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'JE virus expansion in NSW/VIC; rural exposure risk.' },
 ];
-let WHO_OUTBREAKS = [];  // populated by demo bootstrap when #api=mock
+/* WHO_OUTBREAKS moved to state.js. */
 
 const BCP_EVENT_TYPES = [
   { id:'terror',    label:'Terrorist incident',          titleHint:'Terror incident — ' },
@@ -5041,10 +4992,7 @@ const BCP_EVENT_TYPES = [
   { id:'other',     label:'Other / Custom',              titleHint:'' },
 ];
 
-const BCP_FORM = {
-  eventTypeId: 'quake', title: '', countries: [],
-  useFence: false, templateId: 'bc_announce', customMessage: '', acknowledged: false,
-};
+/* BCP_FORM moved to state.js; bridged via main.js so legacy mutations propagate. */
 
 function showBCPModal(preserve = false) {
   if (!preserve) {
@@ -5451,7 +5399,7 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
    Live + bare Pages mode: shows pending-integration placeholder.
    Mock mode: full UI populated from ACLED_RISK / ACLED_RISK_MOCK.
    ========================================================================= */
-const RISK_VIEW = { selected: [], search: '', regionFilter: 'all' };
+/* RISK_VIEW moved to state.js. */
 
 function showRiskProfileModal(prefilledCountries) {
   RISK_VIEW.selected = Array.isArray(prefilledCountries) ? prefilledCountries.slice() : [];
