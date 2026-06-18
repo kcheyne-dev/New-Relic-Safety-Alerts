@@ -114,14 +114,15 @@ test.describe('NRSA Crisis Comms smoke', () => {
       page.locator('#panel-crisis .tab[data-cc-tab="log"]')
     ).toHaveClass(/active/, { timeout: 5_000 });
 
-    // The new incident appears via fire-and-forget POST. Poll the API.
-    const realIncidentId = await waitForLatestIncidentId(request, token!);
+    // Round-trip: poll /api/incidents until an incident exists whose
+    // messages contain our tagged body. We wait on the FULL condition
+    // (incident + message) rather than just incident-create, because
+    // dispatchSend persists the message in a queue that flushes AFTER the
+    // incident's create-promise resolves — so the incident shows up a
+    // beat before its first message does.
+    const { incidentId: realIncidentId, message: realMsg } =
+      await waitForIncidentWithMessage(request, token!, realBody);
     expect(realIncidentId, 'real send should auto-create an incident').toBeTruthy();
-
-    // Round-trip: GET /api/incidents/:id and verify the message landed.
-    const realDetail = await fetchIncident(request, token!, realIncidentId);
-    const realMsg = (realDetail.messages || []).find((m: any) => m.body?.includes(realBody));
-    expect(realMsg, 'real message body should round-trip through Postgres').toBeTruthy();
     expect(realMsg.is_test, 'is_test should be false on a real send').toBe(false);
     // Real send must NOT have the [TEST] subject prefix.
     expect((realMsg.subject || '')).not.toMatch(/^\[TEST\]/);
@@ -153,15 +154,13 @@ test.describe('NRSA Crisis Comms smoke', () => {
     await expect(page.locator('#modal-confirm')).toBeVisible({ timeout: 5_000 });
     await page.click('#modal-confirm');
 
-    // Wait for a SECOND new incident (different id from realIncidentId).
-    const testIncidentId = await waitForLatestIncidentId(request, token!, realIncidentId);
+    // Round-trip the test send the same way: wait until the test message
+    // body shows up in some incident's persisted messages. Exclude the real
+    // incident's id so we don't accidentally match the previous send.
+    const { incidentId: testIncidentId, message: testMsg } =
+      await waitForIncidentWithMessage(request, token!, testBody, [realIncidentId]);
     expect(testIncidentId, 'test send should auto-create a second incident').toBeTruthy();
     expect(testIncidentId).not.toBe(realIncidentId);
-
-    // Round-trip: verify the test message persisted with the right shape.
-    const testDetail = await fetchIncident(request, token!, testIncidentId);
-    const testMsg = (testDetail.messages || []).find((m: any) => m.body?.includes(testBody));
-    expect(testMsg, 'test message body should round-trip through Postgres').toBeTruthy();
     expect(testMsg.is_test, 'is_test should be true on a test send').toBe(true);
     expect(testMsg.subject || '', 'subject should carry [TEST] prefix').toMatch(/^\[TEST\]/);
     expect(testMsg.body, 'body should include the drill-warning preamble').toContain('TEST DRILL');
@@ -224,35 +223,53 @@ async function fetchIncident(
 }
 
 /**
- * Poll /api/incidents?status=open for up to ~10s waiting for a NEW incident
- * to appear. The frontend persists asynchronously — STATE has a local id
- * that gets swapped to the server UUID on success — so reading from STATE
- * is racy. Going to the source of truth (the API) is the cleanest signal.
+ * Poll /api/incidents?status=open until an incident exists whose `messages`
+ * contain the given body substring. Returns both the incident id and the
+ * matched message row. Fails after ~15s.
  *
- * @param excludeId — when set, skip this id (the previously-known latest)
- *                    so we wait for the NEXT one rather than just any one.
+ * Why message-aware (not just incident-aware): the frontend's createIncident
+ * resolves as soon as the incident row is persisted. Its first message is
+ * sent on a SEPARATE round-trip from the queue/flush path in dispatchSend,
+ * which means the incident is observable in the API a beat before its
+ * messages are. A simpler "wait for new incident" probe races that gap and
+ * sometimes fetches detail before the message has landed.
+ *
+ * @param bodyMatch  — substring of the persisted message body. Use a unique
+ *                     RUN_ID-tagged string so this never matches stale rows.
+ * @param excludeIds — incident ids to skip (e.g., the prior send's incident
+ *                     when waiting for the SECOND send).
  */
-async function waitForLatestIncidentId(
+async function waitForIncidentWithMessage(
   request: APIRequestContext,
   token: string,
-  excludeId?: string,
-): Promise<string> {
-  for (let i = 0; i < 20; i++) {
-    const resp = await request.get(`${API_URL}/api/incidents?status=open`, {
+  bodyMatch: string,
+  excludeIds: string[] = [],
+): Promise<{ incidentId: string; message: any }> {
+  for (let i = 0; i < 30; i++) {
+    const list = await request.get(`${API_URL}/api/incidents?status=open`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (resp.ok()) {
-      const data = await resp.json();
+    if (list.ok()) {
+      const data = await list.json();
       const incidents: Array<{ id: string; created_at: string }> = data.incidents || [];
-      // Sort newest first, then pick the first id that isn't the exclude.
+      // Newest first — most likely to be the one we just created.
       incidents.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
-      const candidate = incidents.find(inc => inc.id !== excludeId);
-      if (candidate) return candidate.id;
+      for (const inc of incidents) {
+        if (excludeIds.includes(inc.id)) continue;
+        const det = await request.get(`${API_URL}/api/incidents/${inc.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (det.ok()) {
+          const detail = await det.json();
+          const msg = (detail.messages || []).find((m: any) => m.body?.includes(bodyMatch));
+          if (msg) return { incidentId: inc.id, message: msg };
+        }
+      }
     }
     await new Promise(r => setTimeout(r, 500));
   }
   throw new Error(
-    'waitForLatestIncidentId: no new incident appeared within 10s. ' +
-    'Either the send failed silently or the backend is not persisting.'
+    `waitForIncidentWithMessage: no incident with message containing "${bodyMatch.slice(0, 60)}…" appeared within 15s. ` +
+    'Either the send was skipped, the queue/flush race regressed, or the backend is not persisting.'
   );
 }
