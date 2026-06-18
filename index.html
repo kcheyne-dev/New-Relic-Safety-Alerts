@@ -63,6 +63,19 @@ button { cursor: pointer; }
 .htn.active { background: rgba(28,231,131,.12); border-color: var(--green); color: var(--green); }
 .htn .dot { width: 8px; height: 8px; border-radius: 50%; }
 .htn .dot.green { background: var(--green); } .htn .dot.yellow { background: var(--yellow); } .htn .dot.red { background: var(--red); }
+/* Visible focus ring for keyboard users on every primary interactive class.
+   :focus-visible avoids drawing the ring on click-driven focus on buttons,
+   so the polish doesn't read as noise to mouse-only operators. */
+.htn:focus-visible,
+.btn-ghost:focus-visible,
+.tab:focus-visible,
+.ss-chip.clickable:focus-visible,
+.rail:focus-visible,
+.shape-buttons button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 .last-updated { font-size: 11px; color: var(--muted); }
 
 /* ============ STATUS STRIP ======================================= */
@@ -221,7 +234,8 @@ body.resizing-panel * { cursor: ew-resize !important; }
 .alert-card.s-low    { border-left-color: var(--sev-low); }
 .alert-card.s-mod    { border-left-color: var(--sev-mod); }
 .alert-card.s-high   { border-left-color: var(--sev-high); }
-.alert-card.s-ext    { border-left-color: var(--sev-ext); }
+.alert-card.s-ext    { border-left-color: var(--sev-ext); background: rgba(248,113,113,.08); }
+.alert-card.s-ext:hover { background: rgba(248,113,113,.14); }
 .alert-card .top-row { display: flex; gap: 6px; align-items: center; }
 .alert-card .a-title { font-weight: 600; color: var(--text); flex: 1; line-height: 1.3; }
 .alert-card .a-sub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; color: var(--muted); font-size: 10px; }
@@ -567,12 +581,15 @@ body.resizing-panel * { cursor: ew-resize !important; }
       </div>
     </div>
     <div class="h-tools">
-      <button class="htn" id="btn-tools" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
-      <button class="htn" id="btn-travelers" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">—</span></button>
-      <button class="htn" id="btn-risk" aria-label="ACLED Country Risk Profile — vetted civil-unrest counts by country">🌐 Risk Profile</button>
-      <button class="htn" id="btn-bcp" aria-label="Declare a Business Continuity Incident" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCI</button>
-      <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme">🌙</button>
-      <button class="htn" id="btn-help" aria-label="Open user manual">? Manual</button>
+      <!-- Operational cluster: tools an operator reaches for during an incident. -->
+      <button class="htn" id="btn-tools" title="Open Map Tools — layers, filters, and geo-fence draw" aria-label="Map tools — layers, filters, and geo-fence">🗺 Map Tools<span id="tools-badge"></span></button>
+      <button class="htn" id="btn-travelers" title="View the list of currently traveling employees with their itineraries" aria-label="View traveler list with itineraries">✈ Travelers <span id="trav-count-badge" style="background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:3px;">—</span></button>
+      <button class="htn" id="btn-risk" title="Country Risk Profile — live hazards, ACLED civil-unrest history, and WHO disease outbreaks by country" aria-label="Country Risk Profile — live hazards plus ACLED civil-unrest counts and WHO disease outbreaks">🌐 Risk Profile</button>
+      <button class="htn" id="btn-bcp" title="Declare a Business Continuity Incident — manually trigger a major event affecting employees, travelers, and offices in selected countries" aria-label="Declare a Business Continuity Incident" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;">🚨 Declare BCI</button>
+      <!-- Meta cluster: settings and help. Separated by a 20px margin so the
+           operational tools above visually group as a unit. -->
+      <button class="htn" id="btn-style" title="Toggle dark/light theme" aria-label="Toggle dark/light theme" style="margin-left:20px;">🌙</button>
+      <button class="htn" id="btn-help" title="Quick reference guide — workflow walkthrough" aria-label="Open quick reference guide">? Guide</button>
     </div>
   </header>
 
@@ -594,8 +611,8 @@ body.resizing-panel * { cursor: ew-resize !important; }
           <button class="btn-ghost" id="btn-collapse-alerts">«</button>
         </div>
         <div class="tabs">
-          <div class="tab active" data-feed-tab="office">By Office</div>
-          <div class="tab" data-feed-tab="time">Timeline</div>
+          <div class="tab active" data-feed-tab="office" tabindex="0" role="tab" aria-selected="true">By Office</div>
+          <div class="tab" data-feed-tab="time" tabindex="0" role="tab" aria-selected="false">Recent</div>
         </div>
         <div class="feed-search">
           <input type="text" id="feed-search" placeholder="Search alerts..." />
@@ -673,8 +690,8 @@ body.resizing-panel * { cursor: ew-resize !important; }
         </div>
         <h4>Mode</h4>
         <div class="shape-buttons" style="grid-template-columns:1fr 1fr;">
-          <button data-mode="highlight" class="active">Highlight</button>
-          <button data-mode="filter">Filter</button>
+          <button data-mode="highlight" class="active" title="Highlight: tint affected offices on the map and list employees and travelers inside the fence. Other alerts stay visible.">Highlight</button>
+          <button data-mode="filter" title="Filter: hide alerts and offices outside the fence. Use to focus the dashboard on a specific area during an incident.">Filter</button>
         </div>
         <h4>Results <span id="fence-result-summary" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;font-size:10px;"></span></h4>
         <div class="fence-results" id="fence-results"><div class="empty">Draw a shape to see results.</div></div>
@@ -1685,7 +1702,7 @@ function renderTravelers() {
   // "the answer is zero". Mock-mode populates TRAVELERS via the demo IIFE.
   const empty = TRAVELERS.length === 0;
   document.getElementById('trav-count').textContent = empty
-    ? 'Travelers — pending Navan integration'
+    ? 'Travelers data unavailable — awaiting Navan connection'
     : `${TRAVELERS.length} travelers loaded`;
   const badge = document.getElementById('trav-count-badge');
   if (badge) badge.textContent = empty ? '—' : TRAVELERS.length;
@@ -4183,7 +4200,12 @@ function resetData() {
 }
 
 /* ---------- 17e. Status Strip ---------- */
-let lastRefreshAt = new Date();
+// lastRefreshAt: timestamp of the most recent successful event fetch from the
+// backend (either /api/events backfill or an SSE push). null until the first
+// success — important so the "Last fetch" chip can distinguish "never fetched"
+// from "just fetched". The chip itself is only rendered when API_BASE is set
+// (live mode); in mock and bare-Pages modes there is no backend to age out.
+let lastRefreshAt = null;
 
 function renderStatusStrip() {
   const el = document.getElementById('status-strip');
@@ -4252,6 +4274,44 @@ function renderStatusStrip() {
         <div class="ss-value">${okSources}/${SOURCES.length}</div>
       </div>
     </button>
+    ${(function lastFetchChip() {
+      // Live-mode-only — bare Pages and #api=mock don't have a backend to
+      // age out, and an empty chip would be more confusing than absent.
+      if (!API_BASE) return '';
+      if (!lastRefreshAt) {
+        // First fetch hasn't completed yet (page just loaded, or login pending).
+        return `
+          <div class="ss-chip warn" title="No successful event fetch yet. If this persists, the backend may be unreachable — check the server is running and the JWT is valid.">
+            <span class="ss-icon" aria-hidden="true">⏳</span>
+            <div style="text-align:left">
+              <div class="ss-label">Last fetch</div>
+              <div class="ss-value">—</div>
+            </div>
+          </div>`;
+      }
+      const ageSec = Math.max(0, Math.floor((Date.now() - lastRefreshAt.getTime()) / 1000));
+      const ageMin = Math.floor(ageSec / 60);
+      // Threshold rationale: backend polls fastest (USGS) at 60s. Up to ~2min
+      // is normal, 2-5min is worth flagging, >5min strongly suggests backend
+      // is down or SSE has dropped without auto-recovery.
+      const klass = ageMin >= 5 ? 'crit' : ageMin >= 2 ? 'warn' : 'ok';
+      const label = ageSec < 60 ? `${ageSec}s ago`
+                  : ageMin < 60 ? `${ageMin}m ago`
+                  : `${Math.floor(ageMin/60)}h ago`;
+      const tip = klass === 'crit'
+        ? `Last successful fetch was ${label}. Backend may be down — check 'npm run dev' is running and try a hard refresh.`
+        : klass === 'warn'
+          ? `Last successful fetch was ${label}. Slightly older than expected — watch for further drift.`
+          : `Live data is current. Last successful fetch ${label}.`;
+      return `
+        <div class="ss-chip ${klass}" title="${esc(tip)}">
+          <span class="ss-icon" aria-hidden="true">${klass === 'crit' ? '⚠' : klass === 'warn' ? '⏱' : '✓'}</span>
+          <div style="text-align:left">
+            <div class="ss-label">Last fetch</div>
+            <div class="ss-value">${label}</div>
+          </div>
+        </div>`;
+    })()}
     <div class="ss-chip ss-spacer"></div>
     <button class="ss-chip clickable" data-ss-action="toggle-relevance" title="${STATE.officeRelevantOnly ? 'Showing only events affecting an office or traveler. Click to show all global events.' : 'Showing all global events. Click to limit to office/traveler-relevant.'}">
       <span class="ss-icon" aria-hidden="true">${STATE.officeRelevantOnly ? '🎯' : '🌐'}</span>
@@ -4315,6 +4375,21 @@ function renderAll() {
   renderStatusStrip();
   saveState();   // debounced
 }
+
+/* Tick the status strip once a minute so the "Last fetch" chip ages without
+   needing another event to trigger a re-render. Cheap (renderStatusStrip is
+   <1ms), and only does meaningful work in live mode where the chip exists.
+   The 60s cadence is intentional — finer would over-render; coarser would
+   leave operators staring at a stale label during a real backend outage. */
+let _statusStripTicker = null;
+function startStatusStripTicker() {
+  if (_statusStripTicker) return;
+  _statusStripTicker = setInterval(() => {
+    if (document.getElementById('status-strip')) renderStatusStrip();
+  }, 60000);
+}
+// Kick off on next tick so DOM has been built.
+setTimeout(startStatusStripTicker, 0);
 
 /* ---------- 18b. Panel resize ---------- */
 const PANEL_MIN_W = 280;
@@ -4784,6 +4859,9 @@ function subscribeLiveStream() {
         ALERTS = ALERTS.map(a => a.id === evt.id ? evt : a);
         renderAll();
       }
+      // Any successful SSE message means the backend is reachable, so refresh
+      // the "Last fetch" chip's age clock too — not just /api/events backfills.
+      lastRefreshAt = new Date();
     } catch (e) { /* noop */ }
   });
   es.onerror = () => { /* EventSource auto-reconnects; no log spam */ };
@@ -4955,8 +5033,8 @@ function travListRowsHTML() {
   if (TRAVELERS.length === 0) {
     return `<div style="padding:60px 40px;text-align:center;color:var(--muted);">
       <div style="font-size:36px;margin-bottom:12px;opacity:0.5;">✈</div>
-      <div style="font-size:14px;margin-bottom:6px;color:var(--text);">No traveler data available</div>
-      <div style="font-size:12px;line-height:1.5;max-width:420px;margin:0 auto;">Pending Navan integration. Traveler itineraries (flights, hotels, office visits) will populate here once Navan is connected to the dashboard.</div>
+      <div style="font-size:14px;margin-bottom:6px;color:var(--text);">Traveler data unavailable</div>
+      <div style="font-size:12px;line-height:1.5;max-width:420px;margin:0 auto;">Awaiting Navan connection. Traveler itineraries (flights, hotels, office visits) will populate here once Navan is connected to the dashboard.</div>
     </div>`;
   }
   const { sortKey, sortDir, search, typeFilter } = TRAV_VIEW;
@@ -5455,13 +5533,13 @@ function bcpExposureSummaryHTML(exp) {
       <div><b style="color:var(--blue);font-size:18px;">${exp.offices.length}</b> office${exp.offices.length===1?'':'s'} <span style="color:var(--muted);font-size:11px;">(${esc(officeIds)})</span></div>
       ${hasHeadcounts
         ? `<div><b style="color:var(--green);font-size:18px;">${exp.officeHeadcount.toLocaleString()}</b> office headcount</div>`
-        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Office headcount: pending Workday integration</div>`}
+        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Office headcount: awaiting Workday connection</div>`}
       ${hasTravelers
         ? `<div><b style="color:var(--yellow);font-size:18px;">${exp.travelerCount}</b> traveler${exp.travelerCount===1?'':'s'}</div>`
-        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Travelers: pending Navan integration</div>`}
+        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Travelers: awaiting Navan connection</div>`}
       ${hasRemote
         ? `<div><b style="color:#a855f7;font-size:18px;">${exp.remoteCount}</b> remote employee${exp.remoteCount===1?'':'s'}</div>`
-        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Remote employees: pending Workday integration</div>`}
+        : `<div style="color:var(--muted);font-size:11px;font-style:italic;align-self:center;">Remote employees: awaiting Workday connection</div>`}
     </div>
     ${(hasHeadcounts || hasTravelers || hasRemote)
       ? `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:13px;">
