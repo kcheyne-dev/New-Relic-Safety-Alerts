@@ -30,6 +30,10 @@ const sendSchema = z.object({
   responseRequired: z.boolean().default(false),
   reminderInterval: z.string().optional(),
   attachments:      z.array(z.any()).default([]),
+  // 2026-06-18: drill-mode flag. See migration 008 + routes/incidents.ts.
+  // Standalone test sends still land in this table (incident_id=NULL) and
+  // are surfaced via /api/comms with the is_test column propagated.
+  isTest:           z.boolean().default(false),
 });
 
 export async function commsRoutes(app: FastifyInstance): Promise<void> {
@@ -71,8 +75,8 @@ export async function commsRoutes(app: FastifyInstance): Promise<void> {
       `INSERT INTO crisis_messages (
           incident_id, sent_by_user_id, template, template_name, subject, body,
           channels, offices, recipients_count, response_required,
-          reminder_interval, attachments
-       ) VALUES (NULL, $1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, $11::jsonb)
+          reminder_interval, attachments, is_test
+       ) VALUES (NULL, $1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, $11::jsonb, $12)
        RETURNING id`,
       [
         req.user!.sub,
@@ -86,14 +90,15 @@ export async function commsRoutes(app: FastifyInstance): Promise<void> {
         m.responseRequired,
         m.reminderInterval ?? null,
         JSON.stringify(m.attachments),
+        m.isTest,
       ]
     );
     const messageId = result.rows[0]?.id ?? null;
     await audit(req, {
-      action:     'comms.send',
+      action:     m.isTest ? 'comms.send.test' : 'comms.send',
       targetType: 'message',
-      targetId:   messageId,
-      payload:    { recipientsCount: m.recipientsCount, channels: m.channels, offices: m.offices },
+      targetId:   messageId ?? undefined,   // audit signature is string|undefined
+      payload:    { recipientsCount: m.recipientsCount, channels: m.channels, offices: m.offices, isTest: m.isTest },
     });
     return { messageId };
   });

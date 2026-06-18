@@ -25,6 +25,10 @@ const messageSchema = z.object({
   responseRequired: z.boolean().default(false),
   reminderInterval: z.string().optional(),
   attachments:      z.array(z.any()).default([]),
+  // 2026-06-18: drill-mode flag. Test messages sit in a real incident but
+  // render with a 🧪 TEST badge everywhere they appear, so the audit trail
+  // never blurs real vs rehearsal. See migration 008 for schema.
+  isTest:           z.boolean().default(false),
 });
 const responseSchema = z.object({
   status:       z.enum(['no','ok','help']),
@@ -161,19 +165,24 @@ export async function incidentRoutes(app: FastifyInstance): Promise<void> {
         const ins = await client.query<{ id: string }>(
           `INSERT INTO crisis_messages (
               incident_id, sent_by_user_id, template, template_name, subject, body,
-              channels, offices, recipients_count, response_required, reminder_interval, attachments
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12::jsonb)
+              channels, offices, recipients_count, response_required, reminder_interval, attachments,
+              is_test
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7::text[],$8::text[],$9,$10,$11,$12::jsonb,$13)
            RETURNING id`,
           [id, req.user!.sub, m.template ?? null, m.templateName ?? null, m.subject ?? null, m.body,
-           m.channels, m.offices, m.recipientsCount, m.responseRequired, m.reminderInterval ?? null, JSON.stringify(m.attachments)]
+           m.channels, m.offices, m.recipientsCount, m.responseRequired, m.reminderInterval ?? null, JSON.stringify(m.attachments),
+           m.isTest]
         );
+        // Log entry stays as 'comm' kind; the audit trail picks up the test
+        // distinction via the body text + the audit_log payload below.
+        const drillTag = m.isTest ? '🧪 <b>TEST DRILL</b> — ' : '';
         await client.query(
           `INSERT INTO incident_log (incident_id, kind, body, by_user_id) VALUES ($1,'comm',$2,$3)`,
-          [id, `Sent <b>${m.templateName ?? 'Custom'}</b> via ${m.channels.join(', ')} to ${m.recipientsCount} recipients.`, req.user!.sub]
+          [id, `${drillTag}Sent <b>${m.templateName ?? 'Custom'}</b> via ${m.channels.join(', ')} to ${m.recipientsCount} recipients.`, req.user!.sub]
         );
         return ins.rows[0]!.id;
       });
-      await audit(req, { action: 'message.send', targetType: 'message', targetId: result, payload: { incidentId: id, recipientsCount: m.recipientsCount, channels: m.channels } });
+      await audit(req, { action: m.isTest ? 'message.send.test' : 'message.send', targetType: 'message', targetId: result, payload: { incidentId: id, recipientsCount: m.recipientsCount, channels: m.channels, isTest: m.isTest } });
       return { messageId: result };
     }
   );
@@ -226,7 +235,7 @@ export async function incidentRoutes(app: FastifyInstance): Promise<void> {
         `INSERT INTO incident_log (incident_id, kind, body, by_user_id) VALUES ($1,'note',$2,$3)`,
         [id, `Note added: ${n.body.slice(0, 80)}${n.body.length > 80 ? '…' : ''}`, req.user!.sub]
       );
-      await audit(req, { action: 'note.create', targetType: 'note', targetId: result.rows[0]?.id ?? null });
+      await audit(req, { action: 'note.create', targetType: 'note', targetId: result.rows[0]?.id ?? undefined });
       return { noteId: result.rows[0]?.id };
     }
   );
