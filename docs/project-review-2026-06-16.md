@@ -1,8 +1,26 @@
 # NRSA / S.T.A.R. View — Project Review
 
-**Date:** 2026-06-16
+**Date:** 2026-06-16 (last updated 2026-06-18)
 **Audience:** Project owner; carry into a future session.
 **Purpose:** Honest, broad assessment of the project at this point in its life, plus prioritized UI recommendations. Read alongside `docs/data-sources.md`, `docs/severity-thresholds.md`, `docs/modularization-plan.md`, `docs/osac-integration-plan.md`.
+
+---
+
+## Update — 2026-06-18
+
+What shipped between the original 2026-06-16 review and now. Inline sections below have been updated to match; this block is the chronological summary.
+
+**Tier 1 UI polish — done and pushed** (commit `2dd4302`). All five items: extreme-severity card tint, visible focus outlines on every primary interactive class, `Last fetch` chip in the status strip (live-mode-only, color-coded by age — closes the 2026-06-10 silent-backend-down failure mode), microcopy passes (Manual → Guide, BCI tooltip, Travelers placeholder rewrite, Timeline → Recent), header-button visual grouping (operational cluster + meta cluster with 20px gap).
+
+**Test-message mode — done and pushed** (migration 008 + frontend toggle). New feature not in the original plan, added per operator request to enable Crisis Comms drilling without polluting the audit trail. Architecture: `is_test BOOLEAN` flag on `crisis_messages`, frontend toggle in Compose (hidden when an existing incident is linked, per the design Q&A), drill-routing constants (`#cmt-test-channel`, test email distro), `[TEST]` subject prefix + drill-warning body preamble, 🧪 TEST badges on every render surface (incident Comms tab, standalone Crisis log, incident Log entries, Export Report, incident-list cards). Routes (`/api/incidents/:id/messages` and `/api/comms`) accept and persist `isTest`; audit_log captures `comms.send.test` / `message.send.test` actions.
+
+**dispatchSend race condition — fixed** (was on the queue per memory; smoke harness caught it on first run). Original behavior: when `createIncident`'s round-trip was in flight, the first response-required message persist was silently skipped with a warning toast. Fix: park `{msg, apiPayload}` on `inc._pendingMessages`; flush in `createIncident.then()` after the local-id → server-UUID swap. `stripIncident` strips the queue from localStorage to avoid stale state on reload.
+
+**Playwright smoke harness — done and pushed.** New `tests/` directory with self-contained Playwright setup, runs against local `localhost:8000` + `localhost:8080`. Single comprehensive test covers boot → login → backfill → status-strip Last-fetch chip → alert click → Crisis Comms rail → real send (with confirmation modal) → unlink → test-mode toggle → test send → both messages round-tripped through `/api/incidents/:id` with correct `is_test` flags → 🧪 badges render correctly on the right surfaces. ~10s end-to-end. README documents preconditions, run commands, troubleshooting; `npm run cleanup` SQL prunes smoke-tagged incidents from the dev DB.
+
+**Two TS errors fixed in `audit()` calls** (`comms.ts:100`, `incidents.ts:238` — pre-existing, surfaced under `tsc --noEmit`).
+
+**Net effect on the risk register:** the two highest items — "No tests anywhere" and "Race conditions documented but unfixed" — are now resolved. "No backend-down indicator" is addressed by the Last-fetch chip. The remaining priority risks (Okta SSO, ACLED license, OSAC compliance, modularization, real-operator UAT) are unchanged.
 
 ---
 
