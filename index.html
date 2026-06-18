@@ -170,6 +170,15 @@ button { cursor: pointer; }
   padding: 2px 6px; font-size: 10px; min-width: 18px; text-align: center;
 }
 .rail .badge.live { background: var(--red); color: #fff; border-color: var(--red); animation: pulse 1.5s infinite; }
+/* Quiet variant: when there are zero open incidents, the badge stops
+   pulsing and adopts neutral colors. The "live" red+pulse signal is
+   reserved for actually-live state. Toggled in renderIncidents().
+   Same idea applies elsewhere a default-pulsing element shouldn't
+   shout when nothing is happening. */
+.rail .badge.live.quiet {
+  background: var(--bg3); color: var(--muted); border-color: var(--border);
+  animation: none;
+}
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
 
 .panel { width: 340px; background: var(--bg2); border-right: 1px solid var(--border);
@@ -669,8 +678,8 @@ body.resizing-panel * { cursor: ew-resize !important; }
       <!-- MAP TOOLS DROPDOWN — Layers + Geo-fence in one tabbed panel -->
       <div class="tools-dropdown" id="tools-dropdown" role="dialog" aria-label="Map tools">
         <div class="tools-tabs" role="tablist">
-          <button class="tools-tab active" data-tools-tab="layers" role="tab" aria-selected="true">⚙ Layers & Filters</button>
-          <button class="tools-tab" data-tools-tab="fence" role="tab" aria-selected="false">✏︎ Geo-fence <span id="fence-badge"></span></button>
+          <button class="tools-tab active" data-tools-tab="layers" role="tab" aria-selected="true" title="Toggle hazard overlays, severity threshold, office visibility, and employee/traveler CSV loaders.">⚙ Layers & Filters</button>
+          <button class="tools-tab" data-tools-tab="fence" role="tab" aria-selected="false" title="Draw a shape on the map to focus the dashboard on a specific area — useful for incident triage. Lists employees + travelers inside the shape and pre-fills Crisis Comms.">✏︎ Geo-fence <span id="fence-badge"></span></button>
         </div>
         <div class="tools-tab-body" data-tools-body="layers">
         <h4>Hazard Overlays</h4>
@@ -723,11 +732,22 @@ body.resizing-panel * { cursor: ew-resize !important; }
         </div>
 
         <div class="tools-tab-body" data-tools-body="fence" style="display:none">
+        <!-- First-use hint: explains the workflow above the shape buttons so an
+             operator opening this tab for the first time has a one-line mental
+             model. Disappears in the rendered popup feel because it's plain
+             text, not a chrome element — keeps the panel quiet. -->
+        <div class="fence-intro" style="font-size:11px;color:var(--muted);background:var(--bg3);border:1px dashed var(--border);border-radius:4px;padding:6px 8px;margin-bottom:8px;line-height:1.4">
+          Pick a shape, choose <b>Highlight</b> or <b>Filter</b>, then draw on the map. Affected offices, employees, and travelers will list below.
+        </div>
+        <!-- Live region announces draw-mode activation for screen readers
+             and as a quick visual confirmation. Updated by the shape-button
+             click handler (see bindings ~line 3535). -->
+        <div id="fence-live-status" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;left:-10000px;width:1px;height:1px;overflow:hidden"></div>
         <h4>Draw Shape</h4>
         <div class="shape-buttons">
-          <button data-shape="circle">Circle</button>
-          <button data-shape="rectangle">Rectangle</button>
-          <button data-shape="polygon">Polygon</button>
+          <button data-shape="circle" title="Click + drag on the map to draw a circular fence around a point of interest.">Circle</button>
+          <button data-shape="rectangle" title="Click + drag on the map to draw a rectangular fence (handy for city-block scopes).">Rectangle</button>
+          <button data-shape="polygon" title="Click points on the map to outline a custom polygon; double-click to close.">Polygon</button>
         </div>
         <h4>Mode</h4>
         <div class="shape-buttons" style="grid-template-columns:1fr 1fr;">
@@ -3050,7 +3070,13 @@ function selectIncident(id) {
 function renderIncidents() {
   const body = document.getElementById('incident-body');
   const open = STATE.incidents.filter(i => i.status === 'open');
-  document.getElementById('incident-active-badge').textContent = open.length;
+  // Quiet-state: when no incidents are open, drop the badge's pulse + red
+  // tint so the rail doesn't shout for attention during a calm shift.
+  // .quiet is an additive class — .live stays so the layout (sizing,
+  // border-radius) is consistent across states.
+  const incBadge = document.getElementById('incident-active-badge');
+  incBadge.textContent = open.length;
+  incBadge.classList.toggle('quiet', open.length === 0);
   if (!STATE.incidents.length) { body.innerHTML = '<div class="empty">No incidents. Click <b>+ New</b> to create one, or send a Crisis message with Response Required.</div>'; return; }
   if (!STATE.selectedIncidentId || !STATE.incidents.find(x => x.id === STATE.selectedIncidentId)) {
     body.innerHTML = renderIncidentFilter() + renderIncidentList(); bindIncidentListHandlers(); return;
@@ -3533,6 +3559,16 @@ function setupDraw() {
     if (STATE.fence) clearFence();
     drawHandlers[b.dataset.shape].enable();
     toast('Click on the map to draw.');
+    // Announce draw-mode activation through the aria-live region in the
+    // geo-fence tab body. Helps screen-reader users and serves as a second
+    // visual confirmation for sighted users (the toast can be missed when
+    // the operator is looking at the map).
+    const live = document.getElementById('fence-live-status');
+    if (live) {
+      const shape = b.dataset.shape;
+      const verb = shape === 'polygon' ? 'Click points to outline a polygon, double-click to close.' : 'Click and drag on the map to draw.';
+      live.textContent = `${shape.charAt(0).toUpperCase()}${shape.slice(1)} draw mode active. ${verb}`;
+    }
   }));
   document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('active'));
@@ -3674,13 +3710,50 @@ document.getElementById('btn-collapse-alerts').onclick = () => closePanel('alert
 document.getElementById('btn-collapse-crisis').onclick = () => closePanel('crisis');
 document.getElementById('btn-collapse-incident').onclick = () => closePanel('incident');
 
+/* Position the Map Tools dropdown anchored to its trigger button so it
+   stays adjacent on any viewport. The fixed top:112px / right:14px in CSS
+   only worked when the map had ample room; with both right panels open
+   the dropdown's right edge ended up overlapping the map's marker zone.
+   Computing position at open time keeps the dropdown glued to the button. */
+function positionToolsDropdown() {
+  const dd = document.getElementById('tools-dropdown');
+  const btn = document.getElementById('btn-tools');
+  if (!dd || !btn) return;
+  const r = btn.getBoundingClientRect();
+  // Right-anchor to the button's right edge — same visual alignment as the
+  // CSS default, but recomputed live so window resizes / panel toggles
+  // don't push the dropdown off-position.
+  dd.style.top   = (r.bottom + 6) + 'px';
+  dd.style.right = (Math.max(8, window.innerWidth - r.right)) + 'px';
+  dd.style.left  = '';
+  // When the map's effective width is too narrow for a 360px dropdown to
+  // sit clear of marker clusters, slim the dropdown so it overlays less
+  // of the map and the operator can still see what they're targeting.
+  const map = document.getElementById('map');
+  const mapWidth = map ? map.getBoundingClientRect().width : window.innerWidth;
+  if (mapWidth < 720) {
+    dd.style.width = Math.max(280, Math.min(320, mapWidth - 40)) + 'px';
+  } else {
+    dd.style.width = '';   // fall back to the 360px CSS default
+  }
+}
+
 document.getElementById('btn-tools').onclick = (e) => {
   e.stopPropagation();
-  document.getElementById('tools-dropdown').classList.toggle('open');
+  const dd = document.getElementById('tools-dropdown');
+  dd.classList.toggle('open');
+  if (dd.classList.contains('open')) positionToolsDropdown();
 };
 document.addEventListener('click', e => {
   if (!e.target.closest('.tools-dropdown') && !e.target.closest('#btn-tools'))
     document.getElementById('tools-dropdown').classList.remove('open');
+});
+// Keep the dropdown glued to the button across viewport changes (window
+// resize, panel drag-resize, theme toggle that shifts header heights, etc.)
+// while the dropdown is visible. No-op when closed.
+window.addEventListener('resize', () => {
+  const dd = document.getElementById('tools-dropdown');
+  if (dd && dd.classList.contains('open')) positionToolsDropdown();
 });
 // Tab switching inside the Map Tools dropdown
 function setMapToolsTab(tab) {
