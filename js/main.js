@@ -109,3 +109,12 @@ Object.assign(window, api);
    exportIncidentReport open new tabs from the incident detail UI. */
 import * as persistence from './persistence.js';
 Object.assign(window, persistence);
+
+/* Step 8: bridge render pipeline + view-state utilities extracted in session 3
+   step 9. ~45 functions covering every render surface: map markers, alert feed,
+   Crisis Comms compose, Incidents panel, Map Tools dropdown, status strip,
+   theme, panel resize, etc. The master `renderAll` is on window so legacy-app.js
+   call sites (every state mutation triggers renderAll() then saveState()) keep
+   working. The status-strip ticker fires via legacy-app.js's tail trigger. */
+import * as render from './render.js';
+Object.assign(window, render);
