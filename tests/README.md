@@ -1,10 +1,22 @@
 # NRSA Smoke Harness
 
-Playwright-driven end-to-end smoke test for NRSA (S.T.A.R. View). Catches regressions across the boot → login → backfill → alert click → Crisis Comms → message send → Postgres round-trip → render flow. Designed as a confidence gate before any non-trivial frontend or backend change — and as the safety net under the planned frontend modularization.
+Playwright-driven end-to-end smoke tests for NRSA (S.T.A.R. View). Two specs, each pinned to a specific risk:
 
-## What it covers
+- `e2e/smoke-crisis-comms.spec.ts` — happy-path UI flow: boot → login → backfill → alert click → Crisis Comms → real send → test send → Postgres round-trip → badge rendering. Live-mode against the local backend.
+- `e2e/proximity-detection.spec.ts` — proximity-detection math (Q1 office threat, Q2 traveler threat) — three relevance tiers (Direct / Watch / Indirect) asserted against synthetic injections. Mock-mode, no backend or login required.
 
-A single comprehensive happy-path test in `e2e/smoke-crisis-comms.spec.ts`:
+The two together act as a confidence gate before any non-trivial frontend or backend change — and as the safety net under the modularization (now done) and any future refactor.
+
+Run both with `npm test`, or target one:
+
+```bash
+npx playwright test e2e/smoke-crisis-comms.spec.ts
+npx playwright test e2e/proximity-detection.spec.ts
+```
+
+## What `smoke-crisis-comms.spec.ts` covers
+
+A single comprehensive happy-path test:
 
 1. **Boot + login.** Navigates to the frontend, fills the login modal (or skips if a JWT is already in localStorage).
 2. **Backfill.** Asserts at least one alert appears in the feed within 15s.
@@ -20,15 +32,31 @@ A single comprehensive happy-path test in `e2e/smoke-crisis-comms.spec.ts`:
 
 If any of these fails, the regression is real. False failures in this harness are usually environmental — see the troubleshooting list below.
 
+## What `proximity-detection.spec.ts` covers
+
+Three test cases, one per relevance tier, asserting that `enrichEventWithImpact` + `relevanceTierOf` correctly classify an injected synthetic alert. The Crisis Comms smoke covers the UI flow downstream of detection; this spec covers the math UPSTREAM of it. Without this, an event near an office could fail to surface and the existing smoke would still pass (because it seeds an alert with `affectedOfficeIds` already set).
+
+1. **DIRECT** — fires the existing 🧪 Tests modal Office threat scenario (M6.5 ~28km E of SFO, sev=ext, radius=200km). Asserts the alert card has the red 🎯 Direct chip + SFO impact badge + is visible under the default `officeRelevantOnly` filter.
+2. **WATCH** — `page.evaluate` injects an alert at lat=0 lng=180 (mid-Pacific, no NR overlap), sev=ext. Asserts the card is HIDDEN under default filter, becomes visible after clicking the 🌐 toggle in the status strip, and has the blue 👁 Watch chip.
+3. **INDIRECT** — `page.evaluate` injects an alert in São Paulo, Brazil (a `COUNTRY_PRESENCE` entry with `hasOffice:false`), sev=high. Asserts the card is visible by default and has the amber 📍 In-country chip. Test is self-validating: it first reads `window.COUNTRY_PRESENCE` and fails loudly if Brazil is missing or has been promoted to office-country.
+
+Runtime: ~5-6 seconds total. Mock mode (`#api=mock`), so it doesn't need a backend, login, or even network connectivity beyond the local file server.
+
 ## Preconditions
 
 These must be true before `npm test`:
+
+**For the Crisis Comms smoke** (most demanding):
 
 - **Postgres + backend** running at `http://localhost:8080`. Migration 008 applied (`is_test` column on `crisis_messages`):
   ```
   psql postgres://nrsa:nrsa@localhost:5432/nrsa -c "\d crisis_messages" | grep is_test
   ```
 - **Frontend** served at `http://localhost:8000` (typically `python3 -m http.server 8000` from the repo root).
+
+**For the proximity-detection spec** (lighter):
+
+- Frontend served at `http://localhost:8000` — that's it. No backend, no DB, no user. Runs against `#api=mock`.
 - **A test user** exists in the local DB:
   - `kcheyne@newrelic.com` / `YourChoice` (default — set via `npm run create-user` from `backend/`).
 - **At least one event** in the database. Any backend adapter polling for ~a minute is enough — USGS reliably populates inside 60s.
@@ -84,6 +112,8 @@ If the harness fails, start here:
 | Test fails at `Send button` step | The Compose form isn't binding handlers — usually caused by a JS error earlier in boot. Open `npm run test:headed` and watch the console. |
 | `is_test should be false on a real send` | Migration 008 not applied. Apply it: `psql ... -f backend/migrations/008_test_messages.sql`. |
 | Test passes but incidents pile up in dev DB | Run `npm run cleanup` and flip `ROLLBACK` → `COMMIT` in the SQL. |
+| `proximity-detection` test 1 times out at `#test-launcher` | The `#api=mock` hash didn't take effect, so demo.js's `bootTestScenarios()` didn't run. Verify the URL in the failure trace ends with `#api=mock`, and that `js/demo.js` is loaded (DevTools → Sources). |
+| `proximity-detection` test 3 fails at the Brazil guard | `COUNTRY_PRESENCE` was changed in `js/constants.js`. Either restore Brazil with `hasOffice:false` or update the test to use a different presence-only country (Mexico / Germany / Australia / Singapore are also `hasOffice:false`). |
 
 ## Caveats
 
