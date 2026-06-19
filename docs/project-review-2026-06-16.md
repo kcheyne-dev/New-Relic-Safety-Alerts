@@ -1,14 +1,42 @@
 # NRSA / S.T.A.R. View — Project Review
 
-**Date:** 2026-06-16 (last updated 2026-06-18)
+**Date:** 2026-06-16 (last updated 2026-06-19)
 **Audience:** Project owner; carry into a future session.
 **Purpose:** Honest, broad assessment of the project at this point in its life, plus prioritized UI recommendations. Read alongside `docs/data-sources.md`, `docs/severity-thresholds.md`, `docs/modularization-plan.md`, `docs/osac-integration-plan.md`.
 
 ---
 
+## Update — 2026-06-19
+
+What shipped after the 2026-06-18 update. The headline is that the frontend modularization — flagged in 2026-06-10 as the single biggest accruing risk — is fully done.
+
+**Frontend modularization — done.** Sessions 1-3 plus a four-step cleanup pass took the inline `<script>` from 6,485 lines down to a 1,366-line `js/legacy-app.js` (boot wiring + event handlers only) plus 12 ES modules: `state.js` (single exported state object), `helpers.js` (43 pure + state-coupled utilities), `constants.js` (29 reference exports), `mock-data.js`, `demo.js` (cycler + synthetic test scenarios), `api.js` (22 client + boot exports), `persistence.js` (7 localStorage + report exports), `render.js` (45 render fns), `modals.js` (33 modal logic exports), `incidents.js` (4 state-mutation helpers), and `main.js` (the bridge module).
+
+The architecture that made this tractable: `main.js` loads as `<script type="module">` BEFORE `legacy-app.js` (a deferred external classic script). The bridge does direct-assign for object refs that are mutated via `.property` (STATE, BCP_FORM, TRAV_VIEW, RISK_VIEW) and `Object.defineProperty` getter/setter for reassignable identifiers (ALERTS, TRAVELERS, EMPLOYEES, OPERATOR, etc.). Function bodies inside ES modules read bare identifiers like `STATE.feedTab`, `ALERTS.filter()`, `OFFICES.map()` and resolve via globalThis fallthrough — strict mode blocks unresolvable WRITES, but reads pass through transparently. Net: 161 function extractions required ZERO body rewrites.
+
+**Cleanup pass details (four commits over 2026-06-19 evening):**
+1. Stripped 177 stub markers (`/* X moved to helpers.js */` breadcrumbs) from legacy-app.js — they served their purpose during extractions, became noise after.
+2. Dropped 21 inline constant duplicates from legacy-app.js (drift-checked against constants.js first).
+3. Extracted 4 incident state-mutation helpers (createIncident, buildResponseShells, reopenIncident, addIncidentLog) to new `js/incidents.js`. They sit at the seam between render and persistence — including the `_pendingMessages` flush from the dispatchSend race fix.
+4. Replaced two inline IIFE blocks (~555 lines: `bootDemoMode` cycler + `bootTestScenarios` synthetic injection) with bridged calls to `js/demo.js`. The demo.js shadow created in session 1 was already byte-equivalent; cleanup #4 made it the live source.
+
+**Operational note worth pinning:** with `<script type="module">` in play, the dashboard MUST be served over `http://` — Chrome blocks ES module loads from `file://` (origin "null" fails CORS). Symptom is `Uncaught ReferenceError: nowMinus is not defined` (or any first bare-reference helper) at `legacy-app.js:N` — looks like a bridge bug, but is actually `main.js` failing to load entirely. Resolution: `npx http-server -p 5173 -c-1` from the project root, then `http://localhost:5173/index.html#api=mock`. Worth flagging in any future onboarding doc.
+
+**Smoke harness still green throughout.** The Playwright e2e covers boot → login → backfill → alert click → Crisis Comms (real + test send) → note → close → reopen → Risk Profile → BCI declare in ~15s. Used as the safety net under every cleanup commit. The smoke gap from 2026-06-18 (it covers happy-path Crisis Comms but NOT the demo cycler / geo-fence / panel-resize / theme-toggle code paths) is unchanged — manual click-through still required for those code paths after big diffs.
+
+**Net effect on the risk register:** the modularization risk that headlined the 2026-06-18 update ("5500-line frontend, modularization debt continues to accrue") is closed. Adding a new render path now lands as a clean diff in `render.js` (1,521 lines) rather than the middle of a 5,500-line monolith.
+
+**Remaining queue, in priority order:**
+1. **CMT colleague drill** (~30 min, no code) — still the highest-leverage non-code move. Test-message mode was built specifically for this and still hasn't been used in a real drill.
+2. ACLED license follow-up (user-side, in flight).
+3. OSAC compliance reply (blocked on State Dept written guidance).
+4. Feature work as it emerges — the modular structure makes incremental work much safer to land.
+
+---
+
 ## Update — 2026-06-18
 
-What shipped between the original 2026-06-16 review and now. Inline sections below have been updated to match; this block is the chronological summary.
+What shipped between the original 2026-06-16 review and the 2026-06-18 update. Inline sections below have been updated to match; this block is the chronological summary.
 
 **Tier 1 UI polish — done and pushed** (commit `2dd4302`). All five items: extreme-severity card tint, visible focus outlines on every primary interactive class, `Last fetch` chip in the status strip (live-mode-only, color-coded by age — closes the 2026-06-10 silent-backend-down failure mode), microcopy passes (Manual → Guide, BCI tooltip, Travelers placeholder rewrite, Timeline → Recent), header-button visual grouping (operational cluster + meta cluster with 20px gap).
 

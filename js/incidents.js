@@ -72,6 +72,30 @@ export function createIncident({ title, offices, severity, description, messageI
         // sends are fine — the queue is typically 1-2 entries — and serial
         // ordering preserves the operator's intended message order in the
         // incident's audit trail.
+        //
+        // CLOSURE NOTE: `inc` is the SAME object reference dispatchSend
+        // pushed onto STATE.incidents and onto which it parked
+        // _pendingMessages. We mutated inc.id in place above (line 62) —
+        // object identity never changed, only the id field — so this read
+        // sees whatever dispatchSend queued. Don't replace `inc` with a
+        // re-lookup by id here; that would race the queue.
+        //
+        // BEST-EFFORT FAILURE SEMANTICS: each queued send has its own
+        // .catch that toasts and drops the message. If the operator never
+        // saw the toast (left the tab, etc.), the message vanishes on
+        // next reload because stripIncident() strips _pendingMessages
+        // before localStorage save (helpers.js). That's a deliberate
+        // trade — keeping a stale queue across reloads risks duplicate
+        // sends after a server-side write succeeded but the client never
+        // saw the response. The single Crisis-Comm-lost edge case is
+        // rare (would need backend success on create + failure on the
+        // SAME session's queued message, with the operator missing the
+        // toast) and acceptable vs. the duplicate-send risk. Smoke
+        // covers the happy path. If this becomes a real loss in
+        // practice, the fix is to persist failed-queue entries to a
+        // separate localStorage key with a "retry pending sends" UI on
+        // next boot, NOT to keep _pendingMessages in stripIncident's
+        // payload.
         const queued = inc._pendingMessages || [];
         inc._pendingMessages = [];
         for (const q of queued) {
