@@ -8,26 +8,27 @@
  *                            three preset scenarios (Office / Traveler / BCI),
  *                            and a 🧹 Clear pill
  *
- * SESSION-1 STATUS (2026-06-18): SHADOW module. The runtime continues to use
- * the inline IIFEs in `index.html` (~lines 5928–6482); this module is not
- * yet wired in. Both IIFEs reference cross-cutting state + helpers that the
- * SESSION 2 extractions will surface as imports:
+ * STATUS (2026-06-19, cleanup #4): LIVE source. The two inline IIFEs in
+ * legacy-app.js were replaced with bridged calls — see main.js step 11 and
+ * legacy-app.js's "22-23. DEMO MODE + SYNTHETIC TEST SCENARIOS" block.
  *
- *   - API_BASE              → state.js (UI_STATE? or a separate bootMode flag)
- *   - ALERTS, TRAVELERS, EMPLOYEES, REMOTE_EMPLOYEES,
- *     ACLED_RISK, WHO_OUTBREAKS, BCP_FORM
- *                           → state.js (single exported `state` object)
- *   - enrichEventWithImpact, renderAll, buildEmployees, toast, esc,
- *     showModal, showBCPModal, App.closeModal
- *                           → helpers.js / render.js / modals.js
+ * Both functions touch a wide bare-reference surface that resolves at call
+ * time via window-fallthrough (main.js sets up the bridges before
+ * legacy-app.js runs):
  *
- * That's why this module wraps the two IIFEs in exported functions: they
- * parse cleanly even with bare references because the references aren't
- * resolved until the function is invoked. Session 2's `main.js` will call
- * them at the right time after the state + helpers modules have populated.
+ *   - State (state.js bridge):     ALERTS, TRAVELERS, EMPLOYEES,
+ *                                  REMOTE_EMPLOYEES, ACLED_RISK,
+ *                                  WHO_OUTBREAKS, BCP_FORM, STATE
+ *   - Pipeline (render.js bridge): renderAll, enrichEventWithImpact,
+ *                                  buildEmployees, addAlert, removeAlert
+ *   - Modals (modals.js bridge):   showModal, App.closeModal,
+ *                                  showBCPModal, toast
+ *   - Helpers (helpers.js bridge): esc, uid, isoTime, etc.
+ *   - API_BASE (api.js bridge)     used only for the live-mode short-circuit
  *
- * Until session 2 lands: keep this file in sync with the inline IIFEs. Any
- * change to demo behavior must be made in BOTH places.
+ * The bare references are inside function bodies, not at module top level,
+ * so the module imports cleanly even though none of the bridged identifiers
+ * exist at import time.
  */
 
 import { OFFICE_BY_ID } from './constants.js';

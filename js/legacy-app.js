@@ -20,30 +20,8 @@
    ============================================================ */
 
 /* ---------- 1. Static reference data ---------- */
-const SEVERITY = ['low','mod','high','ext'];
-const SEV_RANK = { low:1, mod:2, high:3, ext:4 };
-const SEV_NAME = { low:'Low', mod:'Moderate', high:'High', ext:'Extreme' };
-const SEV_COLOR = { low:'#4ade80', mod:'#facc15', high:'#fb923c', ext:'#f87171' };
 
-const ALERT_TYPES = ['Natural Disaster','Civil Unrest','Public Safety','Travel Advisory'];
 
-const SOURCES = [
-  { id:'NWS',         name:'National Weather Service',       type:'Natural Disaster', status:'ok',    url:'https://www.weather.gov/' },
-  { id:'USGS',        name:'US Geological Survey',           type:'Natural Disaster', status:'ok',    url:'https://earthquake.usgs.gov/earthquakes/map/' },
-  { id:'EMSC',        name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok',    url:'https://www.emsc-csem.org/Earthquake/' },
-  { id:'NASA EONET',  name:'Earth Observatory',              type:'Natural Disaster', status:'ok',    url:'https://eonet.gsfc.nasa.gov/' },
-  { id:'GDACS',       name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok',    url:'https://www.gdacs.org/' },
-  { id:'ACLED',       name:'Armed Conflict Location Data',   type:'Civil Unrest',     status:'stale', url:'https://acleddata.com/dashboard/' },
-  { id:'GDELT',       name:'Global Database of Events',      type:'Civil Unrest',     status:'ok',    url:'https://www.gdeltproject.org/' },
-  { id:'Flashalert',  name:'PDX/OR Emergency Notifications', type:'Public Safety',    status:'ok',    url:'https://www.flashalert.net/' },
-  { id:'Socrata',     name:'SF Open Data — Police',          type:'Public Safety',    status:'ok',    url:'https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports/wg3w-h783' },
-  { id:'ArcGIS APD',  name:'Atlanta Police Department',      type:'Public Safety',    status:'ok',    url:'https://opendata.atlantapd.org/' },
-  { id:'FEMA IPAWS',  name:'FEMA Public Alert System',       type:'Public Safety',    status:'error', url:'https://www.fema.gov/emergency-managers/practitioners/integrated-public-alert-warning-system' },
-  { id:'State Dept',  name:'US Travel Advisory',             type:'Travel Advisory',  status:'ok',    url:'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html' },
-  { id:'MeteoAlarm',  name:'European Weather Warnings',      type:'Natural Disaster', status:'ok',    url:'https://www.meteoalarm.org/' },
-  { id:'OpenWeatherMap', name:'Live Weather',                type:'Natural Disaster', status:'ok',    url:'https://openweathermap.org/' },
-  { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale', url:'https://openaq.org/' },
-];
 
 /** Office directory.
  *  Office identity (id, name, country, lat/lng, address) is REAL and current —
@@ -55,27 +33,6 @@ const SOURCES = [
  *  Pages, o.headcount is undefined and the UI shows "pending Workday integration"
  *  placeholders wherever a count would render.
  */
-const OFFICES = [
-  { id:'SFO', name:'San Francisco', country:'USA',  lat:37.7898, lng:-122.3942,
-    address:'188 Spear St, Suite 1000, San Francisco, CA 94105' },
-  { id:'PDX', name:'Portland',      country:'USA',  lat:45.5191, lng:-122.6790,
-    address:'111 SW 5th Ave, Suite 2200, Portland, OR 97204' },
-  { id:'ATL', name:'Atlanta',       country:'USA',  lat:33.7841, lng:-84.3849,
-    address:'1100 Peachtree St NE, Suite 2000, Atlanta, GA 30309' },
-  { id:'BCN', name:'Barcelona',     country:'Spain',lat:41.4036, lng:2.1894,
-    address:'Torre Glòries, Suite 2200, Avinguda Diagonal 211, 08018 Barcelona, Spain' },
-  { id:'DUB', name:'Dublin',        country:'Ireland', lat:53.3447, lng:-6.2520,
-    address:'42 Pearse St, Dublin, D02 HV59, Ireland' },
-  { id:'LON', name:'London',        country:'UK',   lat:51.5125, lng:-0.1167,
-    address:'Strand Bridge House, 138-142 The Strand, London WC2R 1HL' },
-  { id:'TYO', name:'Tokyo',         country:'Japan',lat:35.6802, lng:139.7714,
-    address:'Tokyo Midtown Yaesu, Yaesu Central Tower 7F, 2-2-1 Yaesu, Chuo-ku, Tokyo 104-0028' },
-  { id:'BLR', name:'Bengaluru',     country:'India',lat:12.9353, lng:77.6485,
-    address:'Embassy Golflinks Business Park, No 15 Challaghatta Village, KNC Valley, Bengaluru, Karnataka 560071' },
-  { id:'HYD', name:'Hyderabad',     country:'India',lat:17.4413, lng:78.3826,
-    address:'Raheja Mindspace, 15th Floor, Building No 9, TSIIC, Software Units Layout, Madhapur, Telangana 500081, Hyderabad' },
-];
-const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
 
 /** Country presence — countries where NR has any meaningful footprint.
  *
@@ -94,46 +51,19 @@ const OFFICE_BY_ID = Object.fromEntries(OFFICES.map(o => [o.id, o]));
  *  Always-loaded (not gated behind #api=mock). Workday integration will
  *  verify and extend this list with authoritative per-country counts.
  */
-const COUNTRY_PRESENCE = [
-  // Office countries (verified)
-  { code:'US', name:'USA',         region:'Americas', hasOffice:true,  officeIds:['SFO','PDX','ATL'] },
-  { code:'GB', name:'UK',          region:'EMEA',     hasOffice:true,  officeIds:['LON'] },
-  { code:'IE', name:'Ireland',     region:'EMEA',     hasOffice:true,  officeIds:['DUB'] },
-  { code:'ES', name:'Spain',       region:'EMEA',     hasOffice:true,  officeIds:['BCN'] },
-  { code:'JP', name:'Japan',       region:'APAC',     hasOffice:true,  officeIds:['TYO'] },
-  { code:'IN', name:'India',       region:'APAC',     hasOffice:true,  officeIds:['BLR','HYD'] },
-  // Likely-presence countries (no office; remote employees / regular travel)
-  // — placeholder list, verified against Workday once integrated
-  { code:'CA', name:'Canada',      region:'Americas', hasOffice:false },
-  { code:'MX', name:'Mexico',      region:'Americas', hasOffice:false },
-  { code:'BR', name:'Brazil',      region:'Americas', hasOffice:false },
-  { code:'DE', name:'Germany',     region:'EMEA',     hasOffice:false },
-  { code:'FR', name:'France',      region:'EMEA',     hasOffice:false },
-  { code:'IT', name:'Italy',       region:'EMEA',     hasOffice:false },
-  { code:'NL', name:'Netherlands', region:'EMEA',     hasOffice:false },
-  { code:'CH', name:'Switzerland', region:'EMEA',     hasOffice:false },
-  { code:'IL', name:'Israel',      region:'EMEA',     hasOffice:false },
-  { code:'AU', name:'Australia',   region:'APAC',     hasOffice:false },
-  { code:'SG', name:'Singapore',   region:'APAC',     hasOffice:false },
-];
 
 /* Headcount helpers — office.headcount is mock data populated only in
  * #api=mock (see OFFICE_HEADCOUNTS_MOCK + demo IIFE boot). In live + bare
  * Pages headcount is undefined and the UI should show pending-integration
  * placeholders rather than NaN or "undefined". */
-/* hasOfficeHeadcounts() moved to helpers.js — bridged via main.js. */
-/* fmtHeadcount() moved to helpers.js — bridged via main.js. */
-/* sumHeadcount() moved to helpers.js — bridged via main.js. */
 
 /* ACLED risk-rollup helpers — ACLED_RISK is mock data populated only in
  * #api=mock (see ACLED_RISK_MOCK + demo IIFE boot). In live + bare Pages
  * the BCI Country Risk Profile panel shows a "pending ACLED" placeholder. */
-/* hasAcledRisk() moved to helpers.js — bridged via main.js. */
 
 /* Sum the per-country rollups across the supplied country names. Returns
  * the same schema each ACLED_RISK_MOCK entry has, with totalEvents added.
  * Countries the operator selected that aren't in ACLED_RISK contribute 0. */
-/* aggregateAcledRisk() moved to helpers.js — bridged via main.js. */
 
 /* WHO Disease Outbreak helpers — same gating pattern as ACLED. Empty in
  * live + bare Pages until the WHO adapter ships; populated from
@@ -143,28 +73,7 @@ const COUNTRY_PRESENCE = [
  * but COUNTRY_PRESENCE / OFFICES use short forms ("DRC", "USA"). Map
  * known long-forms here so per-country lookups match. Add to this list
  * when new WHO entries surface unfamiliar long-forms. */
-const WHO_COUNTRY_ALIASES = {
-  'Democratic Republic of the Congo':                     'DRC',
-  'United Republic of Tanzania':                          'Tanzania',
-  'United States of America':                             'USA',
-  'United Kingdom of Great Britain and Northern Ireland': 'UK',
-  "Lao People's Democratic Republic":                     'Laos',
-  'Republic of Korea':                                    'South Korea',
-  "Democratic People's Republic of Korea":                'North Korea',
-  'Iran (Islamic Republic of)':                           'Iran',
-  'Russian Federation':                                   'Russia',
-  'Syrian Arab Republic':                                 'Syria',
-  'Viet Nam':                                             'Vietnam',
-  'Czechia':                                              'Czech Republic',
-  'Türkiye':                                              'Turkey',
-  'Bolivia (Plurinational State of)':                     'Bolivia',
-  'Venezuela (Bolivarian Republic of)':                   'Venezuela',
-};
-/* normalizeWhoCountry() moved to helpers.js — bridged via main.js. */
 
-/* hasWhoOutbreaks() moved to helpers.js — bridged via main.js. */
-/* outbreaksForCountry() moved to helpers.js — bridged via main.js. */
-/* outbreaksAggregated() moved to helpers.js — bridged via main.js. */
 
 /* Live-hazards helpers — aggregate the EXISTING alert pipeline data
  * (NWS / MeteoAlarm / GDACS / USGS / EMSC / EONET / State Dept) into
@@ -182,7 +91,6 @@ const WHO_COUNTRY_ALIASES = {
  *  reliable), then keyword-matches the alert's location/title text
  *  against COUNTRY_PRESENCE names (handles Travel Advisories etc.
  *  whose alerts have no officeId). */
-/* alertCountryFor() moved to helpers.js — bridged via main.js. */
 
 /**
  * Three-tier relevance classification for an enriched alert.
@@ -201,18 +109,14 @@ const WHO_COUNTRY_ALIASES = {
  * object as `relevanceTier` so the feed renderer can sort + tint without
  * recomputing per render pass.
  */
-/* relevanceTierOf() moved to helpers.js — bridged via main.js. */
 
 /** Empty hazard rollup with all keys zeroed and travelAdvisoryLevel null. */
-/* _emptyHazardRollup() moved to helpers.js — bridged via main.js. */
 
 /** Aggregate active alerts in the given country into a single hazard rollup.
  *  Looks at ALERTS state — the same array the dashboard renders. */
-/* liveHazardsForCountry() moved to helpers.js — bridged via main.js. */
 
 /** Sum live-hazard rollups across multiple countries. Travel Advisory level
  *  takes the MAX across countries (highest sev wins). */
-/* liveHazardsAggregated() moved to helpers.js — bridged via main.js. */
 
 /** Logged-in operator. Hardcoded for the prototype; will come from Okta when wired up.
  *  role: 'admin' | 'cmt' | 'office' | 'employee' */
@@ -229,21 +133,9 @@ const WHO_COUNTRY_ALIASES = {
  * MOCK MODE = no network calls, hardcoded ALERTS, dashboard works fully offline.
  * LIVE MODE = JWT login modal, fetches /api/events, subscribes to SSE stream.
  */
-/* API_BASE() moved to api.js — bridged via main.js. */
 
-/* OPERATOR moved to state.js; default Kevin Cheyne CMT bridged via main.js. The
-   /api/auth/me handler in bootLiveMode() reassigns OPERATOR through the setter. */
-const ROLE_TAG_STYLE = {
-  admin:    { bg: 'var(--green)',  fg: '#062c1f',  label: 'Admin' },
-  cmt:      { bg: 'var(--blue)',   fg: '#fff',     label: 'CMT Member' },
-  office:   { bg: 'var(--yellow)', fg: '#1f1c00',  label: 'Office Manager' },
-  employee: { bg: 'var(--bg3)',    fg: 'var(--muted)', label: 'Employee' },
-};
 
 /* ---------- 2. Mock data generators ---------- */
-/* nowMinus() moved to helpers.js — bridged via main.js. */
-/* rand() moved to helpers.js — bridged via main.js. */
-/* randomName() moved to helpers.js — bridged via main.js. */
 
 ALERTS = [
   { id:'a1',  sev:'high', type:'Civil Unrest',     source:'GDELT',      title:'Planned protest near Westminster — possible road closures',
@@ -341,7 +233,6 @@ EMPLOYEES = buildEmployees();
    Workday-pending pattern for REMOTE_EMPLOYEES. The Navan API will return
    the same record shape as TRAVELERS_MOCK below; production will swap the
    bootstrap line for a fetch. */
-/* TRAVELERS moved to state.js (initial: []); demo bootstrap reassigns via setter. */
 
 /* ---------- 3. App state ---------- */
 /* Crisis Comm templates.
@@ -358,129 +249,8 @@ EMPLOYEES = buildEmployees();
  * Smart-suggest in App.crisisFromAlert() picks the best-matching template ID
  * based on alert.type / alert.source / alert.title keywords. See suggestTemplate().
  */
-const TEMPLATE_CATEGORIES = [
-  { id: 'shelter',     label: 'Shelter in Place' },
-  { id: 'evacuate',    label: 'Evacuation' },
-  { id: 'checkin',     label: 'Safety Check-in' },
-  { id: 'allclear',    label: 'All Clear' },
-  { id: 'bc_announce', label: 'BC Announcement' },
-  { id: 'bc_checkin',  label: 'BC Check-in' },
-  { id: 'bc_closure',  label: 'Office Closure' },
-  { id: 'travel',      label: 'Travel' },
-];
 
-const TEMPLATES = {
-  // ─────────── Shelter in Place ───────────
-  shelter: {
-    name: 'Shelter — Generic',
-    category: 'shelter', priority: 1,
-    body: 'IMMEDIATE: A safety incident has been reported. Shelter in place inside the office. Move away from windows. Do not exit until you receive an all-clear. Reply OK / HELP.',
-  },
-  shelter_quake: {
-    name: 'Shelter — Earthquake',
-    category: 'shelter', priority: 2,
-    body: 'EARTHQUAKE: Drop, take Cover under sturdy furniture, and Hold On until shaking stops. Stay clear of windows, glass, and exterior walls. After shaking stops, do NOT use elevators; await an all-clear before exiting. Reply OK if you are unhurt, HELP if injured or trapped. Aftershocks are likely.',
-  },
-  shelter_severe_weather: {
-    name: 'Shelter — Severe Weather / Tornado',
-    category: 'shelter', priority: 3,
-    body: 'SEVERE WEATHER WARNING: Move to the lowest level interior room, away from windows and exterior walls. Stay sheltered until the warning expires or CMT issues an all-clear. Do NOT attempt to leave the building. Reply OK / HELP.',
-  },
-  shelter_active_threat: {
-    name: 'Shelter — Active Threat / Lockdown',
-    category: 'shelter', priority: 4,
-    body: 'LOCKDOWN: An active threat has been reported in or near the office. RUN if a safe exit is clear. HIDE if not — lock and barricade doors, lights off, silence devices, stay out of sight. FIGHT only as a last resort. Do NOT open the door for anyone but uniformed first responders. Reply OK silently if able. CMT and law enforcement are coordinating response.',
-  },
-  shelter_civil_unrest: {
-    name: 'Shelter — Civil Unrest',
-    category: 'shelter', priority: 5,
-    body: 'CIVIL UNREST nearby: Remain inside the office. Do NOT engage with crowds or attempt to traverse affected streets. Move away from ground-floor windows and lobbies. CMT is monitoring; expect updates every 30 minutes. Reply OK / HELP. If you are off-site and en route, return to a safe location and contact CMT.',
-  },
 
-  // ─────────── Evacuation ───────────
-  evac: {
-    name: 'Evacuation — Generic',
-    category: 'evacuate', priority: 1,
-    body: 'IMMEDIATE: Evacuate the office now via the nearest safe exit. Proceed to the muster point. Do not use elevators. Reply OK once you are at muster.',
-  },
-  evac_fire: {
-    name: 'Evacuation — Fire',
-    category: 'evacuate', priority: 2,
-    body: 'FIRE EVACUATION: Leave immediately via the nearest stairwell. Do NOT use elevators. Do NOT collect belongings. Close doors behind you. If the door is hot, use an alternate route. Proceed to the designated muster point and check in with your floor warden. Reply OK at muster, HELP if you cannot exit safely.',
-  },
-  evac_bomb: {
-    name: 'Evacuation — Bomb / Suspicious Package',
-    category: 'evacuate', priority: 3,
-    body: 'EVACUATE: A suspicious package or bomb threat has been reported. Walk calmly via the secondary egress route (not the main lobby). Do NOT use radios or mobile devices near the suspect item. Do NOT return for personal items. Gather at the FAR muster point — minimum 300m from the building — and await accountability. Reply OK once clear, HELP if unable to evacuate.',
-  },
-
-  // ─────────── Safety Check-in ───────────
-  check: {
-    name: 'Safety Check — Office',
-    category: 'checkin', priority: 1,
-    body: 'A safety alert has been issued in your area. Please confirm your status. Reply OK if you are safe, HELP if you need assistance.',
-  },
-  check_traveler: {
-    name: 'Safety Check — Traveler',
-    category: 'checkin', priority: 2,
-    body: 'You have been flagged within the impact radius of an active safety alert in your current location. Please confirm your status — reply OK if you are safe, HELP if you need assistance. A CMT member will reach out within 15 minutes if you reply HELP or do not respond.',
-  },
-
-  // ─────────── All Clear ───────────
-  allclear: {
-    name: 'All Clear',
-    category: 'allclear', priority: 1,
-    body: 'All clear. The earlier safety incident has been resolved. You may resume normal activity.',
-  },
-
-  // ─────────── BC Announcement ───────────
-  bc_announce: {
-    name: 'BC Announcement — Generic',
-    category: 'bc_announce', priority: 1,
-    body: 'New Relic is monitoring a developing situation in your region. We are in contact with regional authorities and will share updates as the picture clarifies. There is no immediate action required from you at this time. If your safety is in question, reply HELP.',
-  },
-  bc_announce_quake: {
-    name: 'BC Announcement — Major Earthquake',
-    category: 'bc_announce', priority: 2,
-    body: 'A major earthquake has been reported in your region. Do NOT return to or enter damaged buildings. Stay clear of downed power lines, gas leaks, and unstable structures. Aftershocks are expected for hours to days; treat each one as the start of another shelter cycle. CMT is coordinating with local authorities. Reply OK if you are safe, HELP if you need assistance or shelter.',
-  },
-  bc_announce_terror: {
-    name: 'BC Announcement — Terror / Mass-Casualty',
-    category: 'bc_announce', priority: 3,
-    body: 'A serious security incident has been reported in your region. Avoid landmarks, transit hubs, government buildings, and large gatherings. Stay where you are unless authorities direct otherwise. Do NOT travel toward the affected area. Charge devices, keep them on, and reply HELP if you are near the incident or need assistance. CMT is in active contact with security partners and will share verified guidance only.',
-  },
-
-  // ─────────── BC Check-in ───────────
-  bc_checkin: {
-    name: 'Country-wide Check-in',
-    category: 'bc_checkin', priority: 1,
-    body: 'In response to events unfolding in your region, we are conducting a wellness check. Please reply OK to confirm you are safe, or HELP if you need assistance. Your manager and CMT will be notified of your status.',
-  },
-
-  // ─────────── Office Closure ───────────
-  bc_closure: {
-    name: 'Office Closure Directive',
-    category: 'bc_closure', priority: 1,
-    body: 'Due to the ongoing regional situation, the office will be closed effective immediately. Do not travel to the office. Continue work from a safe location if able. CMT will share reopening guidance directly. Reply OK to acknowledge.',
-  },
-
-  // ─────────── Travel ───────────
-  bc_travel: {
-    name: 'Travel — Suspension',
-    category: 'travel', priority: 1,
-    body: 'All non-essential travel to and within the affected region is suspended until further notice. If you are currently traveling in or near the region, contact CMT at safety@newrelic.com immediately. Existing trips should be reviewed with your manager.',
-  },
-  travel_advisory: {
-    name: 'Travel — Advisory Upgrade',
-    category: 'travel', priority: 2,
-    body: 'A travel advisory upgrade has been issued for your destination region. If you are currently traveling there, please contact CMT to confirm your itinerary and shelter plan. New non-essential travel to the region should be deferred. Existing trips will be reviewed case-by-case with your manager and CMT.',
-  },
-};
-
-/* STATE moved to state.js (as state.UI_STATE); bridged via main.js so
-   legacy `STATE.feedTab = 'time'` etc. continues to work. The two fields
-   below are derived from inline OFFICES + ALERT_TYPES which haven't been
-   wired through the module system yet — populate them here at boot. */
 STATE.visibleOffices    = OFFICES.map(o => o.id);
 STATE.visibleAlertTypes = ALERT_TYPES.slice();
 
@@ -504,30 +274,14 @@ const layers = {
 };
 
 /* ---------- 5. Helpers ---------- */
-/* relTime() moved to helpers.js — bridged via main.js. */
-/* fmtClock() moved to helpers.js — bridged via main.js. */
-/* maxSevForOffice() moved to helpers.js — bridged via main.js. */
-/* activeAlertsForOffice() moved to helpers.js — bridged via main.js. */
 // Haversine great-circle distance in km. Used to match alerts to travelers/offices.
-/* distanceKm() moved to helpers.js — bridged via main.js. */
 
 // Default impact radius (km) when an alert doesn't carry one. Per category — these are
 // loose; tighter is better for travel advisories, looser for tropical cyclones.
-const IMPACT_RADIUS_DEFAULT_KM = {
-  'Natural Disaster': 100,
-  'Civil Unrest':     50,
-  'Public Safety':    25,
-  'Travel Advisory':  300,
-};
 
 // Enrich a backend event with client-side impact data (travelers/employees within radius).
 // Returns the event object augmented with affectedTravelers, affectedOfficeImpact, isRelevant.
-/* enrichEventWithImpact() moved to helpers.js — bridged via main.js. */
 
-/* passesFilter() moved to helpers.js — bridged via main.js. */
-/* visibleAlerts() moved to helpers.js — bridged via main.js. */
-/* travelersAtOffice() moved to helpers.js — bridged via main.js. */
-/* uid() moved to helpers.js — bridged via main.js. */
 
 /**
  * Priority score for sorting alerts. Severity-dominant with a recency penalty.
@@ -542,152 +296,27 @@ const IMPACT_RADIUS_DEFAULT_KM = {
  *   12h High      =   88
  * So a fresh Ext (1000) > 24h Ext (976) > fresh High (100) > 12h High (88) > fresh Mod (10) > fresh Low (1).
  */
-/* alertPriorityScore() moved to helpers.js — bridged via main.js. */
 /** Highest priority score among a list of alerts; -Infinity if empty. */
-/* topScore() moved to helpers.js — bridged via main.js. */
 /** Escape user-provided strings before injecting into HTML. */
-/* esc() moved to helpers.js — bridged via main.js. */
 /** Check if a modal is currently open. */
-/* isModalOpen() moved to render.js — bridged via main.js. */
 
 /** Auto-linkify http(s) URLs inside escaped text. Pass already-escaped text. */
-/* linkify() moved to helpers.js — bridged via main.js. */
 
 /** File-size formatting + icon by MIME type. */
-/* fmtSize() moved to helpers.js — bridged via main.js. */
-/* fileIcon() moved to helpers.js — bridged via main.js. */
 /** Read a File into an attachment object. Embeds as data: URL if small. */
-const ATT_EMBED_LIMIT = 2 * 1024 * 1024;   // 2MB
-/* fileToAttachment() moved to helpers.js — bridged via main.js. */
 /** Render an attachment chip. removable=true when in draft state. */
-/* attachmentChipHTML() moved to helpers.js — bridged via main.js. */
 
 /* ---------- 6. Office markers + popups ---------- */
 const OFFICE_MARKERS = {};
-/* renderOffices() moved to render.js — bridged via main.js. */
-/* officePopup() moved to render.js — bridged via main.js. */
 
 /* ---------- 7. Alert dots ---------- */
-/* alertPopupHTML() moved to render.js — bridged via main.js. */
 
-/* renderAlertDots() moved to render.js — bridged via main.js. */
 
 /* ---------- 8. Employees & travelers ---------- */
-/* renderEmployees() moved to render.js — bridged via main.js. */
-/* renderTravelers() moved to render.js — bridged via main.js. */
 
 /* ---------- 9. Hazard overlays (mock) ---------- */
-const HAZARD_ZONES = {
-  fire: {
-    label: '🔥 Wildfire Zones',
-    color: '#f87171',
-    source: 'NASA EONET',
-    sourceName: 'Earth Observatory Natural Event Tracker',
-    sourceUrl: 'https://eonet.gsfc.nasa.gov/',
-    description: 'Active wildfire events tracked by NASA Earth Observatory and partner agencies (NIFC, GeoMAC).',
-    zones: [
-      { lat: 38.5, lng: -122.5, radiusKm: 280, label: 'Northern California' },
-      { lat: 34.0, lng: -118.2, radiusKm: 220, label: 'Southern California' },
-      { lat: 45.5, lng: -122.5, radiusKm: 180, label: 'Pacific Northwest' },
-      { lat: -33.8, lng: 151.2, radiusKm: 320, label: 'New South Wales' },
-      { lat: 38.7, lng: 23.7, radiusKm: 240, label: 'Greece / Aegean' },
-    ],
-  },
-  flood: {
-    label: '💧 Flood Risk',
-    color: '#1e90ff',
-    source: 'GDACS',
-    sourceName: 'Global Disaster Alert and Coordination System',
-    sourceUrl: 'https://www.gdacs.org/',
-    description: 'Flood risk zones from GDACS, NWS forecasts, and historical FEMA flood plain data.',
-    zones: [
-      { lat: 12.97, lng: 77.6, radiusKm: 60, label: 'Bengaluru low-lying areas' },
-      { lat: 41.39, lng: 2.17, radiusKm: 50, label: 'Catalonia coast' },
-      { lat: 53.35, lng: -6.26, radiusKm: 40, label: 'Dublin Liffey basin' },
-      { lat: 23.8, lng: 90.4, radiusKm: 380, label: 'Bangladesh delta' },
-      { lat: 30.0, lng: 31.2, radiusKm: 200, label: 'Nile delta' },
-    ],
-  },
-  quake: {
-    label: '🌍 Seismic Risk',
-    color: '#fb923c',
-    source: 'USGS',
-    sourceName: 'US Geological Survey — Earthquake Hazards',
-    sourceUrl: 'https://earthquake.usgs.gov/hazards/',
-    description: 'Seismic hazard zones based on USGS National Seismic Hazard Model and EMSC fault data.',
-    zones: [
-      { lat: 35.68, lng: 139.65, radiusKm: 320, label: 'Kanto plain' },
-      { lat: 37.78, lng: -122.42, radiusKm: 180, label: 'San Andreas Fault' },
-      { lat: 40.18, lng: 28.0, radiusKm: 280, label: 'North Anatolian Fault' },
-      { lat: -27.5, lng: -70.0, radiusKm: 380, label: 'Chile subduction' },
-      { lat: 19.4, lng: -99.1, radiusKm: 260, label: 'Trans-Mexican volcanic belt' },
-    ],
-  },
-  unrest: {
-    label: '⚠ Civil Unrest',
-    color: '#facc15',
-    source: 'ACLED',
-    sourceName: 'Armed Conflict Location & Event Data Project',
-    sourceUrl: 'https://acleddata.com/dashboard/',
-    description: 'Recent civil unrest hotspots from ACLED, supplemented by GDELT event clustering.',
-    zones: [
-      { lat: 12.97, lng: 77.6, radiusKm: 12, label: 'Bengaluru Whitefield' },
-      { lat: 51.51, lng: -0.12, radiusKm: 6, label: 'Westminster' },
-      { lat: 48.85, lng: 2.35, radiusKm: 8, label: 'Paris central' },
-      { lat: 6.5, lng: 3.4, radiusKm: 14, label: 'Lagos central' },
-    ],
-  },
-  aqi: {
-    label: '🫁 Poor Air Quality',
-    color: '#a855f7',
-    source: 'OpenAQ',
-    sourceName: 'OpenAQ — Open Air Quality Data',
-    sourceUrl: 'https://openaq.org/',
-    description: 'Locations with current AQI > 100 (Unhealthy for sensitive groups) from OpenAQ stations.',
-    zones: [
-      { lat: 38.5, lng: -122.5, radiusKm: 220, label: 'NorCal AQI 165' },
-      { lat: 28.6, lng: 77.2, radiusKm: 180, label: 'Delhi AQI 240' },
-      { lat: 39.9, lng: 116.4, radiusKm: 160, label: 'Beijing AQI 195' },
-      { lat: 17.4, lng: 78.5, radiusKm: 80,  label: 'Hyderabad AQI 130' },
-    ],
-  },
-  heat: {
-    label: '☀️ Heat Advisory',
-    color: '#dc2626',
-    source: 'NWS',
-    sourceName: 'National Weather Service — Heat Watches & Warnings',
-    sourceUrl: 'https://www.weather.gov/safety/heat',
-    description: 'Areas under active heat advisories, watches, or warnings. Includes excessive-heat warnings (NWS), regional heatwave advisories (MeteoAlarm), and IMD heat alerts.',
-    zones: [
-      { lat: 17.4,  lng: 78.5,    radiusKm: 80,  label: 'Hyderabad — heat index 47°C' },
-      { lat: 28.6,  lng: 77.2,    radiusKm: 200, label: 'Delhi — IMD heatwave alert' },
-      { lat: 33.45, lng: -112.07, radiusKm: 180, label: 'Phoenix — excessive heat warning' },
-      { lat: 36.17, lng: -115.14, radiusKm: 140, label: 'Las Vegas — heat advisory' },
-      { lat: 30.04, lng: 31.24,   radiusKm: 220, label: 'Cairo region heatwave' },
-      { lat: 35.68, lng: 139.65,  radiusKm: 130, label: 'Tokyo summer alert' },
-      { lat: 41.39, lng: 2.17,    radiusKm: 110, label: 'Catalonia heatwave' },
-    ],
-  },
-  // precip + temp are real tile overlays — see TILE_OVERLAYS
-};
 
 /** Live tile-based overlays — actual real-time data when available. */
-const TILE_OVERLAYS = {
-  precip: {
-    label: '🌧 Live Precipitation Radar',
-    source: 'RainViewer',
-    sourceName: 'RainViewer global weather radar',
-    sourceUrl: 'https://www.rainviewer.com/',
-    description: 'Real-time global precipitation radar updated every 10 minutes.',
-  },
-  temp: {
-    label: '🌡 Live Land Surface Temperature',
-    source: 'NASA GIBS',
-    sourceName: 'NASA Global Imagery Browse Services — MODIS Terra LST Day',
-    sourceUrl: 'https://gibs.earthdata.nasa.gov/',
-    description: 'MODIS Terra land surface temperature (daytime). Updated daily — colored from cold (blue) to hot (red).',
-  },
-};
 
 /* Tile layers cached after first activation. */
 const tileOverlayLayers = { precip: null, temp: null };
@@ -752,7 +381,6 @@ function hazardPopupHTML(def, z) {
 }
 
 /** Render polygon hazard zones (fire, flood, quake, unrest, aqi). */
-/* renderHazardZones() moved to render.js — bridged via main.js. */
 
 /** Manage live tile overlays (precip + temp). */
 async function applyTileOverlays() {
@@ -773,23 +401,12 @@ async function applyTileOverlays() {
 }
 
 /** Update the legend with all active overlays. */
-/* updateHazardLegend() moved to render.js — bridged via main.js. */
 
 /** Master hazard render — called on every toggle. */
-/* renderHazards() moved to render.js — bridged via main.js. */
 
 /* ---------- 10. ALERT FEED render ---------- */
-/* renderRailAlerts() moved to render.js — bridged via main.js. */
-/* renderFeed() moved to render.js — bridged via main.js. */
-/* alertCardHTML() moved to render.js — bridged via main.js. */
-/* selectAlert() moved to render.js — bridged via main.js. */
 
 /* ---------- 11. CRISIS COMMS render ---------- */
-/* setCcTab() moved to render.js — bridged via main.js. */
-/* renderCC() moved to render.js — bridged via main.js. */
-/* allTargets() moved to helpers.js — bridged via main.js. */
-/* targetById() moved to helpers.js — bridged via main.js. */
-/* recipientsForChannel() moved to helpers.js — bridged via main.js. */
 
 /* Test-mode routing — single channel + single distro shared across all offices.
  *
@@ -804,19 +421,11 @@ async function applyTileOverlays() {
  * Operator override path: if a per-environment test channel needs to differ
  * (e.g., a separate Slack workspace for staging), set window.NRSA_TEST_ROUTING
  * before script load. */
-const TEST_ROUTING = (typeof window !== 'undefined' && window.NRSA_TEST_ROUTING) || {
-  slack: '#cmt-test-channel',
-  email: 'cmt-test-distro@newrelic.com',
-  sms:   null,                             // SMS test routing intentionally absent
-};
-const TEST_PREFIX_SUBJECT = '[TEST] ';
-const TEST_PREFIX_BODY = '🧪 TEST DRILL — DO NOT ACT — this message was sent in drill mode and is logged with isTest=true. Real recipients should disregard.\n\n';
 
 function testRecipientsForChannel(ch) {
   const dest = TEST_ROUTING[ch];
   return dest ? [dest] : [];
 }
-/* allTemplates() moved to helpers.js — bridged via main.js. */
 
 /* Smart-suggest the best Crisis Comm template for a given alert.
  *
@@ -832,156 +441,27 @@ function testRecipientsForChannel(ch) {
  * Returns a template id from the TEMPLATES object, or 'check' as a final
  * fallback. The operator can override the suggestion in the dropdown.
  */
-/* suggestTemplate() moved to helpers.js — bridged via main.js. */
 
 /* Render the Compose template <select> with optgroup headers grouped by
    TEMPLATE_CATEGORIES. Custom user templates land in a "Custom" group at
    the end. Returns inner-HTML for the <select>. */
-/* renderTemplatePickerOptions() moved to render.js — bridged via main.js. */
-/* hasDraftContent() moved to render.js — bridged via main.js. */
-/* renderComposeForm() moved to render.js — bridged via main.js. */
-/* renderCCLog() moved to render.js — bridged via main.js. */
-/* renderRoom() moved to render.js — bridged via main.js. */
 /** Wire a drag/drop + click + paste attachments zone.
  *  zoneEl + inputEl + pickBtnEl + onAdd(att[]) + onRemove(id) callbacks. */
-/* wireAttZone() moved to render.js — bridged via main.js. */
 
-/* bindCCHandlers() moved to render.js — bridged via main.js. */
-/* confirmSend() moved to modals.js — bridged via main.js. */
-/* dispatchSend() moved to modals.js — bridged via main.js. */
 
 /* ---------- 12. INCIDENTS render ---------- */
-function createIncident({ title, offices, severity, description, messageId, alertId }) {
-  const inc = {
-    id: uid(), title, offices, severity, description, messageId, alertId: alertId || null,
-    opened: new Date().toISOString(), status:'open', closedNote:null, closedAt:null,
-    notes: [], log: [], messages: [],
-    reopens: [],   // [{ when, by }] each time the incident is reopened
-    _persistPending: !!API_BASE,   // true while the backend round-trip is in flight
-  };
-  STATE.incidents.unshift(inc);
-  STATE.responses[inc.id] = {};
-  buildResponseShells(inc.id, offices);
-  addIncidentLog(inc.id, 'create', `Incident <b>${esc(title)}</b> opened.`);
-
-  // Live mode: fire-and-forget persist to backend. We use the local client
-  // ID until the server returns; on success we swap to the server-issued
-  // UUID and update STATE.responses to match. On failure we log + toast
-  // but do NOT block the user's flow — better to keep the dashboard usable
-  // and have a partial-persist scenario than to lose the incident entirely.
-  if (API_BASE) {
-    incidentsApi.create({ title, description, severity, offices, alertId: alertId || undefined })
-      .then((serverInc) => {
-        // Swap local id → server UUID across STATE so subsequent
-        // mutations (close/reopen/notes/responses) target the right row.
-        const oldId = inc.id;
-        const newId = serverInc.id;
-        if (oldId === newId) return;       // shouldn't happen, but safe
-        inc.id = newId;
-        inc.opened = serverInc.opened;
-        inc._persistPending = false;
-        STATE.responses[newId] = STATE.responses[oldId] || {};
-        delete STATE.responses[oldId];
-        if (STATE.selectedIncidentId === oldId) STATE.selectedIncidentId = newId;
-        if (STATE.linkedIncidentId === oldId) STATE.linkedIncidentId = newId;
-
-        // Flush any messages that were queued while this create was in
-        // flight (see dispatchSend's _pendingMessages branch). Sequential
-        // sends are fine — the queue is typically 1-2 entries — and serial
-        // ordering preserves the operator's intended message order in the
-        // incident's audit trail.
-        const queued = inc._pendingMessages || [];
-        inc._pendingMessages = [];
-        for (const q of queued) {
-          incidentsApi.sendMessage(newId, q.apiPayload).then((serverMsgId) => {
-            if (serverMsgId) q.msg.id = serverMsgId;
-          }).catch((e) => {
-            console.warn('queued message persist failed:', e);
-            toast('⚠ A queued message failed to persist to backend.');
-          });
-        }
-
-        renderIncidents();
-      })
-      .catch((err) => {
-        console.warn('incident create persist failed (kept local):', err);
-        inc._persistPending = false;
-        const stranded = (inc._pendingMessages || []).length;
-        inc._pendingMessages = [];
-        toast(stranded
-          ? `⚠ Incident + ${stranded} message(s) saved locally — backend persist failed.`
-          : '⚠ Incident saved locally — backend persist failed. See console.');
-      });
-  }
-
-  return inc;
-}
-function buildResponseShells(incidentId, offices) {
-  offices.forEach(oid => {
-    EMPLOYEES.filter(e => e.office === oid).forEach(e => {
-      if (!STATE.responses[incidentId][e.id]) {
-        STATE.responses[incidentId][e.id] = { status:'no', when:null, by:null };
-      }
-    });
-    travelersAtOffice(oid).forEach(t => {
-      const key = 'T-'+t.id;
-      if (!STATE.responses[incidentId][key]) {
-        STATE.responses[incidentId][key] = { status:'no', when:null, by:null, traveler:true };
-      }
-    });
-  });
-}
-function reopenIncident(incidentId) {
-  const inc = STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
-  const wasClosedAt = inc.closedAt;
-  const wasLogLength = inc.log.length;
-  inc.status = 'open';
-  inc.closedAt = null;
-  inc.reopens.push({ when: new Date().toISOString(), by:'cowork-3p' });
-  addIncidentLog(inc.id, 'create', `Incident <b>reopened</b>.`);
-  toast('Incident reopened.');
-  renderIncidents();
-  // Live mode: persist (fire-and-forget). Revert if backend rejects —
-  // including the audit-log entry, so the timeline stays honest.
-  if (API_BASE && !inc._persistPending) {
-    incidentsApi.reopen(inc.id).catch(err => {
-      console.warn('incident reopen persist failed:', err);
-      inc.status = 'closed';
-      inc.closedAt = wasClosedAt;
-      inc.reopens.pop();
-      inc.log.length = wasLogLength;     // truncate log to pre-reopen state
-      toast('⚠ Reopen failed on backend — reverted locally.');
-      renderIncidents();
-    });
-  }
-}
-function addIncidentLog(id, kind, body) {
-  const inc = STATE.incidents.find(x=>x.id===id); if (!inc) return;
-  inc.log.push({ when: new Date().toISOString(), by:'cowork-3p', kind, body });
-}
-/* setIncidentTab() moved to render.js — bridged via main.js. */
 function selectIncident(id) {
   STATE.selectedIncidentId = id;
   STATE.incidentTab = 'details';
   renderIncidents();
 }
-/* renderIncidents() moved to render.js — bridged via main.js. */
-/* renderIncidentFilter() moved to render.js — bridged via main.js. */
 function visibleIncidents() {
   const f = STATE.incidentListFilter;
   if (f === 'all') return STATE.incidents;
   return STATE.incidents.filter(i => i.status === f);
 }
-/* renderIncidentList() moved to render.js — bridged via main.js. */
-/* renderIncidentDetail() moved to render.js — bridged via main.js. */
-/* renderIncidentDetailHTML() moved to render.js — bridged via main.js. */
-/* renderIncidentTab() moved to render.js — bridged via main.js. */
-/* msgRowHTML() moved to render.js — bridged via main.js. */
-/* bindIncidentListHandlers() moved to render.js — bridged via main.js. */
-/* bindIncidentDetailHandlers() moved to render.js — bridged via main.js. */
 
 /* ---------- 13. Layers panel + filters ---------- */
-/* buildLayerControls() moved to render.js — bridged via main.js. */
 function loadEmpCSV(file) {
   if (!file) return;
   const r = new FileReader();
@@ -1202,9 +682,6 @@ function fenceToCrisis() {
 }
 
 /* ---------- 15. Panels & dropdown management ---------- */
-/* openPanel() moved to render.js — bridged via main.js. */
-/* closePanel() moved to render.js — bridged via main.js. */
-/* togglePanel() moved to render.js — bridged via main.js. */
 ['alerts','crisis','incident'].forEach(p => {
   const rail = document.getElementById('rail-'+p);
   rail.addEventListener('click', () => togglePanel(p));
@@ -1221,7 +698,6 @@ document.getElementById('btn-collapse-incident').onclick = () => closePanel('inc
    only worked when the map had ample room; with both right panels open
    the dropdown's right edge ended up overlapping the map's marker zone.
    Computing position at open time keeps the dropdown glued to the button. */
-/* positionToolsDropdown() moved to render.js — bridged via main.js. */
 
 document.getElementById('btn-tools').onclick = (e) => {
   e.stopPropagation();
@@ -1279,7 +755,6 @@ document.addEventListener('keydown', e => {
   App.resetView();
 });
 
-/* applyTheme() moved to render.js — bridged via main.js. */
 document.getElementById('btn-style').onclick = () => applyTheme(STATE.theme === 'dark' ? 'light' : 'dark');
 // restore saved theme on boot
 try {
@@ -1287,7 +762,6 @@ try {
   if (saved === 'light' || saved === 'dark') applyTheme(saved);
 } catch(_) {}
 
-/* showFreshness() moved to render.js — bridged via main.js. */
 
 document.getElementById('btn-help').onclick = () => {
   showModal(`<h3>Quick Reference</h3>
@@ -1343,9 +817,6 @@ document.getElementById('btn-new-incident').onclick = () => {
 };
 
 /* ---------- 16. Modals + toast ---------- */
-/* showModal() moved to modals.js — bridged via main.js. */
-/* closeModal() moved to modals.js — bridged via main.js. */
-/* toast() moved to modals.js — bridged via main.js. */
 
 /* ---------- 17. Public hooks for popup buttons ---------- */
 window.App = {
@@ -1410,51 +881,27 @@ window.App = {
 };
 
 /* ---------- 17b. Alert Details — opens in a new tab ---------- */
-/* showAlertDetails() moved to persistence.js — bridged via main.js. */
 
 /* ---------- 17c. Incident Report — opens in a new tab ---------- */
-/* exportIncidentReport() moved to persistence.js — bridged via main.js. */
 
 /* ---------- 17d. Persistence (localStorage) ---------- */
-/* PERSIST_KEY moved to constants.js (already exported there) — bridged via main.js. */
-/* PERSIST_DEBOUNCE_MS moved to constants.js (already exported there) — bridged via main.js. */
-/* _saveTimer() moved to persistence.js — bridged via main.js. */
-/* lastSavedAt moved to state.js. */
 
 /** Strip the (potentially huge) data: URL from an attachment, keep metadata. */
-/* stripAtt() moved to helpers.js — bridged via main.js. */
-/* stripMessageAtts() moved to helpers.js — bridged via main.js. */
-/* stripIncident() moved to helpers.js — bridged via main.js. */
-/* buildPersistPayload() moved to persistence.js — bridged via main.js. */
-/* saveState() moved to persistence.js — bridged via main.js. */
-/* loadState() moved to persistence.js — bridged via main.js. */
-/* exportData() moved to persistence.js — bridged via main.js. */
-/* resetData() moved to persistence.js — bridged via main.js. */
 
 /* ---------- 17e. Status Strip ---------- */
-/* lastRefreshAt moved to state.js. The "Last fetch" chip uses it to age out
-   the backend connection — null until the first success, then ISO timestamp. */
 
-/* renderStatusStrip() moved to render.js — bridged via main.js. */
 
 /* ---------- 18. Master render ---------- */
-/* renderAll() moved to render.js — bridged via main.js. */
 
 /* Tick the status strip once a minute so the "Last fetch" chip ages without
    needing another event to trigger a re-render. Cheap (renderStatusStrip is
    <1ms), and only does meaningful work in live mode where the chip exists.
    The 60s cadence is intentional — finer would over-render; coarser would
    leave operators staring at a stale label during a real backend outage. */
-/* _statusStripTicker() moved to render.js — bridged via main.js. */
-/* startStatusStripTicker() moved to render.js — bridged via main.js. */
 // Kick off on next tick so DOM has been built.
 setTimeout(startStatusStripTicker, 0);
 
 /* ---------- 18b. Panel resize ---------- */
-/* PANEL_MIN_W moved to constants.js (already exported) — bridged via main.js. */
-/* PANEL_MAX_W moved to constants.js (already exported) — bridged via main.js. */
-/* applyPanelWidths() moved to render.js — bridged via main.js. */
-/* setupPanelResize() moved to render.js — bridged via main.js. */
 
 /* ---------- 19. Boot ---------- */
 const _restored = loadState();
@@ -1529,13 +976,8 @@ handleHashRoute();
      4. Reads operator identity from /api/auth/me
 */
 
-/* TOKEN_KEY moved to constants.js (already exported there) — bridged via main.js. */
 
-/* getStoredToken() moved to api.js — bridged via main.js. */
-/* storeToken() moved to api.js — bridged via main.js. */
-/* clearStoredToken() moved to api.js — bridged via main.js. */
 
-/* apiFetch() moved to api.js — bridged via main.js. */
 
 /* ---------- Incident API helpers (Sprint 5 backend) ----------
  *
@@ -1550,52 +992,35 @@ handleHashRoute();
  */
 
 /** Map a backend incidents row into the prototype's STATE.incidents shape. */
-/* mapIncidentRowToState() moved to api.js — bridged via main.js. */
-/* mapNoteRow() moved to api.js — bridged via main.js. */
-/* mapLogRow() moved to api.js — bridged via main.js. */
-/* mapMessageRow() moved to api.js — bridged via main.js. */
 
-/* incidentsApi() moved to api.js — bridged via main.js. */
 
-/* commsApi() moved to api.js — bridged via main.js. */
 
-/* showLoginModal() moved to api.js — bridged via main.js. */
 
 // Map backend granular type ('earthquake', 'tornado_warning', etc.) to one of the
 // 4 frontend categories the filter UI knows about. Used as a fallback only —
 // the authoritative path is the API's `category` field (see mapBackendCategory).
-/* BACKEND_TYPE_TO_CATEGORY moved to constants.js (already exported there) — bridged via main.js. */
 
 // Authoritative: backend writes `category` at ingest per-adapter. This 1:1 map
 // translates the backend's coarse-category enum to the frontend's display
 // names. Health entries don't currently have a frontend filter — they live
 // in the WHO outbreaks panel rather than the alert feed.
-/* BACKEND_CATEGORY_TO_LABEL moved to constants.js (already exported there) — bridged via main.js. */
 
 // Source-ID fallback when neither `category` nor `type` resolves cleanly.
 // Avoids the old failure mode where SF/ATL police events fell through to
 // 'Natural Disaster'.
-/* SOURCE_ID_TO_CATEGORY moved to constants.js (already exported there) — bridged via main.js. */
 
 /** Resolve an event's display category, preferring authoritative sources in
  *  this order: API category → granular type map → source-ID fallback →
  *  conservative default. The old code defaulted unmapped types to
  *  'Natural Disaster' which silently mislabeled SFPD/APD/TfL events. */
-/* mapBackendCategory() moved to api.js — bridged via main.js. */
 
 // Legacy entry point kept so existing call sites don't break. New code should
 // pass the full event object and call mapBackendCategory(evt).
-/* mapBackendType() moved to api.js — bridged via main.js. */
 
 // Detect EONET prescribed-fire entries (controlled government burns, not threats)
-/* isPrescribedFire() moved to api.js — bridged via main.js. */
 
-/* backfillAlerts() moved to api.js — bridged via main.js. */
 
-/* _sseConnection() moved to api.js — bridged via main.js. */
-/* subscribeLiveStream() moved to api.js — bridged via main.js. */
 
-/* backfillWhoOutbreaks() moved to api.js — bridged via main.js. */
 
 /**
  * Sprint 5 phase 5 — auto-migrate localStorage-only incidents to Postgres.
@@ -1619,13 +1044,9 @@ handleHashRoute();
  * with the canonical server list — which now includes everything we just
  * migrated, so the swap is invisible to the operator beyond a single toast.
  */
-/* isLocalIncidentId() moved to api.js — bridged via main.js. */
 
-/* migrateLocalIncidents() moved to api.js — bridged via main.js. */
 
-/* backfillIncidents() moved to api.js — bridged via main.js. */
 
-/* bootLiveMode() moved to api.js — bridged via main.js. */
 
 if (API_BASE) {
   if (getStoredToken()) bootLiveMode();
@@ -1638,7 +1059,6 @@ if (API_BASE) {
    filter (flight/hotel/office), CSV export, and per-row actions: 📍 zoom
    map to the traveler, ✉ pre-fill Crisis Comms with traveler context.
    ========================================================================= */
-/* TRAV_VIEW moved to state.js. */
 
 function _fmtTravDate(iso) {
   if (!iso) return '—';
@@ -1651,23 +1071,14 @@ function _fmtTravTime(iso) {
   return isNaN(d) ? '—' : d.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
 }
 
-/* showTravelersList() moved to modals.js — bridged via main.js. */
 
-/* travListBodyHTML() moved to modals.js — bridged via main.js. */
 
-/* travSortValue() moved to modals.js — bridged via main.js. */
 
-/* travListRowsHTML() moved to modals.js — bridged via main.js. */
 
-/* travRowHTML() moved to modals.js — bridged via main.js. */
 
-/* refreshTravList() moved to modals.js — bridged via main.js. */
 
-/* bindTravListHandlers() moved to modals.js — bridged via main.js. */
 
-/* bindTravListRowHandlers() moved to modals.js — bridged via main.js. */
 
-/* exportTravelersCSV() moved to modals.js — bridged via main.js. */
 
 document.getElementById('btn-travelers').onclick = () => showTravelersList();
 document.getElementById('btn-risk').onclick = () => showRiskProfileModal();
@@ -1772,7 +1183,6 @@ const REMOTE_EMPLOYEES_MOCK = (() => {
   });
   return list;
 })();
-/* REMOTE_EMPLOYEES moved to state.js. */
 
 /* Mock ACLED country risk rollups — last 30 days of vetted civil-unrest /
  * armed-conflict events per country. Populated only in demo mode (see boot
@@ -1823,7 +1233,6 @@ const ACLED_RISK_MOCK = {
   'South Korea': { battles: 0, vac: 0, explosions: 0, riots: 1,   strategicDev: 4,  fatalities: 0 },
   Iceland:     { battles: 0, vac: 0,  explosions: 0,  riots: 0,   strategicDev: 0,  fatalities: 0 },
 };
-/* ACLED_RISK moved to state.js. */
 
 /* Mock WHO Disease Outbreak News — active disease outbreaks the operator
  * should know about when assessing country risk. Populated only in demo
@@ -1858,35 +1267,17 @@ const WHO_OUTBREAKS_MOCK = [
   { country:'USA',         disease:'Measles',         severity:'low',  cases:121,   since:'2026-03-04', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'Multi-state measles clusters; under-vaccinated communities.' },
   { country:'Australia',   disease:'Japanese encephalitis', severity:'low', cases:14, since:'2026-04-18', link:'https://www.who.int/emergencies/disease-outbreak-news/', summary:'JE virus expansion in NSW/VIC; rural exposure risk.' },
 ];
-/* WHO_OUTBREAKS moved to state.js. */
 
-const BCP_EVENT_TYPES = [
-  { id:'terror',    label:'Terrorist incident',          titleHint:'Terror incident — ' },
-  { id:'masscas',   label:'Mass-casualty event',         titleHint:'Mass-casualty event — ' },
-  { id:'quake',     label:'Major earthquake',            titleHint:'Major earthquake — ' },
-  { id:'hurricane', label:'Hurricane / Typhoon',         titleHint:'Hurricane — ' },
-  { id:'civil',     label:'Civil collapse / unrest',     titleHint:'Civil unrest — ' },
-  { id:'transit',   label:'Mass transit failure',        titleHint:'Transit disruption — ' },
-  { id:'geopol',    label:'Geopolitical escalation',     titleHint:'Geopolitical event — ' },
-  { id:'other',     label:'Other / Custom',              titleHint:'' },
-];
 
-/* BCP_FORM moved to state.js; bridged via main.js so legacy mutations propagate. */
 
-/* showBCPModal() moved to modals.js — bridged via main.js. */
 
 /* Floating chip shown while operator is in the geo-fence-draw round trip.
    Click → cancel and reopen BCI modal with form preserved.
    Auto-clears after 30s if operator forgets. Prevents the "stuck waiting"
    state where any unrelated future fence draw would surprise-reopen BCI. */
-/* showBCIWaitingChip() moved to modals.js — bridged via main.js. */
-/* clearBCIWaitingChip() moved to modals.js — bridged via main.js. */
 
-/* bcpModalHTML() moved to modals.js — bridged via main.js. */
 
-/* bcpAvailableCountries() moved to modals.js — bridged via main.js. */
 
-/* bcpExposureInScope() moved to modals.js — bridged via main.js. */
 
 /* Country Risk Profile compact summary — shown inside the BCI Declaration
  * modal, just below the Exposure in Scope card. Gives operators a one-line
@@ -1902,21 +1293,13 @@ const BCP_EVENT_TYPES = [
  *   - mock mode + 0 countries selected: empty-state hint
  *   - mock mode + 1+ countries: compact aggregate one-liner + link
  */
-/* bcpAcledRiskHTML() moved to modals.js — bridged via main.js. */
 
-/* bcpExposureSummaryHTML() moved to modals.js — bridged via main.js. */
 
-/* bcpFormBodyHTML() moved to modals.js — bridged via main.js. */
 
-/* refreshBCPExposure() moved to modals.js — bridged via main.js. */
 
-/* updateBCPDeclareButton() moved to modals.js — bridged via main.js. */
 
-/* bindBCPHandlers() moved to modals.js — bridged via main.js. */
 
-/* bindBCPFormHandlers() moved to modals.js — bridged via main.js. */
 
-/* declareBCP() moved to modals.js — bridged via main.js. */
 
 document.getElementById('btn-bcp').onclick = () => showBCPModal();
 
@@ -1936,9 +1319,7 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
    Live + bare Pages mode: shows pending-integration placeholder.
    Mock mode: full UI populated from ACLED_RISK / ACLED_RISK_MOCK.
    ========================================================================= */
-/* RISK_VIEW moved to state.js. */
 
-/* showRiskProfileModal() moved to modals.js — bridged via main.js. */
 
 /* Build the country list for the chip grid:
  *   - Union of COUNTRY_PRESENCE (always loaded) + ACLED_RISK (mock-only)
@@ -1951,16 +1332,13 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
  * inline. Live mode: chips show no count (or "—"); operator can still pick
  * countries to view Live Hazards from the active alert pipeline.
  */
-/* riskCountryList() moved to modals.js — bridged via main.js. */
 
 /* Live Hazards panel for the Risk Profile modal — aggregates the existing
  * alert pipeline (NWS / MeteoAlarm / GDACS / USGS / EMSC / EONET / State Dept)
  * for the selected countries. Renders quietly when no live hazards are
  * detected. Distinct from ACLED (historical context) below it.
  */
-/* riskLiveHazardsHTML() moved to modals.js — bridged via main.js. */
 
-/* riskModalHTML() moved to modals.js — bridged via main.js. */
 
 /* Debounce handle for the Risk modal search input. Module-level so it
    survives the re-bind cycle that happens on every modal re-render —
@@ -1968,561 +1346,21 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
    re-render, and we want a single shared timer rather than one per call. */
 let _riskSearchDebounce = null;
 
-/* bindRiskModalHandlers() moved to modals.js — bridged via main.js. */
 
 
 /* =========================================================================
-   22. DEMO MODE — cycling alert + traveler simulator
+   22-23. DEMO MODE + SYNTHETIC TEST SCENARIOS — bridged from js/demo.js
    -------------------------------------------------------------------------
-   Activates ONLY when the URL explicitly carries `#api=mock`.
-   • The bare GitHub Pages URL (auto-detected mock mode) does NOT run the
-     demo — Pages stays clean for stakeholder viewing.
-   • Use file://...index.html#api=mock or any URL with that hash to opt in.
-   • Enriches initial seed ALERTS so they pass the officeRelevantOnly filter.
-   • Adds new alerts on a 25–70s cycle, with 4–9 min lifetime each.
-   • Shifts a random traveler to their next leg every 45s, with toast.
-   • Occasional Extreme injection so the status-strip wash + Crisis Comm
-     fast-path get exercised on the demo URL.
-   • Subtle DEMO MODE badge pinned top-right with click-to-pause.
-   Localhost / file:// without hash (live mode) is unaffected.
+   The cycling alert/traveler simulator and the operator-triggered Test
+   Scenarios modal both live in `js/demo.js` (cleanup #4, 2026-06-19).
+   They previously ran as inline IIFEs gated by `if (!API_BASE && #api=mock)`;
+   that gate now lives inside each exported function, so we just call them
+   here unconditionally and they no-op outside mock mode.
+
+   Both functions touch a wide surface: ALERTS / TRAVELERS / EMPLOYEES,
+   render pipeline (renderAll, enrichEventWithImpact, buildEmployees), modals
+   (showModal, showBCPModal, App.closeModal), and toast — all bridged to
+   window via main.js, so bare references inside demo.js resolve at call time.
    ========================================================================= */
-if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
-  (function bootDemoMode() {
-    const DEMO = {
-      paused: false,
-      newAlertEverySec: { min: 25, max: 70 },
-      alertLifetimeSec: { min: 240, max: 540 },   // 4–9 minutes
-      maxActiveDemo: 18,
-      travelerMoveEverySec: 45,                   // every 45s — demo-speed so movement is visible
-      extremeChance: 0.08,                        // 8% of injections are Extreme
-      timers: {},
-      demoIds: new Set(),
-    };
-
-    /* Pool of alert templates. Mix of severities, types, geos.
-       Weighted toward office-proximity events so 🎯 view feels populated. */
-    const POOL = [
-      // ── San Francisco ──
-      { sev:'high', type:'Public Safety', source:'Socrata',  officeId:'SFO',
-        title:'Suspicious package — Embarcadero Plaza, cordon active',
-        location:'San Francisco', lat:37.795, lng:-122.394, radiusKm:1,
-        summary:'SFPD investigating; perimeter cordon active. Office on lockdown advisory.' },
-      { sev:'mod',  type:'Civil Unrest', source:'ACLED',     officeId:'SFO',
-        title:'Demonstration forming — Market & 5th',
-        location:'San Francisco', lat:37.783, lng:-122.408, radiusKm:2,
-        summary:'~300 participants. Estimated peak 16:00 local. Avoid Market between 4th–7th.' },
-      { sev:'mod',  type:'Natural Disaster', source:'NASA EONET', officeId:'SFO',
-        title:'Wildfire smoke advisory — AQI 168',
-        location:'Bay Area', lat:38.0, lng:-122.4, radiusKm:120,
-        summary:'PurpleAir reading 168 (Unhealthy). N95s recommended outdoors.' },
-      { sev:'ext',  type:'Natural Disaster', source:'USGS',   officeId:'SFO',
-        title:'M5.4 earthquake — 14km W of San Francisco',
-        location:'San Francisco', lat:37.78, lng:-122.55, radiusKm:80,
-        summary:'Strong shaking near Hayward fault. Initial reports of facade damage downtown.' },
-
-      // ── Portland ──
-      { sev:'mod',  type:'Public Safety', source:'PDX FlashAlert', officeId:'PDX',
-        title:'Multi-vehicle accident — I-5 SB at Burnside',
-        location:'Portland', lat:45.523, lng:-122.677, radiusKm:3,
-        summary:'Two right lanes blocked. Expect 30+ min commute delay.' },
-      { sev:'low',  type:'Travel Advisory', source:'NWS',     officeId:'PDX',
-        title:'Winter weather advisory — freezing rain overnight',
-        location:'Portland', lat:45.519, lng:-122.679, radiusKm:50,
-        summary:'Light freezing rain 02:00–08:00. Surfaces may be slick.' },
-
-      // ── Atlanta ──
-      { sev:'high', type:'Natural Disaster', source:'NWS',    officeId:'ATL',
-        title:'Tornado warning — Fulton & DeKalb counties',
-        location:'Atlanta', lat:33.749, lng:-84.388, radiusKm:35,
-        summary:'NWS Doppler-confirmed rotation. Take shelter in interior room. Active until 18:45 local.' },
-      { sev:'mod',  type:'Natural Disaster', source:'NWS',    officeId:'ATL',
-        title:'Severe thunderstorm — line of cells moving E at 35kt',
-        location:'Atlanta metro', lat:33.78, lng:-84.39, radiusKm:80,
-        summary:'Hail to 1.5", winds to 60 mph. Shelter recommended.' },
-
-      // ── Barcelona ──
-      { sev:'mod',  type:'Natural Disaster', source:'MeteoAlarm', officeId:'BCN',
-        title:'Heavy rain & flood watch — Catalonia',
-        location:'Barcelona', lat:41.385, lng:2.17, radiusKm:80,
-        summary:'Orange-level alert for heavy precipitation through 22:00 local.' },
-      { sev:'high', type:'Civil Unrest', source:'ACLED',     officeId:'BCN',
-        title:'General strike call — Plaça de Catalunya gathering',
-        location:'Barcelona', lat:41.387, lng:2.170, radiusKm:2,
-        summary:'Estimated 8k participants. Metro lines L1/L3 partial closures.' },
-
-      // ── Dublin ──
-      { sev:'high', type:'Public Safety', source:'GDELT',    officeId:'DUB',
-        title:'Suspicious package — Liffey Quay (cordon active)',
-        location:'Dublin', lat:53.347, lng:-6.247, radiusKm:1,
-        summary:'AGS bomb squad on scene. Roads closed Eden Quay to O\'Connell Bridge.' },
-      { sev:'low',  type:'Public Safety', source:'GDELT',    officeId:'DUB',
-        title:'Dublin Bus & Luas service reductions — industrial action',
-        location:'Dublin', lat:53.349, lng:-6.260, radiusKm:8,
-        summary:'Reduced service Tue–Thu. Recommend remote-first.' },
-
-      // ── London ──
-      { sev:'mod',  type:'Civil Unrest', source:'ACLED',     officeId:'LON',
-        title:'Planned protest — Westminster, possible road closures',
-        location:'London', lat:51.501, lng:-0.124, radiusKm:3,
-        summary:'Multiple groups gathering at Parliament Square 14:00 local. MPS advising avoidance of Whitehall.' },
-      { sev:'mod',  type:'Natural Disaster', source:'MeteoAlarm', officeId:'LON',
-        title:'Severe winds — gusts to 95 km/h forecast',
-        location:'Greater London', lat:51.510, lng:-0.130, radiusKm:50,
-        summary:'Yellow wind warning. Possible transit disruption on overground.' },
-      { sev:'high', type:'Public Safety', source:'TfL',      officeId:'LON',
-        title:'Major Tube disruption — Jubilee & Bakerloo suspended',
-        location:'London', lat:51.513, lng:-0.116, radiusKm:5,
-        summary:'Power-supply incident at Baker Street. No service expected before 19:00.' },
-
-      // ── Tokyo ──
-      { sev:'ext',  type:'Natural Disaster', source:'USGS',  officeId:'TYO',
-        title:'M6.1 earthquake — 18km E of Tokyo, depth 32km',
-        location:'Tokyo', lat:35.69, lng:140.0, radiusKm:200,
-        summary:'Strong shaking reported across Kanto region. Tsunami advisory NOT issued. Structural integrity check recommended.' },
-      { sev:'high', type:'Natural Disaster', source:'EMSC',  officeId:'TYO',
-        title:'Aftershock M4.8 near Tokyo Bay',
-        location:'Tokyo Bay', lat:35.6, lng:140.05, radiusKm:80,
-        summary:'Aftershock following earlier M6.1. No new damage reported.' },
-      { sev:'mod',  type:'Natural Disaster', source:'GDACS', officeId:'TYO',
-        title:'Tropical storm watch — distant approach to Honshu',
-        location:'Tokyo', lat:35.68, lng:139.65, radiusKm:300,
-        summary:'72h monitoring. Possible service disruption Sun–Mon.' },
-
-      // ── Bengaluru ──
-      { sev:'high', type:'Natural Disaster', source:'MeteoAlarm', officeId:'BLR',
-        title:'Heavy monsoon flooding — multiple zones',
-        location:'Bengaluru', lat:12.97, lng:77.59, radiusKm:30,
-        summary:'IMD red alert. Outer Ring Road impassable in stretches. Avoid travel.' },
-      { sev:'ext',  type:'Civil Unrest', source:'ACLED',    officeId:'BLR',
-        title:'Civil unrest — Whitefield, escalation reported',
-        location:'Bengaluru', lat:12.972, lng:77.595, radiusKm:5,
-        summary:'Demonstrations turned confrontational. Multiple injuries reported. Avoid Whitefield corridor.' },
-      { sev:'mod',  type:'Public Safety', source:'GDELT',   officeId:'BLR',
-        title:'Power grid advisory — rolling outages 14:00–18:00',
-        location:'Bengaluru', lat:12.95, lng:77.60, radiusKm:25,
-        summary:'BESCOM scheduled load-shedding. UPS/generator verification recommended.' },
-
-      // ── Hyderabad ──
-      { sev:'mod',  type:'Natural Disaster', source:'NWS',  officeId:'HYD',
-        title:'Heat advisory — humidity index 47°C',
-        location:'Hyderabad', lat:17.385, lng:78.486, radiusKm:50,
-        summary:'Heat index above 47°C through Thursday. Hydration breaks recommended.' },
-      { sev:'high', type:'Public Safety', source:'GDELT',   officeId:'HYD',
-        title:'Power grid failure — Madhapur sector affected',
-        location:'Hyderabad', lat:17.441, lng:78.382, radiusKm:8,
-        summary:'Substation fault. Estimated restoration 4–6 hours. UPS verification urgent.' },
-      { sev:'low',  type:'Civil Unrest', source:'ACLED',    officeId:'HYD',
-        title:'Permitted demonstration — IT Corridor, low activity',
-        location:'Hyderabad', lat:17.45, lng:78.38, radiusKm:3,
-        summary:'~150 participants, peaceful assembly. No traffic impact expected.' },
-
-      // ── Travel advisories (traveler-targeted) ──
-      { sev:'mod',  type:'Travel Advisory', source:'State Dept', officeId:null,
-        title:'L3 Reconsider Travel — political volatility',
-        location:'Mexico City region', lat:19.4326, lng:-99.1332, radiusKm:0,
-        summary:'Crime and kidnapping risk elevated. Affects travelers in Mexico City.' },
-      { sev:'high', type:'Civil Unrest', source:'ACLED',    officeId:null,
-        title:'Flash protest — central Singapore transit zone',
-        location:'Singapore', lat:1.3521, lng:103.8198, radiusKm:3,
-        summary:'Crowd aggregation near Raffles Place MRT. Traveler proximity flagged.' },
-      { sev:'mod',  type:'Travel Advisory', source:'State Dept', officeId:null,
-        title:'L2 Exercise increased caution — UAE',
-        location:'Dubai', lat:25.2048, lng:55.2708, radiusKm:0,
-        summary:'Routine advisory updated. Affects 1 employee currently in Dubai.' },
-      { sev:'high', type:'Natural Disaster', source:'GDACS', officeId:null,
-        title:'Typhoon track update — Cat 3 approaching Seoul',
-        location:'Seoul', lat:37.5665, lng:126.978, radiusKm:200,
-        summary:'Landfall projected 36h. Traveler in region — advise evac or shelter.' },
-      { sev:'low',  type:'Travel Advisory', source:'State Dept', officeId:null,
-        title:'L1 Exercise normal precautions — Berlin',
-        location:'Berlin', lat:52.52, lng:13.405, radiusKm:0,
-        summary:'Standard advisory. 1 traveler currently lodged.' },
-    ];
-
-    /* Slight per-injection variation: randomize magnitude, AQI, headcount
-       in the title/summary so back-to-back identical templates feel distinct. */
-    function variantize(t) {
-      const c = { ...t };
-      if (c.source === 'USGS' && /M\d/.test(c.title)) {
-        const m = (4.6 + Math.random() * 1.8).toFixed(1);
-        c.title = c.title.replace(/M\d\.\d/, 'M' + m);
-        c.sev = parseFloat(m) >= 6.0 ? 'ext' : parseFloat(m) >= 5.2 ? 'high' : 'mod';
-      }
-      if (/AQI \d/.test(c.title)) {
-        const aqi = 130 + Math.floor(Math.random() * 90);
-        c.title = c.title.replace(/AQI \d+/, 'AQI ' + aqi);
-        c.summary = c.summary.replace(/\d+ \(Unhealthy\)/, aqi + ' (Unhealthy)');
-      }
-      return c;
-    }
-
-    function pickAlert() {
-      const wantExtreme = Math.random() < DEMO.extremeChance;
-      const filtered = POOL.filter(p => wantExtreme ? p.sev === 'ext' : p.sev !== 'ext');
-      const pool = filtered.length ? filtered : POOL;
-      const tmpl = pool[Math.floor(Math.random() * pool.length)];
-      const v = variantize(tmpl);
-      return enrichEventWithImpact({
-        ...v,
-        id: 'demo-' + Math.random().toString(36).slice(2, 9),
-        issued: new Date().toISOString(),
-      });
-    }
-
-    function injectAlert() {
-      if (DEMO.paused) { scheduleNext(); return; }
-      const a = pickAlert();
-      ALERTS = [a, ...ALERTS];
-      DEMO.demoIds.add(a.id);
-      // Schedule its removal
-      const lifeMs = (DEMO.alertLifetimeSec.min + Math.random() *
-        (DEMO.alertLifetimeSec.max - DEMO.alertLifetimeSec.min)) * 1000;
-      setTimeout(() => removeAlert(a.id), lifeMs);
-      // Trim if we've exceeded the demo cap
-      const demoActive = ALERTS.filter(x => DEMO.demoIds.has(x.id));
-      while (demoActive.length > DEMO.maxActiveDemo) {
-        const oldest = demoActive[demoActive.length - 1];
-        removeAlert(oldest.id);
-        demoActive.pop();
-      }
-      renderAll();
-      // If Extreme, briefly pulse the status strip (renderAll already handles styling)
-      scheduleNext();
-    }
-
-    function removeAlert(id) {
-      if (!DEMO.demoIds.has(id)) return;
-      ALERTS = ALERTS.filter(a => a.id !== id);
-      DEMO.demoIds.delete(id);
-      renderAll();
-    }
-
-    function scheduleNext() {
-      const r = DEMO.newAlertEverySec;
-      const next = (r.min + Math.random() * (r.max - r.min)) * 1000;
-      DEMO.timers.nextAlert = setTimeout(injectAlert, next);
-    }
-
-    /* Traveler movement — multi-leg itineraries.
-       Every travelerMoveEverySec, a random traveler advances one leg. */
-    const TRAVELER_LEGS = {
-      t1:  [ {city:'Singapore',     lat:1.3521,  lng:103.8198, type:'hotel',  atOffice:null},
-             {city:'Bengaluru',     lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, type:'office', atOffice:'BLR'},
-             {city:'Hong Kong',     lat:22.3193, lng:114.1694, type:'hotel',  atOffice:null} ],
-      t2:  [ {city:'Mexico City',   lat:19.4326, lng:-99.1332, type:'hotel',  atOffice:null},
-             {city:'San Francisco', lat:OFFICE_BY_ID.SFO.lat, lng:OFFICE_BY_ID.SFO.lng, type:'office', atOffice:'SFO'},
-             {city:'Austin',        lat:30.2672, lng:-97.7431, type:'hotel',  atOffice:null} ],
-      t3:  [ {city:'Dubai',         lat:25.2048, lng:55.2708,  type:'hotel',  atOffice:null},
-             {city:'London',        lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, type:'office', atOffice:'LON'},
-             {city:'Istanbul',      lat:41.0082, lng:28.9784,  type:'hotel',  atOffice:null} ],
-      t4:  [ {city:'Paris',         lat:48.8566, lng:2.3522,   type:'hotel',  atOffice:null},
-             {city:'Dublin',        lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, type:'office', atOffice:'DUB'},
-             {city:'Amsterdam',     lat:52.3676, lng:4.9041,   type:'hotel',  atOffice:null} ],
-      t5:  [ {city:'Seoul',         lat:37.5665, lng:126.978,  type:'hotel',  atOffice:null},
-             {city:'Tokyo',         lat:OFFICE_BY_ID.TYO.lat, lng:OFFICE_BY_ID.TYO.lng, type:'office', atOffice:'TYO'},
-             {city:'Taipei',        lat:25.0330, lng:121.5654, type:'hotel',  atOffice:null} ],
-      t8:  [ {city:'Berlin',        lat:52.52,   lng:13.405,   type:'hotel',  atOffice:null},
-             {city:'Bengaluru',     lat:OFFICE_BY_ID.BLR.lat, lng:OFFICE_BY_ID.BLR.lng, type:'office', atOffice:'BLR'},
-             {city:'Munich',        lat:48.1351, lng:11.5820,  type:'hotel',  atOffice:null} ],
-      t9:  [ {city:'JFK→LHR',       lat:30.0,    lng:-40.0,    type:'flight', atOffice:null},
-             {city:'London',        lat:OFFICE_BY_ID.LON.lat, lng:OFFICE_BY_ID.LON.lng, type:'office', atOffice:'LON'},
-             {city:'LHR→PDX',       lat:55.0,    lng:-50.0,    type:'flight', atOffice:null} ],
-      t12: [ {city:'Reykjavik',     lat:64.1466, lng:-21.9426, type:'hotel',  atOffice:null},
-             {city:'Dublin',        lat:OFFICE_BY_ID.DUB.lat, lng:OFFICE_BY_ID.DUB.lng, type:'office', atOffice:'DUB'},
-             {city:'Edinburgh',     lat:55.9533, lng:-3.1883,  type:'hotel',  atOffice:null} ],
-    };
-    const legCounters = {};
-
-    function moveTraveler() {
-      if (DEMO.paused) return;
-      const tids = Object.keys(TRAVELER_LEGS);
-      const tid = tids[Math.floor(Math.random() * tids.length)];
-      const legs = TRAVELER_LEGS[tid];
-      legCounters[tid] = ((legCounters[tid] || 0) + 1) % legs.length;
-      const leg = legs[legCounters[tid]];
-      const idx = TRAVELERS.findIndex(t => t.id === tid);
-      if (idx >= 0) {
-        const before = TRAVELERS[idx];
-        TRAVELERS[idx] = { ...before,
-          destCity: leg.city, lat: leg.lat, lng: leg.lng, type: leg.type, atOffice: leg.atOffice };
-        // Re-enrich active alerts so traveler-proximity badges refresh
-        ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
-        renderAll();
-        // Toast so the movement is visible to a watching operator
-        try { toast(`✈ ${before.name} → ${leg.city}`); } catch (_) {}
-      }
-    }
-
-    /* DEMO MODE badge — top-right, click to pause/resume */
-    function injectBadge() {
-      const b = document.createElement('div');
-      b.id = 'demo-badge';
-      b.style.cssText = [
-        'position:fixed', 'top:10px', 'right:14px', 'z-index:9999',
-        'background:#7a3aff', 'color:#fff', 'padding:5px 11px',
-        'border-radius:14px', 'font:11px/1.4 system-ui,-apple-system,sans-serif',
-        'cursor:pointer', 'opacity:0.92', 'box-shadow:0 2px 8px rgba(0,0,0,0.35)',
-        'user-select:none', 'letter-spacing:0.3px'
-      ].join(';');
-      b.textContent = '▶ DEMO MODE';
-      b.title = 'Cycling alerts and traveler movement. Click to pause/resume.';
-      b.addEventListener('click', () => {
-        DEMO.paused = !DEMO.paused;
-        b.textContent = DEMO.paused ? '⏸ DEMO PAUSED' : '▶ DEMO MODE';
-        b.style.background = DEMO.paused ? '#666' : '#7a3aff';
-      });
-      document.body.appendChild(b);
-    }
-
-    /* Boot */
-    // 0. Load mock people-data: office headcounts, travelers, remote employees,
-    //    plus ACLED risk rollups for the BCI Country Risk Profile panel.
-    //    All four surfaces (Travelers modal, ✈ proximity badges, BCI exposure
-    //    readout, office bubbles, alert cards, BCI risk profile) need this to
-    //    render with numbers. All four stay empty / undefined in live + bare
-    //    Pages mode and the UI shows "pending Workday/Navan/ACLED integration"
-    //    placeholders instead.
-    OFFICES.forEach(o => { o.headcount = OFFICE_HEADCOUNTS_MOCK[o.id]; });
-    // buildEmployees() ran on initial parse with no headcounts (returned []).
-    // Now that OFFICES.headcount is populated, rebuild the synthetic employee
-    // scatter so map dots / By-Office plotting / Office Manager view all populate.
-    EMPLOYEES = buildEmployees();
-    TRAVELERS = TRAVELERS_MOCK.slice();
-    ACLED_RISK = { ...ACLED_RISK_MOCK };
-    WHO_OUTBREAKS = WHO_OUTBREAKS_MOCK.slice();
-    REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
-    // 1. Enrich existing seed ALERTS so they pass the officeRelevantOnly filter
-    ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
-    renderAll();
-    // 2. Inject the badge
-    injectBadge();
-    // 3. Seed a few demo alerts in the first ~10s so the cycle is visible immediately
-    setTimeout(injectAlert, 1500);
-    setTimeout(injectAlert, 5000);
-    setTimeout(injectAlert, 9000);
-    // 4. Continuous cycling
-    scheduleNext();
-    setTimeout(moveTraveler, 8000);  // first traveler hop ~8s in so it's visible quickly
-    DEMO.timers.travMove = setInterval(moveTraveler, DEMO.travelerMoveEverySec * 1000);
-  })();
-}
-
-/* =========================================================================
-   23. SYNTHETIC TEST SCENARIOS — operator-triggered fixtures
-   -------------------------------------------------------------------------
-   Activates when the URL carries `#api=mock` (same gate as the demo cycler).
-   Adds a small launcher button that opens a modal with three preset
-   scenarios. Useful for validating the alert / Crisis Comm / Incident /
-   BCI flows end-to-end without waiting for real events.
-
-   Synthetic alerts are tagged with id prefix `test-` so the Clear button
-   can remove them in one shot without touching real or demo events
-   (which use `demo-` prefix). They flow through the same
-   enrichEventWithImpact + ALERTS + renderAll pipeline as everything else,
-   so the dashboard treats them identically.
-   ========================================================================= */
-if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
-  (function bootTestScenarios() {
-    function syntheticCount() {
-      return ALERTS.filter(a => String(a.id).startsWith('test-')).length;
-    }
-
-    /* Single top-center container that holds all three mock-mode pills:
-       Tests · Clear · DEMO MODE. Built lazily; we move the existing
-       demo-badge into it once both IIFEs have run. */
-    function ensurePillContainer() {
-      let c = document.getElementById('mock-pill-container');
-      if (c) return c;
-      c = document.createElement('div');
-      c.id = 'mock-pill-container';
-      c.style.cssText = [
-        'position:fixed', 'top:10px', 'left:50%', 'transform:translateX(-50%)',
-        'z-index:9999', 'display:flex', 'gap:8px', 'align-items:center',
-        'pointer-events:none',  // child elements override; lets clicks pass through gaps
-      ].join(';');
-      document.body.appendChild(c);
-      return c;
-    }
-
-    /* Common pill styling — only color/text varies per pill. */
-    function pillStyleBase(bg, fg) {
-      return [
-        `background:${bg}`, `color:${fg}`, 'padding:5px 11px',
-        'border-radius:14px', 'font:11px/1.4 system-ui,-apple-system,sans-serif',
-        'cursor:pointer', 'opacity:0.92', 'box-shadow:0 2px 8px rgba(0,0,0,0.35)',
-        'user-select:none', 'letter-spacing:0.3px', 'font-weight:700',
-        'pointer-events:auto',  // re-enable click handling on the pill itself
-      ].join(';');
-    }
-
-    function refreshClearPill() {
-      const existing = document.getElementById('test-clear-pill');
-      const n = syntheticCount();
-      if (n === 0) {
-        if (existing) existing.remove();
-        return;
-      }
-      if (existing) {
-        existing.textContent = `🧹 Clear ${n}`;
-        return;
-      }
-      const container = ensurePillContainer();
-      const p = document.createElement('div');
-      p.id = 'test-clear-pill';
-      p.style.cssText = pillStyleBase('#f87171', '#1a0808');
-      p.textContent = `🧹 Clear ${n}`;
-      p.title = 'Clear all synthetic test events';
-      p.addEventListener('click', clearSynthetic);
-      // Insert after Tests, before DEMO MODE (if both exist)
-      const launcher = document.getElementById('test-launcher');
-      if (launcher && launcher.parentNode === container) {
-        container.insertBefore(p, launcher.nextSibling);
-      } else {
-        container.appendChild(p);
-      }
-    }
-
-    function injectAndRender(alert) {
-      const enriched = enrichEventWithImpact(alert);
-      ALERTS = [enriched, ...ALERTS.filter(a => a.id !== alert.id)];
-      renderAll();
-      refreshClearPill();
-      try { toast(`🧪 Injected: ${alert.title}`); } catch (_) {}
-    }
-
-    // Scenario 1 — Office threat: M6.5 quake 28 km E of SFO
-    function fireOfficeThreat() {
-      const sfo = OFFICE_BY_ID.SFO;
-      injectAndRender({
-        id: 'test-office-' + Date.now(),
-        sev: 'ext',
-        type: 'Natural Disaster',
-        source: 'USGS',
-        officeId: 'SFO',
-        lat: sfo.lat + 0.05,           // ~5 km N
-        lng: sfo.lng + 0.30,           // ~25 km E (combined ~28 km)
-        radiusKm: 200,
-        title: 'M6.5 earthquake — 28 km E of San Francisco, depth 12 km',
-        summary: 'Strong shaking reported near Hayward fault. Initial reports of facade damage downtown. No tsunami advisory issued.',
-        issued: new Date().toISOString(),
-      });
-      App.closeModal();
-    }
-
-    // Scenario 2 — Traveler threat: civil unrest at a current non-office traveler's city
-    function fireTravelerThreat() {
-      const t = TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || TRAVELERS[0];
-      if (!t) {
-        try { toast('No traveler available for synthetic threat.'); } catch (_) {}
-        App.closeModal();
-        return;
-      }
-      injectAndRender({
-        id: 'test-traveler-' + Date.now(),
-        sev: 'high',
-        type: 'Civil Unrest',
-        source: 'ACLED',
-        officeId: null,
-        lat: t.lat,
-        lng: t.lng,
-        radiusKm: 5,
-        title: `Mass demonstration with confrontations — ${t.destCity}`,
-        summary: `Multiple injuries reported. Curfew possible in affected districts. Traveler ${t.name} flagged within proximity radius.`,
-        issued: new Date().toISOString(),
-      });
-      App.closeModal();
-    }
-
-    // Scenario 3 — BCI declaration: pre-fill the existing BCI modal for a Japan quake
-    function fireBciScenario() {
-      App.closeModal();
-      Object.assign(BCP_FORM, {
-        eventTypeId: 'quake',
-        title: 'M7.4 earthquake — Tohoku coast, Japan',
-        countries: ['Japan'],
-        useFence: false,
-        templateId: 'bc_announce',
-        customMessage: '',
-        acknowledged: false,
-      });
-      showBCPModal(true);   // preserve=true so our pre-fill isn't wiped
-      try { toast('🚨 BCI pre-filled — review and Declare'); } catch (_) {}
-    }
-
-    // Clear all synthetic events (does not touch demo or real events).
-    // Callable from either the in-modal Clear button or the floating pill.
-    function clearSynthetic() {
-      const before = ALERTS.length;
-      ALERTS = ALERTS.filter(a => !String(a.id).startsWith('test-'));
-      const removed = before - ALERTS.length;
-      renderAll();
-      refreshClearPill();
-      App.closeModal();   // idempotent — fine when called from the floating pill
-      try { toast(`🧹 Cleared ${removed} synthetic event${removed === 1 ? '' : 's'}`); } catch (_) {}
-    }
-
-    function openTestModal() {
-      const t = TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || TRAVELERS[0];
-      const travelerLabel = t ? `${t.destCity} (${t.name})` : 'no traveler available';
-      const html = `<div style="width:min(560px,92vw);">
-        <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
-          <div style="font-size:15px;font-weight:700;">🧪 Synthetic Test Scenarios</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Mock-mode only. Each scenario injects a tagged event you can clear in one click.</div>
-        </div>
-        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
-          <button class="btn-ghost" id="test-office-btn" style="text-align:left;padding:10px 12px;">
-            <div style="font-weight:600;">🏢 Office threat — M6.5 near SFO</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Validates Extreme alert card, status-strip wash, impact badges, Crisis Comm pre-fill.</div>
-          </button>
-          <button class="btn-ghost" id="test-traveler-btn" style="text-align:left;padding:10px 12px;">
-            <div style="font-weight:600;">✈ Traveler threat — civil unrest at ${esc(travelerLabel)}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Validates traveler-proximity badge and Crisis Comm traveler context. Picks the first non-office traveler at injection time.</div>
-          </button>
-          <button class="btn-ghost" id="test-bci-btn" style="text-align:left;padding:10px 12px;">
-            <div style="font-weight:600;">🚨 BCI declaration — Tohoku M7.4 earthquake (Japan)</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px;">Pre-fills the BCI modal. Validates exposure readout (TYO + travelers + remote employees in Japan).</div>
-          </button>
-        </div>
-        <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;">
-          <button class="btn-ghost" id="test-clear-btn" style="font-size:11px;">🧹 Clear synthetic events</button>
-          <button class="btn-ghost" onclick="App.closeModal()">Close</button>
-        </div>
-      </div>`;
-      showModal(html);
-      document.getElementById('test-office-btn').onclick   = fireOfficeThreat;
-      document.getElementById('test-traveler-btn').onclick = fireTravelerThreat;
-      document.getElementById('test-bci-btn').onclick      = fireBciScenario;
-      document.getElementById('test-clear-btn').onclick    = clearSynthetic;
-    }
-
-    /* Launcher pill — first slot in the shared top-center container. We also
-       move the demo simulator's badge into the container here (it was
-       absolute-positioned by its own IIFE; we strip those styles and
-       re-flow it as a flex child so the three pills line up cleanly). */
-    function injectLauncher() {
-      const container = ensurePillContainer();
-
-      // Tests pill
-      const b = document.createElement('div');
-      b.id = 'test-launcher';
-      b.style.cssText = pillStyleBase('#06b6d4', '#062c34');
-      b.textContent = '🧪 Tests';
-      b.title = 'Synthetic test scenarios — Office / Traveler / BCI';
-      b.addEventListener('click', openTestModal);
-      container.appendChild(b);
-
-      // Adopt the DEMO MODE badge: strip its position:fixed/top/right and
-      // make it a flex child so it sits next to the Tests pill.
-      const demoBadge = document.getElementById('demo-badge');
-      if (demoBadge) {
-        demoBadge.style.position = 'static';
-        demoBadge.style.top = '';
-        demoBadge.style.right = '';
-        demoBadge.style.pointerEvents = 'auto';
-        container.appendChild(demoBadge);  // re-append moves it to end
-      }
-    }
-
-    injectLauncher();
-  })();
-}
+bootDemoMode();
+bootTestScenarios();

@@ -128,3 +128,22 @@ Object.assign(window, render);
    helpers that didn't fit any other module cleanly. */
 import * as modals from './modals.js';
 Object.assign(window, modals);
+
+/* Step 10: bridge incident state-mutation helpers — createIncident,
+   buildResponseShells, reopenIncident, addIncidentLog. They sit at the
+   seam between render code (which triggers them via state changes) and
+   persistence + API (which they call for fire-and-forget round-trips).
+   Pulled into their own module in cleanup #3 (2026-06-19) — they didn't
+   fit cleanly under helpers/api/render/modals when those landed. */
+import * as incidents from './incidents.js';
+Object.assign(window, incidents);
+
+/* Step 11: bridge demo mode + synthetic test scenarios. Cleanup #4
+   (2026-06-19) replaced the two inline IIFEs in legacy-app.js with calls
+   to bootDemoMode() and bootTestScenarios() — both gated internally on
+   `#api=mock`, so they no-op in live mode. legacy-app.js's tail boot
+   trigger calls them; we just need the functions on window. demo.js was
+   created as a shadow module in session 1 step 4 and stayed in sync with
+   the inline IIFEs until this cleanup made it the live source. */
+import * as demo from './demo.js';
+Object.assign(window, demo);
