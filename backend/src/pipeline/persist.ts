@@ -54,10 +54,33 @@ export async function persistBatch(
     }
   }
 
+  // Defensive guard: drop any event still at (0, 0) after geocoding. Without
+  // this, unresolved events plot at Null Island in the Gulf of Guinea — see
+  // the 2026-06-24 MeteoAlarm Ortenaukreis incident. The geocode.unresolved
+  // warn above tells operators that resolution failed; better to drop than
+  // to plot at a misleading location. Counted as `skipped` so it shows up
+  // in the per-poll stats.
+  const persistable = items.filter(item => {
+    const n = item.normalized;
+    if (n.lat === 0 && n.lng === 0) {
+      stats.skipped++;
+      log.warn(
+        { source: sourceId, id: item.sourceEventId, loc: n.location },
+        'persist.dropped.null_island',
+      );
+      return false;
+    }
+    return true;
+  });
+
+  if (persistable.length === 0) {
+    return stats;
+  }
+
   const publishQueue: unknown[] = [];
 
   await withTx(async (client) => {
-    for (const item of items) {
+    for (const item of persistable) {
       const n = item.normalized;
       // --- 1. Upsert raw_events ---
       const rawRes = await client.query<{ id: number }>(

@@ -57,6 +57,29 @@ const COUNTRY_SLUGS = [
   'switzerland',
 ] as const;
 
+type CountrySlug = typeof COUNTRY_SLUGS[number];
+
+/**
+ * Human-readable country names for the location field. MeteoAlarm's
+ * cap:areaDesc is just the regional name (e.g. "Ortenaukreis", "Litoral
+ * cántabro") — Nominatim can't reliably geocode those without country
+ * context, and the persist pipeline ends up caching a NULL/NULL miss
+ * which then plots every event at Null Island in the Gulf of Guinea
+ * (this happened 2026-06-24 with the German Ortenaukreis warning).
+ *
+ * Appending the country name turns "Ortenaukreis" into "Ortenaukreis,
+ * Germany" — Nominatim resolves that cleanly to (48.5°N, 7.8°E).
+ */
+const COUNTRY_NAMES: Record<CountrySlug, string> = {
+  spain:        'Spain',
+  ireland:      'Ireland',
+  germany:      'Germany',
+  france:       'France',
+  italy:        'Italy',
+  netherlands:  'Netherlands',
+  switzerland:  'Switzerland',
+};
+
 const FEED_URL_BASE = 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-';
 
 const xml = new XMLParser({
@@ -100,7 +123,12 @@ function firstLink(entry: AtomEntry): string | null {
  * Errors are logged + swallowed at the country level so one bad country
  * (404, 5xx) doesn't kill the whole poll.
  */
-async function fetchCountry(slug: string): Promise<AtomEntry[]> {
+interface AtomEntryWithCountry extends AtomEntry {
+  /** Injected by fetchCountry so the normalize step can build a geocoder-friendly location string. */
+  _countrySlug: CountrySlug;
+}
+
+async function fetchCountry(slug: CountrySlug): Promise<AtomEntryWithCountry[]> {
   const url = `${FEED_URL_BASE}${slug}`;
   try {
     // No explicit Accept header — MeteoAlarm's content negotiation rejects
@@ -121,7 +149,8 @@ async function fetchCountry(slug: string): Promise<AtomEntry[]> {
     const text = await resp.text();
     const parsed = xml.parse(text) as AtomFeed;
     const entries = parsed.feed?.entry;
-    return Array.isArray(entries) ? entries : entries ? [entries] : [];
+    const arr = Array.isArray(entries) ? entries : entries ? [entries] : [];
+    return arr.map(e => ({ ...e, _countrySlug: slug }));
   } catch (err) {
     log.warn({ country: slug, err: (err as Error).message }, 'meteoalarm.country.error');
     return [];
@@ -142,7 +171,7 @@ export const meteoalarmAdapter: SourceAdapter = {
     // Dedupe by cap:identifier (or fall back to entry id) in case the same
     // warning surfaces in multiple country feeds at a border region.
     const seen = new Set<string>();
-    const list: AtomEntry[] = [];
+    const list: AtomEntryWithCountry[] = [];
     for (const e of allEntries) {
       const key = e['cap:identifier'] || e.id;
       if (!key || seen.has(key)) continue;
@@ -169,6 +198,12 @@ export const meteoalarmAdapter: SourceAdapter = {
 
       const area = e['cap:areaDesc'] || e.title || '';
       const eventName = e['cap:event'] || 'Weather warning';
+      const countryName = COUNTRY_NAMES[e._countrySlug];
+
+      // Geocoder-friendly location: "Ortenaukreis, Germany" not bare "Ortenaukreis".
+      // See COUNTRY_NAMES docblock above — Nominatim caches a NULL/NULL miss
+      // for bare regional names, which then plots every event at Null Island.
+      const locationForGeocode = area ? `${area}, ${countryName}` : countryName;
 
       const normalized: NormalizedEvent = {
         sourceEventId: e['cap:identifier'] || e.id,
@@ -178,7 +213,7 @@ export const meteoalarmAdapter: SourceAdapter = {
         severity: verdict.severity!,
         category: 'natural',
         type: eventName.toLowerCase().replace(/\s+/g, '_'),
-        location: area,
+        location: locationForGeocode,
         lat: 0,                                     // resolved by geocoder
         lng: 0,
         radiusKm: 80,                               // typical regional warning radius
