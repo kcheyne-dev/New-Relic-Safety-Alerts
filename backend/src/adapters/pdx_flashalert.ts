@@ -5,25 +5,60 @@ import { log } from '../log.js';
 /**
  * Portland / Oregon FlashAlert Network.
  *
+ * STATUS (2026-06-20): DEAD AS A DATA SOURCE. Adapter retained for
+ * historical context + in case FlashAlert ever re-exposes RSS. Keep
+ * PDX_FLASHALERT_DISABLED=true in `.env` — do not flip without
+ * verifying the URL+format situation has changed.
+ *
  * Endpoint: https://www.flashalert.net/news.xml
  * Auth:     none
- * Format:   RSS 2.0 XML
+ * Format:   RSS 2.0 XML (legacy — see status below)
  *
  * URL HISTORY:
  *   - flashalert.net/api/messages.xml — 404 (deprecated)
- *   - flashalertportland.net/news.xml — DNS lookup failed (subdomain doesn't exist)
- *   - flashalert.net/news.xml — current best guess; this is FlashAlert's
- *     longstanding general feed path
+ *   - flashalertportland.net/news.xml — DNS lookup failed (subdomain gone)
+ *   - flashalert.net/news.xml — 404 since 2026-06-11
  *
- * Since flashalert.net/news.xml is the general-network feed (covers all of
- * OR/WA/ID), we filter by org name to Portland-area only.
+ * INVESTIGATION (2026-06-20): The flashalert.net homepage now serves a
+ * marketing page for "FlashAlert - Instant Press Releases & Emergency
+ * Alerts," a paid B2B SaaS for press-release distribution. Title text:
+ * "Send professional press releases and emergency alerts to media outlets
+ * and your community instantly." The "community" referenced is the
+ * OUTBOUND distribution list (recipients), not data consumers. They have
+ * zero commercial incentive to expose free public RSS — the entire
+ * business model now gates that data behind paid distribution.
  *
- * If this still 404s, FlashAlert may have removed RSS entirely. Disable
- * with PDX_FLASHALERT_DISABLED=true in .env until a working URL is found.
+ * Conclusion: the free public RSS feed this adapter was built against
+ * has been retired in favor of a paid platform. No replacement URL exists
+ * because the data isn't being made public anymore. The adapter is dead
+ * not because we have the URL wrong — because the SOURCE no longer
+ * exists in the shape we need.
  *
- * Severity inferred from message keywords. The Portland office (PDX) lat/lng
- * is hard-coded as the location since most messages are agency-level (not
- * incident-level) and don't carry coordinates.
+ * WHAT TO DO INSTEAD:
+ *
+ *   - Short-term: leave the adapter disabled. PDX office covered by NWS
+ *     (weather/CAP alerts) but lacks real-time police/fire/missing-person
+ *     coverage. Accept the gap.
+ *
+ *   - Long-term: replace with a paid feed (Factal recommended in the
+ *     2026-06-20 lens review — see docs/action-plan-2026-06-19.md +
+ *     docs/project-status-2026-06-19.md). Factal's analyst-curated
+ *     stream covers PDX as a side effect of covering everywhere else,
+ *     and crucially fills the real-time gap that no free source can.
+ *
+ *   - Avoided: scraping portland.gov / multco.us / OPB. These are all
+ *     possible but produce minutes-to-an-hour lag for a single-office
+ *     source, which is meaningful engineering effort for marginal value
+ *     once Factal lands. Not worth it.
+ *
+ * The code below remains structurally correct (parser, severity inference,
+ * geocoding to PDX office) so if FlashAlert ever returns a working RSS
+ * URL, only the FEED_URL constant + this docblock need updating. But
+ * that's a low-probability outcome — see 2026-06-20 investigation above.
+ *
+ * Severity inferred from message keywords. The Portland office (PDX)
+ * lat/lng is hard-coded as the location since most messages are
+ * agency-level (not incident-level) and don't carry coordinates.
  */
 
 const FEED_URL = 'https://www.flashalert.net/news.xml';
