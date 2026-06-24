@@ -1,4 +1,5 @@
 import type { Severity } from '../types.js';
+import { fromPoliceCategory } from './severity.js';
 
 /**
  * Per-source severity thresholds — turns raw feed signals into one of:
@@ -267,4 +268,67 @@ export function evaluateLondonTfl(opts: {
     return KEEP('high', `CMT keyword + TfL severity ${opts.statusSeverity} (Closure/Severe Delays)`);
   }
   return DROP(`TfL severity ${opts.statusSeverity} below CMT bar even with keyword`);
+}
+
+// ----------------------------------------------------------------------------
+// Police records feeds — historical-record sources, capped at 'mod'
+// ----------------------------------------------------------------------------
+
+/**
+ * SFPD (Socrata), ATL APD (ArcGIS COBRA), and PDX FlashAlert all publish
+ * AFTER-THE-FACT incident records. By the time an event lands in any of
+ * these feeds, the police call has been responded to, the scene has been
+ * processed, reports have been written and reviewed. The data is
+ * structurally historical, not real-time — typical lag is hours to a
+ * full day.
+ *
+ * For CMT use (Q1: extreme likelihood to affect office; Q2: traveler
+ * threat), an "aggravated assault 35 hours ago at an intersection 2 miles
+ * from the office" is not an active threat. It's context for "this
+ * neighborhood has elevated crime activity" but it doesn't drive
+ * office-relevant ext/high alerts or CMT mobilization.
+ *
+ * OPERATOR FEEDBACK (2026-06-20): three SFPD events near SFO surfaced
+ * as 'high' (two aggravated assaults + one weapons offense), all 35-39
+ * hours old. None met the bar. The category-based severity logic
+ * (`fromPoliceCategory`) was correct in spirit but operating on the
+ * wrong axis — it judged "how serious is this CRIME?" rather than
+ * "how active is this THREAT?". A 35-hour-old assault is a closed
+ * case, not a CMT mobilization trigger.
+ *
+ * DECISION (Option B from the 2026-06-20 lens-review discussion):
+ * cap police-records feeds at 'mod'. Events still surface for context
+ * — a geo-fence around an office will still show recent armed incidents
+ * as situational awareness — but they don't drive default office-relevant
+ * filtering, don't fire the status-strip extreme wash, and don't read as
+ * "CMT mobilize." Non-armed/non-threat categories (drug, burglary,
+ * disturbance, trespass) continue to drop entirely, preserving the
+ * 2026-06-15 cleanup.
+ *
+ * The right replacement for real-time security incident detection is a
+ * paid feed (Factal recommended in the 2026-06-20 review) — see
+ * docs/action-plan-2026-06-19.md and project-status-2026-06-19.md.
+ * Until then, police records remain as context-only.
+ *
+ * SCOPE: applies to sf_police and atl_apd — both after-the-fact
+ * police-records feeds using `fromPoliceCategory`.
+ *
+ * NOT applied to pdx_flashalert: structurally different (emergency
+ * notifications from agencies, keyword-based severity inference, more
+ * real-time than police records). Currently disabled on URL-404 anyway.
+ * When/if revived, it needs its own evaluator (likely a keyword gate
+ * similar to evaluateLondonTfl), not this demotion.
+ */
+export function evaluatePoliceRecordsFeed(opts: {
+  categoryText: string;
+}): ThresholdOutcome {
+  const sev = fromPoliceCategory(opts.categoryText);
+  if (sev === 'low') {
+    return DROP('non-armed/non-threat police category (drug/burglary/etc.)');
+  }
+  // sev is 'ext' or 'high' from fromPoliceCategory's category match.
+  // Demote uniformly to 'mod' because the source is historical-records,
+  // not real-time-threat. The reason field preserves what fromPoliceCategory
+  // would have returned for audit / future-tuning context.
+  return KEEP('mod', `police records category → ${sev} → demoted to mod (historical source, not real-time)`);
 }

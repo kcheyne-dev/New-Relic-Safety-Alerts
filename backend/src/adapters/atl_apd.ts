@@ -1,5 +1,5 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
-import { fromPoliceCategory } from '../pipeline/severity.js';
+import { evaluatePoliceRecordsFeed } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -86,8 +86,12 @@ export const atlApdAdapter: SourceAdapter = {
       if (approxDistanceMeters(lat, lng, ATL_LAT, ATL_LNG) > RADIUS_METERS) continue;
 
       const cat = a.UCR_Literal ?? a.UC2_Literal ?? 'Unknown';
-      const sev = fromPoliceCategory(cat);
-      if (sev === 'low') continue;
+      // Police records feed is historical, not real-time — evaluator demotes
+      // ext/high → mod, drops non-armed/non-threat categories. See
+      // pipeline/thresholds.ts → evaluatePoliceRecordsFeed for rationale.
+      const verdict = evaluatePoliceRecordsFeed({ categoryText: cat });
+      if (!verdict.pass) continue;
+      const sev = verdict.severity!;
 
       const id = String(a.offense_id ?? a.OBJECTID ?? `${a.rpt_date}-${lat}-${lng}`);
       const title = `${cat} (APD)`;

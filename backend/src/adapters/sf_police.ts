@@ -1,5 +1,5 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
-import { fromPoliceCategory } from '../pipeline/severity.js';
+import { evaluatePoliceRecordsFeed } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -79,6 +79,7 @@ export const sfPoliceAdapter: SourceAdapter = {
     log.debug({ count: data.length }, 'sf_police.fetched');
 
     const items: RawAndNormalized[] = [];
+    let droppedCategory = 0;
     for (const r of data) {
       if (!r.latitude || !r.longitude || !r.incident_datetime) continue;
       const lat = Number(r.latitude);
@@ -86,9 +87,17 @@ export const sfPoliceAdapter: SourceAdapter = {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
       const cat = r.incident_category ?? 'Unknown';
-      const sev = fromPoliceCategory(cat + ' ' + (r.incident_subcategory ?? ''));
-      // We only emit Moderate+ to keep the dashboard signal-heavy
-      if (sev === 'low') continue;
+      // Police records feed is historical, not real-time — evaluator demotes
+      // ext/high → mod, drops non-armed/non-threat categories. See
+      // pipeline/thresholds.ts → evaluatePoliceRecordsFeed for rationale.
+      const verdict = evaluatePoliceRecordsFeed({
+        categoryText: cat + ' ' + (r.incident_subcategory ?? ''),
+      });
+      if (!verdict.pass) {
+        droppedCategory++;
+        continue;
+      }
+      const sev = verdict.severity!;
 
       const id = r.incident_id ?? r.incident_number ?? `${r.incident_datetime}-${lat}-${lng}`;
       const title = `${cat}${r.incident_subcategory ? ` — ${r.incident_subcategory}` : ''} (SFPD)`;
@@ -127,6 +136,7 @@ export const sfPoliceAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: id, payload: r, normalized });
     }
+    log.info({ kept: items.length, droppedCategory }, 'sf_police.filtered');
     return items;
   },
 };
