@@ -219,3 +219,52 @@ export function evaluateMeteoAlarm(opts: { capSeverity: string | undefined; titl
   if (c.includes('orange')) return KEEP('high', 'MeteoAlarm Orange');
   return DROP(`MeteoAlarm ${opts.capSeverity ?? opts.titleColor} — below Orange`);
 }
+
+// ----------------------------------------------------------------------------
+// London TfL — keyword-gated, CMT-grade only
+// ----------------------------------------------------------------------------
+
+/**
+ * TfL's status feed is a commuter-information service. The whole 1-20 scale
+ * is "service health," not "is this dangerous." A Tube line being Suspended
+ * routinely means a signal failure or leaves-on-the-line — annoying for the
+ * commute, but not a CMT concern.
+ *
+ * CMT bar (per docs/project-review-2026-06-16.md): events with extreme
+ * likelihood to affect an office (Q1), a traveler (Q2), or a large-population
+ * scale event (Q3). Routine transit disruptions don't meet any of these.
+ *
+ * Tuning: drop at ingest unless the `reason` or `statusSeverityDescription`
+ * text contains an incident keyword (police, fire, evacuation, etc.). For
+ * matched events, apply the original 1-3=ext / 4-6=high severity mapping.
+ *
+ * Trade-off: we'll miss coordinated multi-line outages that don't have
+ * keyword markers (e.g., a power-grid failure shutting the whole network).
+ * Those would surface from other sources (news, BBC) anyway, and TfL itself
+ * can't distinguish "power failure" from "fire incident" without the text
+ * cue. False negatives are acceptable; the alternative is a flood of
+ * routine commute-information noise that operators learn to dismiss.
+ *
+ * Spec: docs/severity-thresholds.md#london_tfl (TODO — add when next touched).
+ */
+export const TFL_CMT_KEYWORDS = /\b(police|fire|evacuat\w*|emergency|suspicious|incident|security|casualt\w*|fatal\w*|explos\w*|attack|terror\w*|hostile|lockdown|crime|stab\w*|shoot\w*|riot\w*|protest\w*|bomb)\b/i;
+
+export function evaluateLondonTfl(opts: {
+  statusSeverity: number;
+  reason: string;
+  description: string;
+}): ThresholdOutcome {
+  const haystack = `${opts.reason} ${opts.description}`.trim();
+  if (!haystack) return DROP('TfL event with no reason/description text');
+  if (!TFL_CMT_KEYWORDS.test(haystack)) {
+    return DROP(`no CMT incident keyword in: "${haystack.slice(0, 80)}${haystack.length > 80 ? '…' : ''}"`);
+  }
+  // Keyword matched — apply original severity mapping.
+  if (opts.statusSeverity >= 1 && opts.statusSeverity <= 3) {
+    return KEEP('ext',  `CMT keyword + TfL severity ${opts.statusSeverity} (Closed/Suspended)`);
+  }
+  if (opts.statusSeverity >= 4 && opts.statusSeverity <= 6) {
+    return KEEP('high', `CMT keyword + TfL severity ${opts.statusSeverity} (Closure/Severe Delays)`);
+  }
+  return DROP(`TfL severity ${opts.statusSeverity} below CMT bar even with keyword`);
+}

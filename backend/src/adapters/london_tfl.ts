@@ -1,5 +1,5 @@
 import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
-import { fromTflStatusSeverity } from '../pipeline/severity.js';
+import { evaluateLondonTfl } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
@@ -14,11 +14,22 @@ import { log } from '../log.js';
  * actionable signal for an office dashboard, and TfL's older `tflrail` mode
  * was renamed to `elizabeth-line` (sending the old name produces HTTP 400).
  *
- * TfL uses a 1-20 statusSeverity scale (lower = worse). We map:
- *   ≤3   → ext   (severe disruption)
- *   ≤9   → high  (major disruption)
- *   ≤19  → mod   (minor disruption)
- *   20   → low   (good service — filtered out)
+ * CMT-RELEVANCE BAR (2026-06-20, after operational tuning):
+ *
+ *   TfL's 1-20 scale measures service health, not danger. Routine signal
+ *   failures + leaves-on-the-line easily clear severity 6 ("Severe Delays")
+ *   without any real CMT relevance. Operator feedback on 2026-06-20 was
+ *   that LON's alert feed was being flooded with these.
+ *
+ *   New gate: drop at ingest unless `reason` or `statusSeverityDescription`
+ *   contains a CMT incident keyword (police / fire / evacuation / etc.).
+ *   For matched events, severity follows the original mapping:
+ *     1-3 (Closed/Suspended/Part Suspended)        → ext
+ *     4-6 (Planned Closure / Severe Delays)        → high
+ *
+ *   See `evaluateLondonTfl` in pipeline/thresholds.ts for the keyword regex
+ *   and the full rationale. Drop reasons are logged at debug level so we
+ *   can audit the cut later.
  *
  * Disruptions are emitted as events anchored to the LON office coordinates.
  * For a real product we'd plot the actual disrupted segment polyline; for a
@@ -66,6 +77,8 @@ export const londonTflAdapter: SourceAdapter = {
 
     const items: RawAndNormalized[] = [];
     const now = Date.now();
+    let droppedNoKeyword = 0;
+    let droppedSeverity  = 0;
     for (const line of data) {
       const statuses = line.lineStatuses ?? [];
       // Pick the worst (lowest severity number = worst)
@@ -73,8 +86,23 @@ export const londonTflAdapter: SourceAdapter = {
         .filter((s) => typeof s.statusSeverity === 'number')
         .sort((a, b) => (a.statusSeverity! - b.statusSeverity!))[0];
       if (!worst) continue;
-      const sev = fromTflStatusSeverity(worst.statusSeverity!);
-      if (sev === 'low') continue;                    // good service: skip
+
+      // CMT-relevance gate: drop unless reason/description contains an
+      // incident keyword. See evaluateLondonTfl for the rationale and the
+      // keyword regex. Severity is also computed here for matched events.
+      const verdict = evaluateLondonTfl({
+        statusSeverity: worst.statusSeverity!,
+        reason:         worst.reason ?? '',
+        description:    worst.statusSeverityDescription ?? '',
+      });
+      if (!verdict.pass) {
+        if (/keyword/.test(verdict.reason)) droppedNoKeyword++;
+        else                                droppedSeverity++;
+        log.debug({ lineId: line.id, statusSeverity: worst.statusSeverity, reason: verdict.reason },
+                  'london_tfl.dropped');
+        continue;
+      }
+      const sev = verdict.severity!;
 
       // Filter to currently-active disruptions
       const active = (worst.validityPeriods ?? []).find((p) => p.isNow) ??
@@ -103,6 +131,10 @@ export const londonTflAdapter: SourceAdapter = {
       };
       items.push({ sourceEventId: id, payload: line, normalized });
     }
+    log.info(
+      { kept: items.length, droppedNoKeyword, droppedSeverity },
+      'london_tfl.filtered',
+    );
     return items;
   },
 };
