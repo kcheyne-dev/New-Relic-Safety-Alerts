@@ -4,30 +4,61 @@ import { evaluateMeteoAlarm } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
- * MeteoAlarm — European weather warnings (per-country Atom feeds aggregated
- * to a Europe-wide entry list).
+ * MeteoAlarm — European weather warnings (per-country Atom + CAP 1.2).
  *
- * Endpoint: https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-europe
- * Auth:     none
- * Format:   Atom XML
+ * STATUS (2026-06-24, after URL-shape investigation): LIVE again after
+ * being disabled 2026-06-11 on URL-404/406. The europe-wide aggregate
+ * endpoint is permanently gone, but per-country legacy Atom feeds are
+ * alive, fresh, and unchanged in shape. We fetch per-country in parallel
+ * and union the results.
  *
- * MeteoAlarm has gone through several API redesigns. The previous endpoints
- * returned 404 or 406:
- *   - feeds.meteoalarm.org/api/v1/warnings/feeds-europe (404 — deprecated)
- *   - With XML Accept headers (406 — JSON-only on that path)
- * The legacy Atom endpoint above is the most stable for read-only consumers.
+ * URL HISTORY:
+ *   2026-06-11  feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-europe → 404
+ *   2026-06-24  Investigation confirmed (a) europe-wide is permanently
+ *               retired, (b) per-country legacy paths are alive with
+ *               the same Atom+CAP1.2 schema, (c) the modern
+ *               hub.meteoalarm.org/api/v1 CAP10 endpoint advertised in
+ *               meteoalarm.org's homepage HTML returns 404 in practice.
+ *               Net: per-country is the working answer.
  *
- * Severity colors map to:
- *   green  → low      (no awareness needed; we keep these out by default)
- *   yellow → mod
+ * COUNTRIES FETCHED: see COUNTRY_SLUGS below. Covers our two EMEA offices
+ * (BCN=Spain, DUB=Ireland) plus COUNTRY_PRESENCE entries with active or
+ * likely traveler exposure (Germany, France, Italy, Netherlands,
+ * Switzerland). UK is not in MeteoAlarm — the Met Office runs its own
+ * warning system and pulled UK out of the MeteoAlarm feed. LON weather
+ * warnings need a separate UK Met Office adapter (queued in
+ * docs/action-plan-2026-06-19.md) or defer to Factal.
+ *
+ * LICENSE: each feed entry is CC BY 4.0, with additional requirements
+ * for redistributing described in MeteoAlarm's Terms and Conditions.
+ * Author tag `meteoalarm.org` is preserved on each event via the
+ * sourceUrl + dashboard rendering. Internal CMT use only; no public
+ * redistribution implied by the dashboard's bare GitHub Pages deploy
+ * (which serves mock data, not live MeteoAlarm content).
+ *
+ * Severity mapping (in pipeline/thresholds.ts → evaluateMeteoAlarm):
+ *   green  → low      (no awareness needed; filtered out)
+ *   yellow → mod      (filtered out by default in feed)
  *   orange → high
  *   red    → ext
  *
- * MeteoAlarm doesn't publish lat/lng — only place/area names. We rely on the
- * geocoding layer to resolve them.
+ * MeteoAlarm doesn't publish lat/lng — only place/area names. We rely
+ * on the geocoding layer to resolve them.
  */
 
-const FEED_URL = 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-europe';
+const COUNTRY_SLUGS = [
+  'spain',         // BCN office
+  'ireland',       // DUB office
+  // COUNTRY_PRESENCE entries with likely traveler exposure:
+  'germany',
+  'france',
+  'italy',
+  'netherlands',
+  'switzerland',
+] as const;
+
+const FEED_URL_BASE = 'https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-';
+
 const xml = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -43,6 +74,7 @@ interface AtomEntry {
   'cap:areaDesc'?: string;
   'cap:event'?: string;
   'cap:severity'?: string;
+  'cap:identifier'?: string;
   'cap:onset'?: string;
   'cap:expires'?: string;
   'cap:effective'?: string;
@@ -63,52 +95,65 @@ function firstLink(entry: AtomEntry): string | null {
   return l['@_href'] ?? null;
 }
 
+/**
+ * Fetch one country's Atom feed. Returns its entry list (possibly empty).
+ * Errors are logged + swallowed at the country level so one bad country
+ * (404, 5xx) doesn't kill the whole poll.
+ */
+async function fetchCountry(slug: string): Promise<AtomEntry[]> {
+  const url = `${FEED_URL_BASE}${slug}`;
+  try {
+    // No explicit Accept header — MeteoAlarm's content negotiation rejects
+    // specific XML Accept values with 406 even though the per-country path
+    // serves Atom+CAP1.2. Node's fetch sends `Accept: */*` by default which
+    // is what curl's default sends, and what we tested working on 2026-06-24.
+    // User-Agent is kept; MeteoAlarm tolerates any UA but having one
+    // identifies us in their logs.
+    const resp = await globalThis.fetch(url, {
+      headers: {
+        'User-Agent': 'nr-safety-alerts/0.1',
+      },
+    });
+    if (!resp.ok) {
+      log.warn({ country: slug, status: resp.status }, 'meteoalarm.country.failed');
+      return [];
+    }
+    const text = await resp.text();
+    const parsed = xml.parse(text) as AtomFeed;
+    const entries = parsed.feed?.entry;
+    return Array.isArray(entries) ? entries : entries ? [entries] : [];
+  } catch (err) {
+    log.warn({ country: slug, err: (err as Error).message }, 'meteoalarm.country.error');
+    return [];
+  }
+}
+
 export const meteoalarmAdapter: SourceAdapter = {
   id: 'meteoalarm',
   name: 'MeteoAlarm — European weather warnings',
   intervalSeconds: 900,
 
   async fetch(): Promise<RawAndNormalized[]> {
-    const resp = await globalThis.fetch(FEED_URL, {
-      headers: {
-        'User-Agent': 'nr-safety-alerts/0.1',
-        Accept: 'application/atom+xml,application/xml,text/xml,application/json,*/*',
-      },
-    });
-    if (!resp.ok) throw new Error(`MeteoAlarm feed returned HTTP ${resp.status}`);
+    // Parallel per-country fetches. Promise.all with the per-country swallow
+    // means the slowest country sets the cycle time, ~3-8s typically.
+    const perCountry = await Promise.all(COUNTRY_SLUGS.map(fetchCountry));
+    const allEntries = perCountry.flat();
 
-    // Handle both XML (legacy Atom feed) and JSON (newer v1 API) responses.
-    const ct = resp.headers.get('content-type') || '';
-    let list: AtomEntry[] = [];
-    if (ct.includes('json')) {
-      const json = await resp.json() as { warnings?: any[] };
-      const warnings = Array.isArray(json?.warnings) ? json.warnings : [];
-      // Map JSON v1 schema → the AtomEntry-like shape the rest of this adapter expects.
-      // v1 entries have feedSource + code + country + info[] (per-language).
-      list = warnings.flatMap((w: any) => {
-        const en = (Array.isArray(w?.info) ? w.info : []).find((i: any) => i?.language === 'en') ?? w?.info?.[0];
-        if (!en) return [];
-        return [{
-          id:               w.identifier ?? `${w.feedSource ?? 'meteoalarm'}-${w.code ?? Math.random().toString(36)}`,
-          title:            en.event ?? '',
-          summary:          en.description ?? en.headline ?? '',
-          updated:          w.sent ?? en.effective ?? '',
-          link:             en.web ? { '@_href': en.web } : undefined,
-          'cap:areaDesc':   Array.isArray(en.area) ? en.area.map((a: any) => a.areaDesc).filter(Boolean).join(', ') : (en.area?.areaDesc ?? ''),
-          'cap:event':      en.event ?? '',
-          'cap:severity':   en.severity ?? '',
-          'cap:onset':      en.onset ?? '',
-          'cap:expires':    en.expires ?? '',
-          'cap:effective':  en.effective ?? '',
-        }];
-      });
-    } else {
-      const text = await resp.text();
-      const parsed = xml.parse(text) as AtomFeed;
-      const entries = parsed.feed?.entry;
-      list = Array.isArray(entries) ? entries : entries ? [entries] : [];
+    // Dedupe by cap:identifier (or fall back to entry id) in case the same
+    // warning surfaces in multiple country feeds at a border region.
+    const seen = new Set<string>();
+    const list: AtomEntry[] = [];
+    for (const e of allEntries) {
+      const key = e['cap:identifier'] || e.id;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      list.push(e);
     }
-    log.debug({ count: list.length, format: ct.includes('json') ? 'json' : 'xml' }, 'meteoalarm.fetched');
+
+    log.debug(
+      { countries: COUNTRY_SLUGS.length, totalEntries: allEntries.length, deduped: list.length },
+      'meteoalarm.fetched',
+    );
 
     const items: RawAndNormalized[] = [];
     let droppedThreshold = 0;
@@ -126,7 +171,7 @@ export const meteoalarmAdapter: SourceAdapter = {
       const eventName = e['cap:event'] || 'Weather warning';
 
       const normalized: NormalizedEvent = {
-        sourceEventId: e.id,
+        sourceEventId: e['cap:identifier'] || e.id,
         primarySourceId: 'meteoalarm',
         title: `${eventName} — ${area}`,
         summary: (e.summary || `${eventName} active for ${area}`).replace(/<[^>]+>/g, '').slice(0, 1000),
@@ -141,9 +186,12 @@ export const meteoalarmAdapter: SourceAdapter = {
         expiresAt: e['cap:expires'] ? new Date(e['cap:expires']) : null,
         sourceUrl: firstLink(e),
       };
-      items.push({ sourceEventId: e.id, payload: e, normalized });
+      items.push({ sourceEventId: normalized.sourceEventId, payload: e, normalized });
     }
-    log.debug({ kept: items.length, droppedThreshold, totalSeen: list.length }, 'meteoalarm.filtered');
+    log.info(
+      { kept: items.length, droppedThreshold, totalSeen: list.length, countries: COUNTRY_SLUGS.length },
+      'meteoalarm.filtered',
+    );
     return items;
   },
 };
