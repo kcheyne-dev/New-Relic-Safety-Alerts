@@ -236,19 +236,27 @@ export function evaluateMeteoAlarm(opts: { capSeverity: string | undefined; titl
  * scale event (Q3). Routine transit disruptions don't meet any of these.
  *
  * Tuning: drop at ingest unless the `reason` or `statusSeverityDescription`
- * text contains an incident keyword (police, fire, evacuation, etc.). For
- * matched events, apply the original 1-3=ext / 4-6=high severity mapping.
+ * text contains a CMT-grade incident keyword (police, fire, evacuation, etc.).
+ * For matched events, apply the original 1-3=ext / 4-6=high severity mapping.
  *
- * Trade-off: we'll miss coordinated multi-line outages that don't have
- * keyword markers (e.g., a power-grid failure shutting the whole network).
- * Those would surface from other sources (news, BBC) anyway, and TfL itself
- * can't distinguish "power failure" from "fire incident" without the text
- * cue. False negatives are acceptable; the alternative is a flood of
- * routine commute-information noise that operators learn to dismiss.
+ * 2026-06-29 tuning: removed bare "incident" from the regex. TfL uses
+ * "customer incident" as a euphemism for routine passenger-related issues
+ * (medical calls, trespassers, train faults), and that single word was
+ * matching ~all noise events through this gate. The remaining keywords
+ * are all specific enough to stand alone — TfL writes "police incident",
+ * "fire on track", "evacuation in progress" when it's actually real;
+ * those still match via the more specific word.
+ *
+ * Note: even with the keyword gate, matched events can still look
+ * "Direct" relative to the LON office because the adapter pins all
+ * TfL events to the LON office coordinates (see london_tfl.ts). A
+ * casualty event on a south-London Overground line shouldn't look
+ * Direct relative to a central-London office. The geometry fix lives
+ * in the adapter, not here — see LINE_CENTROIDS in london_tfl.ts.
  *
  * Spec: docs/severity-thresholds.md#london_tfl (TODO — add when next touched).
  */
-export const TFL_CMT_KEYWORDS = /\b(police|fire|evacuat\w*|emergency|suspicious|incident|security|casualt\w*|fatal\w*|explos\w*|attack|terror\w*|hostile|lockdown|crime|stab\w*|shoot\w*|riot\w*|protest\w*|bomb)\b/i;
+export const TFL_CMT_KEYWORDS = /\b(police|fire|evacuat\w*|emergency|suspicious|security|casualt\w*|fatal\w*|explos\w*|attack|terror\w*|hostile|lockdown|crime|stab\w*|shoot\w*|riot\w*|protest\w*|bomb)\b/i;
 
 export function evaluateLondonTfl(opts: {
   statusSeverity: number;
