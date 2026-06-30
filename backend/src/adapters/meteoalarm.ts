@@ -196,6 +196,14 @@ function accumulateBbox(
  * a generous floor so they still trigger office matches; continental
  * warnings (e.g. a Spain-wide heatwave) get a cap so they don't shadow
  * everything.
+ *
+ * LIMITATIONS — REUSE WITH CARE:
+ *   - Anti-meridian (180°/-180°) wrap is NOT handled. A polygon that
+ *     crosses the date line will produce a garbage centroid because the
+ *     bbox spans most of the globe in longitude. MeteoAlarm/MeteoGate
+ *     warnings are European so this is a non-issue today; if you reuse
+ *     this for Pacific or global data, add a wrap check: if
+ *     `maxLng - minLng > 180`, normalize one side to ±360 before averaging.
  */
 export function unionBboxCentroidAndRadiusKm(
   polygons: number[][][][],
@@ -293,6 +301,18 @@ export const meteoalarmAdapter: SourceAdapter = {
     const idx = (await idxResp.json()) as IndexResponse;
     const features = idx.features ?? [];
 
+    // Silent-data-loss signal: the API page-limits at 100 features. The
+    // 81% supersede ratio observed in production keeps this comfortably
+    // under the wall most days, but a major weather event (continent-wide
+    // heatwave, derecho line, etc.) could overflow. Warn loud so operators
+    // know to add pagination (see task: MeteoGate pagination).
+    if (features.length >= 100) {
+      log.warn(
+        { featuresReturned: features.length },
+        'meteoalarm.index.page_full',
+      );
+    }
+
     // 3. Drop superseded references — server tells us which is which.
     const activeFeatures = features.filter(f => !f.properties.supersededByAlertId);
 
@@ -330,20 +350,29 @@ export const meteoalarmAdapter: SourceAdapter = {
 
     // 6. Build NormalizedEvents — one per unique alertId.
     const items: RawAndNormalized[] = [];
-    let droppedThreshold  = 0;
-    let droppedNoGeometry = 0;
-    let droppedNoContent  = 0;
+    let droppedThreshold    = 0;
+    let droppedNoCap        = 0;   // CAP JSON fetch failed (transport)
+    let droppedNoInfoBlock  = 0;   // CAP had no info[] block (upstream malformed)
+    let droppedNoGeometry   = 0;
     for (let i = 0; i < groups.length; i++) {
       const entry = groups[i];
       const cap   = jsonResults[i];
       if (!entry) continue;
-      const [, fList] = entry;
+      const [alertId, fList] = entry;
       const head = fList[0];
       if (!head) continue;
-      if (!cap) { droppedNoContent++; continue; }
+      if (!cap) {
+        droppedNoCap++;
+        log.debug({ alertId }, 'meteoalarm.dropped.no_cap');
+        continue;
+      }
 
       const info = pickInfo(cap.info);
-      if (!info) { droppedNoContent++; continue; }
+      if (!info) {
+        droppedNoInfoBlock++;
+        log.debug({ alertId }, 'meteoalarm.dropped.no_info_block');
+        continue;
+      }
 
       // Threshold gate — Severe (orange) and Extreme (red) only.
       // `titleColor` field unused now; severity is authoritative in JSON.
@@ -359,9 +388,17 @@ export const meteoalarmAdapter: SourceAdapter = {
       const polygons = fList
         .map(f => f.geometry?.coordinates)
         .filter((c): c is number[][][] => !!c);
-      if (polygons.length === 0) { droppedNoGeometry++; continue; }
+      if (polygons.length === 0) {
+        droppedNoGeometry++;
+        log.debug({ alertId, reason: 'no polygons in any feature' }, 'meteoalarm.dropped.geometry');
+        continue;
+      }
       const geom = unionBboxCentroidAndRadiusKm(polygons);
-      if (!geom) { droppedNoGeometry++; continue; }
+      if (!geom) {
+        droppedNoGeometry++;
+        log.debug({ alertId, reason: 'union bbox computation failed', polygonCount: polygons.length }, 'meteoalarm.dropped.geometry');
+        continue;
+      }
 
       // Title + location from the CAP info's area[] (which has the complete
       // list of all affected sub-regions in canonical form, not the per-
@@ -413,11 +450,12 @@ export const meteoalarmAdapter: SourceAdapter = {
 
     log.info(
       {
-        kept:               items.length,
+        kept:                items.length,
         droppedThreshold,
+        droppedNoCap,
+        droppedNoInfoBlock,
         droppedNoGeometry,
-        droppedNoContent,
-        uniqueAlerts:       groupedById.size,
+        uniqueAlerts:        groupedById.size,
         activeIndexFeatures: activeFeatures.length,
         totalIndexFeatures:  features.length,
       },
