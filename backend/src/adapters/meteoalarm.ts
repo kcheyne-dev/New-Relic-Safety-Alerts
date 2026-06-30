@@ -263,54 +263,112 @@ export const meteoalarmAdapter: SourceAdapter = {
   intervalSeconds: 900,
 
   async fetch(): Promise<RawAndNormalized[]> {
-    const apiKey = getApiKey();
-    if (!apiKey) {
+    const apiKeyMaybe = getApiKey();
+    if (!apiKeyMaybe) {
       log.warn({}, 'meteoalarm.no_api_key');
       return [];
     }
+    const apiKey: string = apiKeyMaybe;  // preserves narrowing in nested closures
 
-    // 1. Build 23-hour window (24h max enforced server-side).
+    // 1. Build base query params (page is added per iteration).
     const now = new Date();
     const nowMinus23h = new Date(now.getTime() - 23 * 60 * 60 * 1000);
-    const params = new URLSearchParams({
+    const baseParams = new URLSearchParams({
       f: 'json',
       language: 'en',
       datetime: `${nowMinus23h.toISOString()}/${now.toISOString()}`,
     });
-    const url = `${API_BASE}${COLLECTION_PATH}?${params}`;
 
-    // 2. Fetch the index. NO Accept header — server 406s `application/json`;
-    //    `?f=json` content-negotiates correctly without it.
-    let idxResp: Response;
-    try {
-      idxResp = await globalThis.fetch(url, {
-        headers: { apikey: apiKey, 'User-Agent': 'nr-safety-alerts/0.1' },
-      });
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, 'meteoalarm.index.error');
-      return [];
+    // 2. Paginated index fetch.
+    //
+    // The server caps each response at PAGE_SIZE features. The first
+    // production cycle (2026-06-29) revealed this isn't an edge case: with
+    // DWD reissuing warnings every few minutes, page 1 was 100% German
+    // alerts and warnings from lower-frequency agencies (CH, IT, ES, BA,
+    // …) were silently pushed beyond the wall. Pagination is the
+    // difference between a Germany-only feed and a Europe-wide feed.
+    //
+    // No top-level `links[rel=next]` is provided by the server, so we
+    // increment `?page=N`. Pages are fetched in BATCHES of CONCURRENCY in
+    // parallel so 25 pages doesn't take 25× the latency. Within a batch
+    // we still process results in page order: as soon as any page comes
+    // back partial/empty/error, we stop scheduling further batches.
+    //
+    // Stop signals:
+    //   - empty page (HTTP 204 or features.length === 0)        → 'empty'
+    //   - partial page (features.length < PAGE_SIZE)            → 'partial'
+    //   - MAX_PAGES safety cap (still more data we can't reach) → 'cap'  → WARN
+    //   - HTTP error                                            → 'error' → WARN
+    //
+    // NO Accept header — server 406s `application/json`; `?f=json` is enough.
+    const PAGE_SIZE   = 100;
+    const MAX_PAGES   = 25;        // 2500 features upper bound per cycle
+    const CONCURRENCY = 5;         // parallel fetches per batch
+
+    type PageResult = { pageNum: number; ok: boolean; status: number; features: IndexFeature[]; error?: string };
+
+    async function fetchPage(pageNum: number): Promise<PageResult> {
+      const params = new URLSearchParams(baseParams);
+      params.set('page', String(pageNum));
+      const pageUrl = `${API_BASE}${COLLECTION_PATH}?${params}`;
+      try {
+        const resp = await globalThis.fetch(pageUrl, {
+          headers: { apikey: apiKey, 'User-Agent': 'nr-safety-alerts/0.1' },
+        });
+        if (resp.status === 204) return { pageNum, ok: true, status: 204, features: [] };
+        if (!resp.ok) return { pageNum, ok: false, status: resp.status, features: [] };
+        const page = (await resp.json()) as IndexResponse;
+        return { pageNum, ok: true, status: resp.status, features: page.features ?? [] };
+      } catch (err) {
+        return { pageNum, ok: false, status: 0, features: [], error: (err as Error).message };
+      }
     }
-    if (idxResp.status === 204) {
+
+    const features: IndexFeature[] = [];
+    let pagesFetched = 0;
+    let stopReason: 'empty' | 'partial' | 'cap' | 'error' = 'cap';
+
+    batchLoop: for (let batchStart = 1; batchStart <= MAX_PAGES; batchStart += CONCURRENCY) {
+      const batchPages: number[] = [];
+      for (let p = batchStart; p < batchStart + CONCURRENCY && p <= MAX_PAGES; p++) {
+        batchPages.push(p);
+      }
+      const results = await Promise.all(batchPages.map(fetchPage));
+      // Process in page order so we stop at the correct page.
+      for (const r of results) {
+        pagesFetched = r.pageNum;
+        if (!r.ok) {
+          log.warn(
+            { page: r.pageNum, status: r.status, err: r.error },
+            r.error ? 'meteoalarm.index.error' : 'meteoalarm.index.failed',
+          );
+          stopReason = 'error';
+          break batchLoop;
+        }
+        if (r.status === 204) { stopReason = 'empty'; break batchLoop; }
+        features.push(...r.features);
+        if (r.features.length < PAGE_SIZE) { stopReason = 'partial'; break batchLoop; }
+        // Full page → continue.
+      }
+    }
+
+    // Silent-data-loss signal: we hit the MAX_PAGES cap with a full last
+    // page, meaning the server has more we didn't fetch. Operators should
+    // raise MAX_PAGES or shorten the datetime window if this fires.
+    if (stopReason === 'cap') {
+      log.warn(
+        { pagesFetched, featuresAccumulated: features.length, maxPages: MAX_PAGES },
+        'meteoalarm.index.max_pages_hit',
+      );
+    }
+    log.debug(
+      { pagesFetched, stopReason, totalFeatures: features.length },
+      'meteoalarm.index.paginated',
+    );
+
+    if (features.length === 0) {
       log.info({}, 'meteoalarm.fetched.empty');
       return [];
-    }
-    if (!idxResp.ok) {
-      log.warn({ status: idxResp.status }, 'meteoalarm.index.failed');
-      return [];
-    }
-    const idx = (await idxResp.json()) as IndexResponse;
-    const features = idx.features ?? [];
-
-    // Silent-data-loss signal: the API page-limits at 100 features. The
-    // 81% supersede ratio observed in production keeps this comfortably
-    // under the wall most days, but a major weather event (continent-wide
-    // heatwave, derecho line, etc.) could overflow. Warn loud so operators
-    // know to add pagination (see task: MeteoGate pagination).
-    if (features.length >= 100) {
-      log.warn(
-        { featuresReturned: features.length },
-        'meteoalarm.index.page_full',
-      );
     }
 
     // 3. Drop superseded references — server tells us which is which.
@@ -339,14 +397,24 @@ export const meteoalarmAdapter: SourceAdapter = {
       'meteoalarm.index.filtered',
     );
 
-    // 5. Fetch JSON variants — one per unique alertId, in parallel.
+    // 5. Fetch JSON variants — one per unique alertId, batched in parallel.
+    //    During severe weather we can have ~100 unique alerts; firing 100
+    //    simultaneous fetches at MeteoGate's DO Spaces hub is impolite and
+    //    rate-limit-prone. Batched to JSON_FETCH_CONCURRENCY at a time
+    //    (review item #4 — bounded parallelism).
+    const JSON_FETCH_CONCURRENCY = 10;
     const groups = [...groupedById.entries()];
-    const jsonResults = await Promise.all(
-      groups.map(([, fList]) => {
+    const jsonResults: (CapJson | null)[] = new Array(groups.length);
+    for (let batchStart = 0; batchStart < groups.length; batchStart += JSON_FETCH_CONCURRENCY) {
+      const batch = groups.slice(batchStart, batchStart + JSON_FETCH_CONCURRENCY);
+      const settled = await Promise.all(batch.map(([, fList]) => {
         const first = fList[0];
         return first ? fetchJsonVariant(first) : Promise.resolve(null);
-      }),
-    );
+      }));
+      for (let i = 0; i < settled.length; i++) {
+        jsonResults[batchStart + i] = settled[i] ?? null;
+      }
+    }
 
     // 6. Build NormalizedEvents — one per unique alertId.
     const items: RawAndNormalized[] = [];
