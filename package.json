@@ -1,0 +1,14 @@
+{
+  "name": "nr-safety-alerts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Repo-level tooling only. The dashboard is browser-native ES modules (js/*.js); the backend has its own package.json in backend/. This file exists to host lint tooling that spans both.",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint js/**/*.js",
+    "lint:fix": "eslint js/**/*.js --fix"
+  },
+  "devDependencies": {
+    "eslint": "^9.13.0"
+  }
+}

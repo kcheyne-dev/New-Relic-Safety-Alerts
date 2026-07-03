@@ -514,7 +514,9 @@ function loadTravCSV(file) {
       const headers = lines.shift().split(',').map(s=>s.trim().toLowerCase());
       if (headers.indexOf('name') === -1) { toast('Traveler CSV missing required column: "name".'); return; }
       const idx = k => headers.indexOf(k);
-      const safe = (i) => i >= 0 ? c[i] : '';
+      // Note: an earlier `safe(i)` helper existed here but was orphaned
+      // when the .map callback was inlined. Removed 2026-07-03 after ESLint
+      // no-undef flagged it as referencing an out-of-scope `c`.
       const rows = lines.map(l => l.split(','));
       const out = rows.map((c,i) => ({
         id:'tcsv-'+i, name: (c[idx('name')]||'').trim()||randomName(),

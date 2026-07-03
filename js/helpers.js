@@ -19,7 +19,12 @@
  * or call sibling helpers via module scope.
  */
 
-import { ATT_EMBED_LIMIT } from './constants.js';
+import {
+  ATT_EMBED_LIMIT,
+  OFFICES,
+  WHO_COUNTRY_ALIASES,
+} from './constants.js';
+import { state } from './state.js';
 
 /* ============ Time + random ========================================== */
 
@@ -260,12 +265,19 @@ export function _emptyHazardRollup() {
    are local to those functions and stay unchanged.
    ========================================================================= */
 
+// Bridge-cleanup pilot (2026-07-03): converted from bare-window read to
+// explicit `import { OFFICES } from './constants.js'`. Same runtime value
+// (constants module was already bridged onto window via main.js step 5) but
+// now static-analyzable — a typo like `OFFICEs` would be caught by lint.
 export function hasOfficeHeadcounts() {
   return OFFICES.some(o => o.headcount != null);
 }
 
+// Bridge-cleanup pilot: `ACLED_RISK` bare read → `state.ACLED_RISK`. The
+// bridge in main.js still exposes window.ACLED_RISK for legacy-app.js's
+// bare references; this module now reaches the same object directly.
 export function hasAcledRisk() {
-  return Object.keys(ACLED_RISK).length > 0;
+  return Object.keys(state.ACLED_RISK).length > 0;
 }
 
 export function aggregateAcledRisk(countryNames) {
@@ -284,6 +296,7 @@ export function aggregateAcledRisk(countryNames) {
   return totals;
 }
 
+// Bridge-cleanup pilot: `WHO_COUNTRY_ALIASES` bare read → explicit import.
 export function normalizeWhoCountry(name) {
   return WHO_COUNTRY_ALIASES[name] || name;
 }
