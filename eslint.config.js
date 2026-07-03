@@ -22,7 +22,10 @@
 
 export default [
   {
-    files: ['js/**/*.js'],
+    // Non-recursive on purpose: lint only top-level frontend modules. If we
+    // ever add js/vendor/ or similar third-party subtree, we don't want the
+    // safety-net rules firing against code we don't control.
+    files: ['js/*.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
