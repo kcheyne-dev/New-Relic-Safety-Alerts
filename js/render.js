@@ -303,13 +303,26 @@ export function renderFeed() {
     // within a tier, newest first. The 🎯 toggle in the status strip already
     // hides Watch + null tiers by default — toggling 🌐 All surfaces them at
     // the bottom of this list.
+    //
+    // FEED_CAP (raised from 20 → 200 on 2026-07-03): a bare `.slice(0, 20)`
+    // was silently hiding data. Baseline alert volume in production is now
+    // ~200-500 events during active weather (MeteoGate alone can surface
+    // 130+ high/ext events during a Swiss thunderstorm peak; USGS + NWS +
+    // EMSC + GDACS + EONET + london_tfl add more on top). The upstream
+    // filters (officeRelevantOnly, sev-min, type, search) already gate real
+    // volume; this cap is a DOM-safety belt for pathological cases (e.g.
+    // 🌐 All toggled during a continent-wide event). If operators regularly
+    // hit the cap during real severe weather, raise further — or add the
+    // per-tier "Show N more" expand pattern used in the By-Office branch
+    // above.
+    const FEED_CAP = 200;
     const TIER_RANK = { direct: 3, indirect: 2, watch: 1 };
     const sorted = alerts.slice().sort((a, b) => {
       const ta = TIER_RANK[a.relevanceTier] || 0;
       const tb = TIER_RANK[b.relevanceTier] || 0;
       if (ta !== tb) return tb - ta;
       return +new Date(b.issued) - +new Date(a.issued);
-    }).slice(0, 20);
+    }).slice(0, FEED_CAP);
     body.innerHTML = `<div style="padding:8px 10px;display:flex;flex-direction:column;gap:5px">${sorted.map(alertCardHTML).join('')}</div>`;
   }
   body.querySelectorAll('.alert-card').forEach(el => el.addEventListener('click', e => {
