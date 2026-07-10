@@ -22,6 +22,7 @@
 import {
   ATT_EMBED_LIMIT,
   OFFICES,
+  SEV_RANK,
   WHO_COUNTRY_ALIASES,
 } from './constants.js';
 import { state } from './state.js';
@@ -280,10 +281,11 @@ export function hasAcledRisk() {
   return Object.keys(state.ACLED_RISK).length > 0;
 }
 
+// Bridge-cleanup batch B (2026-07-03): ACLED_RISK bare read → state.ACLED_RISK.
 export function aggregateAcledRisk(countryNames) {
   const totals = { battles: 0, vac: 0, explosions: 0, riots: 0, strategicDev: 0, fatalities: 0, totalEvents: 0 };
   for (const name of countryNames) {
-    const r = ACLED_RISK[name];
+    const r = state.ACLED_RISK[name];
     if (!r) continue;
     totals.battles      += r.battles      || 0;
     totals.vac          += r.vac          || 0;
@@ -301,12 +303,15 @@ export function normalizeWhoCountry(name) {
   return WHO_COUNTRY_ALIASES[name] || name;
 }
 
+// Bridge-cleanup batch B: WHO_OUTBREAKS bare read → state.WHO_OUTBREAKS.
 export function hasWhoOutbreaks() {
-  return WHO_OUTBREAKS.length > 0;
+  return state.WHO_OUTBREAKS.length > 0;
 }
 
+// Bridge-cleanup batch B: WHO_OUTBREAKS bare read → state.WHO_OUTBREAKS.
+// normalizeWhoCountry is a sibling helper — module-local resolution, unchanged.
 export function outbreaksForCountry(countryName) {
-  return WHO_OUTBREAKS.filter(o => normalizeWhoCountry(o.country) === countryName);
+  return state.WHO_OUTBREAKS.filter(o => normalizeWhoCountry(o.country) === countryName);
 }
 
 export function outbreaksAggregated(countryNames) {
@@ -452,18 +457,26 @@ export function enrichEventWithImpact(e) {
   return enriched;
 }
 
+// Bridge-cleanup batch B: SEV_RANK bare read → explicit import. STATE bare
+// read → state.UI_STATE (5 references). The 5 filter checks — sev-min,
+// visible types, visible offices, officeRelevantOnly, search — all now
+// resolve their state through the module import.
 export function passesFilter(a) {
-  if (SEV_RANK[a.sev] < SEV_RANK[STATE.filterMinSev]) return false;
-  if (!STATE.visibleAlertTypes.includes(a.type)) return false;
-  if (a.officeId && !STATE.visibleOffices.includes(a.officeId)) return false;
-  if (STATE.officeRelevantOnly && !a.isRelevant) return false;
-  if (STATE.search && !(a.title+' '+a.location+' '+a.summary).toLowerCase().includes(STATE.search.toLowerCase())) return false;
+  const S = state.UI_STATE;
+  if (SEV_RANK[a.sev] < SEV_RANK[S.filterMinSev]) return false;
+  if (!S.visibleAlertTypes.includes(a.type)) return false;
+  if (a.officeId && !S.visibleOffices.includes(a.officeId)) return false;
+  if (S.officeRelevantOnly && !a.isRelevant) return false;
+  if (S.search && !(a.title+' '+a.location+' '+a.summary).toLowerCase().includes(S.search.toLowerCase())) return false;
   return true;
 }
 
-export function visibleAlerts() { return ALERTS.filter(passesFilter); }
+// Bridge-cleanup batch B: ALERTS bare read → state.ALERTS. passesFilter is
+// a sibling — module-local, unchanged.
+export function visibleAlerts() { return state.ALERTS.filter(passesFilter); }
 
-export function travelersAtOffice(id) { return TRAVELERS.filter(t => t.atOffice === id); }
+// Bridge-cleanup batch B: TRAVELERS bare read → state.TRAVELERS.
+export function travelersAtOffice(id) { return state.TRAVELERS.filter(t => t.atOffice === id); }
 
 export function allTargets() {
   // Offices + custom locations available for selection

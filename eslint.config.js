@@ -76,7 +76,11 @@ export default [
         OFFICES: 'readonly',
         OFFICE_BY_ID: 'readonly',
         COUNTRY_PRESENCE: 'readonly',
-        WHO_COUNTRY_ALIASES: 'readonly',
+        // WHO_COUNTRY_ALIASES trimmed 2026-07-03 (batch B): only used in
+        // helpers.js which now imports it explicitly. Grep confirms no
+        // other bare reference anywhere in js/. First trim of the bridge
+        // cleanup — enforceable evidence that helpers.js no longer needs
+        // the bridge for this identifier.
         ROLE_TAG_STYLE: 'readonly',
         TEMPLATE_CATEGORIES: 'readonly',
         TEMPLATES: 'readonly',
