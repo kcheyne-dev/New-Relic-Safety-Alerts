@@ -10,19 +10,26 @@ import { test, expect, Page } from '@playwright/test';
  * existing smoke would still pass because it seeds an alert with
  * affectedOfficeIds already set. This spec asserts the detection itself.
  *
- * Three test cases covering the three relevance tiers:
+ * Four test cases:
  *   1. DIRECT   — event near SFO, fired via the 🧪 Tests modal Office scenario
  *   2. WATCH    — sev=ext at Pacific midpoint (no office, no presence country),
  *                 hidden by default, surfaces under 🌐 All toggle
  *   3. INDIRECT — sev=high in Brazil (presence country, no office), visible
  *                 by default, amber chip
+ *   4. DIRECT via traveler-in-radius — alert at a mock traveler's location
+ *                 (Singapore, no NR office within 3000km), verifies
+ *                 `state.TRAVELERS.filter(...)` in enrichEventWithImpact
+ *                 populates affectedTravelers correctly after the 2026-07-03
+ *                 batch-C bridge cleanup migration. Added post-batch-C code
+ *                 review to close the state.TRAVELERS verification gap.
  *
  * Hybrid injection: Test 1 uses the existing UI affordance (Tests modal)
  * because that exercises both the detection path AND the operator's actual
- * surface for synthetic injection. Tests 2 and 3 use page.evaluate to push
+ * surface for synthetic injection. Tests 2/3/4 use page.evaluate to push
  * directly through `window.enrichEventWithImpact + ALERTS + renderAll`
- * because the Tests modal doesn't have premade Watch / Indirect scenarios
- * and adding them would expand operator-facing surface area unnecessarily.
+ * because the Tests modal doesn't have premade Watch / Indirect / Traveler
+ * scenarios and adding them would expand operator-facing surface area
+ * unnecessarily.
  *
  * The spec runs in mock mode (#api=mock) so it doesn't need a live backend
  * or login — purely tests the frontend detection logic.
@@ -202,6 +209,83 @@ test.describe('NRSA proximity-detection smoke', () => {
     // assert on absence of trav badge to avoid coupling to demo seed data.
     await expect(indirectCard.locator('.impact-badge.impact-office')).toHaveCount(0);
   });
+
+  // ---------------------------------------------------------------
+  // 4. DIRECT via traveler-in-radius — no office match, only traveler
+  // ---------------------------------------------------------------
+  //
+  // Added post-batch-C bridge cleanup (2026-07-03) to close a verification
+  // gap the code review flagged: the existing 3 cases don't exercise
+  // `state.TRAVELERS.filter(t => distanceKm(...) <= radiusKm)` in
+  // enrichEventWithImpact. If the state.TRAVELERS access ever silently
+  // breaks (e.g., a future refactor accidentally reads a snapshot instead
+  // of the live singleton), this test fails loudly with an empty
+  // affectedTravelers array.
+  //
+  // Note on the other flagged branch: relevanceTierOf line ~359 —
+  //   `if (state.TRAVELERS.some(t => t.country === country)) return 'indirect';`
+  // is currently UNREACHABLE dead code, because alertCountryFor only ever
+  // returns country names from COUNTRY_PRESENCE (via text match) or from
+  // OFFICE_BY_ID (via officeId). Any country name it returns is either
+  // caught by the earlier COUNTRY_PRESENCE.some(...) check OR belongs to
+  // an office, in which case branch 1 (affectedOfficeIds > 0) fires first.
+  // Keeping the branch as a defensive fallback for future changes to
+  // alertCountryFor's country-resolution logic. No test covers it because
+  // there's no legitimate path through the public API that reaches it.
+  test('DIRECT tier via traveler-in-radius: no office match but a mock traveler within radius', async ({ page }) => {
+    // Pick a stable mock traveler far from any NR office. `t1` (A. Patel)
+    // in Singapore is ideal: no NR office in Singapore, closest office
+    // (BLR) is ~3300km away — well outside our 100km alert radius.
+    const seedTraveler = await page.evaluate(() =>
+      (window.TRAVELERS || []).find((t: any) => t.id === 't1') || null,
+    );
+    expect(seedTraveler, 'Mock TRAVELERS should include t1 (Singapore) — seeded via bootDemoMode').toBeTruthy();
+    expect(typeof seedTraveler.lat).toBe('number');
+    expect(typeof seedTraveler.lng).toBe('number');
+
+    // Inject alert AT the traveler's location. Title/location deliberately
+    // avoid any country name — this ensures alertCountryFor returns null
+    // (no text match against COUNTRY_PRESENCE), so the tier decision falls
+    // through to affectedTravelers being non-empty (branch 2 of
+    // relevanceTierOf: `affectedTravelers > 0 → 'direct'`).
+    const tier = await injectAlert(page, {
+      id: 'proximity-trav-direct-' + Date.now(),
+      sev: 'high',
+      type: 'Natural Disaster',
+      source: 'USGS',
+      lat: seedTraveler.lat,
+      lng: seedTraveler.lng,
+      radiusKm: 100,
+      title: 'M5.8 submarine tremor near travel corridor',
+      location: 'Ocean',   // no country name
+      summary: 'Seismic activity near ongoing business travel.',
+      issued: new Date().toISOString(),
+    });
+    expect(tier).toBe('direct');
+
+    // THE key assertion: enrichEventWithImpact must have populated
+    // affectedTravelers with t1's id via `state.TRAVELERS.filter(...)`.
+    // If the batch-C migration accidentally broke that read, this
+    // affectedTravelers array is empty and the test fails.
+    const enriched = await page.evaluate(() =>
+      (window.ALERTS || []).find((a: any) =>
+        String(a.id).startsWith('proximity-trav-direct-'),
+      ),
+    );
+    expect(enriched, 'injected alert should be findable in window.ALERTS').toBeTruthy();
+    expect(enriched.affectedTravelers, 'state.TRAVELERS.filter should populate affectedTravelers with t1').toContain('t1');
+    expect(enriched.affectedOfficeIds, 'no NR office within 100km of Singapore').toEqual([]);
+
+    // UI-side: card should render with the Direct chip and traveler impact
+    // badge (belt-and-suspenders — proves the render pipeline honors the
+    // affectedTravelers array).
+    await page.click('#rail-alerts');
+    await expect(page.locator('#panel-alerts')).not.toHaveClass(/collapsed/);
+    const travCard = page.locator('#feed-body .alert-card[data-id^="proximity-trav-direct-"]');
+    await expect(travCard).toBeVisible({ timeout: 3_000 });
+    await expect(travCard.locator('.tier-chip.direct')).toBeVisible();
+    await expect(travCard.locator('.impact-badge.impact-trav')).toBeVisible();
+  });
 });
 
 // =================================================================
@@ -254,6 +338,7 @@ declare global {
     ALERTS: any[];
     STATE: any;
     COUNTRY_PRESENCE: any[];
+    TRAVELERS: any[];
     enrichEventWithImpact: (a: any) => any;
     renderAll: () => void;
   }
