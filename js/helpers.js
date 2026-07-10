@@ -21,7 +21,10 @@
 
 import {
   ATT_EMBED_LIMIT,
+  COUNTRY_PRESENCE,
+  IMPACT_RADIUS_DEFAULT_KM,
   OFFICES,
+  OFFICE_BY_ID,
   SEV_RANK,
   WHO_COUNTRY_ALIASES,
 } from './constants.js';
@@ -322,6 +325,9 @@ export function outbreaksAggregated(countryNames) {
   return all;
 }
 
+// Bridge-cleanup batch C (2026-07-03): OFFICE_BY_ID + COUNTRY_PRESENCE
+// bare reads → explicit constants imports. Detection-critical function —
+// verified by tests/proximity-detection.spec.ts.
 export function alertCountryFor(alert) {
   if (!alert) return null;
   if (alert.officeId) {
@@ -340,6 +346,9 @@ export function alertCountryFor(alert) {
   return null;
 }
 
+// Bridge-cleanup batch C: COUNTRY_PRESENCE bare → import; TRAVELERS bare →
+// state.TRAVELERS. `alertCountryFor` is a sibling — module-local, unchanged.
+// Detection-critical — verified by tests/proximity-detection.spec.ts.
 export function relevanceTierOf(alert) {
   if (!alert) return null;
   if ((alert.affectedOfficeIds || []).length > 0) return 'direct';
@@ -347,7 +356,7 @@ export function relevanceTierOf(alert) {
   const country = alertCountryFor(alert);
   if (country) {
     if (COUNTRY_PRESENCE.some(cp => cp.name === country)) return 'indirect';
-    if (TRAVELERS.some(t => t.country === country)) return 'indirect';
+    if (state.TRAVELERS.some(t => t.country === country)) return 'indirect';
   }
   if (alert.sev === 'ext') return 'watch';
   return null;
@@ -427,9 +436,13 @@ export function activeAlertsForOffice(id) {
   return ALERTS.filter(a => a.officeId === id && passesFilter(a));
 }
 
+// Bridge-cleanup batch C: IMPACT_RADIUS_DEFAULT_KM, OFFICES, OFFICE_BY_ID
+// bare → explicit constants imports. TRAVELERS bare → state.TRAVELERS.
+// distanceKm and relevanceTierOf are siblings — module-local, unchanged.
+// Detection-critical — verified by tests/proximity-detection.spec.ts.
 export function enrichEventWithImpact(e) {
   const radiusKm = e.radiusKm > 0 ? e.radiusKm : (IMPACT_RADIUS_DEFAULT_KM[e.type] || 100);
-  const affectedTravelers = TRAVELERS.filter(t =>
+  const affectedTravelers = state.TRAVELERS.filter(t =>
     distanceKm(e.lat, e.lng, t.lat, t.lng) <= radiusKm
   ).map(t => t.id);
   // Office-headcount impact: any office within radius (in addition to backend's affectedOfficeIds)

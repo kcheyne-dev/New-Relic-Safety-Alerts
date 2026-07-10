@@ -87,7 +87,9 @@ export default [
         BCP_EVENT_TYPES: 'readonly',
         HAZARD_ZONES: 'readonly',
         TILE_OVERLAYS: 'readonly',
-        IMPACT_RADIUS_DEFAULT_KM: 'readonly',
+        // IMPACT_RADIUS_DEFAULT_KM trimmed 2026-07-03 (batch C): only used
+        // in helpers.js enrichEventWithImpact, now imports explicitly. Grep
+        // confirms no bare-code reference elsewhere in js/.
         BACKEND_TYPE_TO_CATEGORY: 'readonly',
         BACKEND_CATEGORY_TO_LABEL: 'readonly',
         SOURCE_ID_TO_CATEGORY: 'readonly',
