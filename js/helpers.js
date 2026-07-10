@@ -303,13 +303,13 @@ export function normalizeWhoCountry(name) {
   return WHO_COUNTRY_ALIASES[name] || name;
 }
 
-// Bridge-cleanup batch B: WHO_OUTBREAKS bare read → state.WHO_OUTBREAKS.
+// Bridge-cleanup batch B: WHO_OUTBREAKS bare reads → state.WHO_OUTBREAKS for
+// both fns below. `normalizeWhoCountry` inside outbreaksForCountry is a
+// sibling helper — module-local resolution, unchanged.
 export function hasWhoOutbreaks() {
   return state.WHO_OUTBREAKS.length > 0;
 }
 
-// Bridge-cleanup batch B: WHO_OUTBREAKS bare read → state.WHO_OUTBREAKS.
-// normalizeWhoCountry is a sibling helper — module-local resolution, unchanged.
 export function outbreaksForCountry(countryName) {
   return state.WHO_OUTBREAKS.filter(o => normalizeWhoCountry(o.country) === countryName);
 }
