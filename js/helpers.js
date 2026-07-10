@@ -436,9 +436,10 @@ export function activeAlertsForOffice(id) {
   return ALERTS.filter(a => a.officeId === id && passesFilter(a));
 }
 
-// Bridge-cleanup batch C: IMPACT_RADIUS_DEFAULT_KM, OFFICES, OFFICE_BY_ID
-// bare → explicit constants imports. TRAVELERS bare → state.TRAVELERS.
-// distanceKm and relevanceTierOf are siblings — module-local, unchanged.
+// Bridge-cleanup batch C: IMPACT_RADIUS_DEFAULT_KM and OFFICE_BY_ID bare
+// → explicit constants imports (OFFICES was already imported in the pilot).
+// TRAVELERS bare → state.TRAVELERS. distanceKm and relevanceTierOf are
+// sibling helpers — module-local, unchanged.
 // Detection-critical — verified by tests/proximity-detection.spec.ts.
 export function enrichEventWithImpact(e) {
   const radiusKm = e.radiusKm > 0 ? e.radiusKm : (IMPACT_RADIUS_DEFAULT_KM[e.type] || 100);
