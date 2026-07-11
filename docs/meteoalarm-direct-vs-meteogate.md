@@ -92,9 +92,87 @@ Inferences to CONFIRM against docs:
 - The 15-min cycle cadence and idempotent `(source_id, source_event_id)`
   upsert dedupe.
 
+## Round 1 probe findings (2026-07-13, `probe-meteoalarm-direct.ts` output)
+
+**Definitive:** the direct MeteoAlarm EDR API is a full OGC EDR 1.0
+implementation that mirrors MeteoGate's shape almost exactly.
+
+- **Auth confirmed:** `Authorization: Bearer <TOKEN>` works. No `apikey`
+  header, no query-param token needed.
+- **OGC conformance identical to MeteoGate:** `/edr/v1/conformance` returns
+  the same seven classes MeteoGate declares (core, collections, HTML,
+  GeoJSON, WMO WIS2 publisher). This means the response shape / query
+  semantics / pagination model / content negotiation are all the same by
+  spec.
+- **Single collection: `warnings`.** Same identifier as MeteoGate. Direct
+  API description: _"Warnings issued by the MeteoAlarm Members. Only the
+  'locations' data query is supported."_ — matches MeteoGate exactly.
+- **Data query endpoint pattern:**
+  `https://api.meteoalarm.org/edr/v1/collections/warnings/locations` —
+  same shape as MeteoGate's `/warnings/collections/warnings/locations`.
+  Just a different path prefix (`/edr/v1` vs `/warnings`).
+- **Content negotiation matches:** `?f=json` query-param override works
+  the same way as MeteoGate. No Accept header trick needed.
+- **Output format:** GeoJSON (same as MeteoGate).
+- **`/api` endpoint:** discoverable OpenAPI spec at
+  `https://api.meteoalarm.org/edr/v1/docs/openapi` (JSON) or
+  `/docs/openapi.yaml`. Swagger UI at `/edr/v1/docs`. Fetching + inspecting
+  this spec is the fastest way to complete the comparison. TODO for a
+  Round 2 probe.
+
+**Also learned:** Metadata API root is an HTML portal (Phoenix LiveView,
+same tech as MeteoGate). All initial endpoint guesses (`/locations`,
+`/countries`, `/awareness`, `/agencies`) 404'd. The Metadata API's actual
+routes must be discovered either via the OpenAPI spec at
+`/metadata/v1/docs/openapi` (URL guess — needs probing) or by extracting
+`data-phx-link` paths from the portal HTML like the MeteoGate discovery
+did (`probe-meteogate-discover.ts` style).
+
+**Strategic implication:** MeteoGate appears to be a re-hosted, API-key-
+gated proxy over exactly this direct API. Same conformance classes, same
+collection name, same query type, same output format, same content
+negotiation. The only meaningful differences are:
+- Path prefix (`/edr/v1` vs `/warnings`)
+- Auth header (Bearer vs apikey)
+- Hosting (api.meteoalarm.org vs api.meteogate.eu)
+
+That means: **an adapter swap is mostly path rewrites + auth header
+swap.** The 100+ lines of index-parsing / bbox math / supersede filtering
+/ pagination logic already in `backend/src/adapters/meteoalarm.ts` should
+carry over 1:1. Estimated diff: <20 lines.
+
+Round 2 probe (endpoints still to verify against direct API):
+- `/collections/warnings/locations` — list of territories (expect same
+  40 as MeteoGate: ALL, MT, SI, EE, ..., UK, DE)
+- `/collections/warnings/locations/ALL?f=json&datetime=<23h>` — actual
+  data query. Expect a GeoJSON FeatureCollection with the same index-
+  ref shape (alertId, countryCode, hubLink, supersededByAlertId,
+  bbox geometry, `links[rel=canonical|json|geometry]`).
+- `/api/docs/openapi` (or wherever the direct API hosts its OpenAPI JSON) —
+  gets us the full endpoint catalog for both EDR and Metadata APIs.
+- Metadata portal HTML extraction — same technique as
+  `probe-meteogate-discover.ts` to find the real Metadata routes.
+
 ## Recommendation
 
-**Hold the swap, capture the token, run one probe.**
+**REVISED after Round 1: HOLD, run Round 2, then likely swap or add fallback.**
+
+The direct API is almost certainly a viable swap target given the
+OGC-EDR conformance match. But before recommending the swap definitively:
+
+1. **Round 2 probe** should confirm the response shape at
+   `/collections/warnings/locations/ALL` is identical to MeteoGate's. If
+   it is, the adapter change is mechanical (path rewrite + auth header
+   swap, both isolated to a handful of lines).
+2. **OpenAPI spec fetch** documents the full contract — including
+   pagination limits, rate limits, and error semantics that we've inferred
+   from MeteoGate but haven't confirmed on the direct source.
+3. **Metadata API exploration** may unlock capabilities MeteoGate doesn't
+   expose (e.g., agency-level metadata, awareness taxonomies) that could
+   improve threshold tuning or operator context.
+
+Only after those three do we have enough to decide swap vs fallback
+definitively.
 
 Concrete next steps:
 
