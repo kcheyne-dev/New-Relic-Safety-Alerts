@@ -353,7 +353,10 @@ async function fetchJsonVariant(feature: IndexFeature): Promise<CapJson | null> 
 
 export const meteoalarmAdapter: SourceAdapter = {
   id: 'meteoalarm',
-  name: 'MeteoAlarm — European weather warnings (via MeteoGate)',
+  // Provider-neutral now — transport is decided at fetch time via
+  // METEOALARM_PROVIDER (see getProvider). The active provider is logged
+  // at info level on every cycle start ('meteoalarm.cycle.start').
+  name: 'MeteoAlarm — European weather warnings',
   intervalSeconds: 900,
 
   async fetch(): Promise<RawAndNormalized[]> {
@@ -369,7 +372,9 @@ export const meteoalarmAdapter: SourceAdapter = {
     }
     const apiKey: string = apiKeyMaybe;  // preserves narrowing in nested closures
     const authHeaders = provider.authHeaders(apiKey);
-    log.debug({ provider: provider.label, baseUrl }, 'meteoalarm.cycle.start');
+    // Info level so operators can grep logs to confirm which provider ran
+    // without enabling debug. Cheap: one line per 15-min cycle.
+    log.info({ provider: provider.label, baseUrl }, 'meteoalarm.cycle.start');
 
     // 1. Build base query params (page is added per iteration).
     const now = new Date();
