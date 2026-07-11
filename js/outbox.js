@@ -109,6 +109,11 @@ export async function retryEntry(id) {
   if (!API_BASE) return;
   const entry = state.UI_STATE.outbox.find(e => e.id === id);
   if (!entry) return;
+  // In-flight guard: if this entry is already being retried (auto-sweep
+  // fired the retry, or a prior click hasn't resolved), don't fire a
+  // second concurrent request. Prevents duplicate backend POSTs when
+  // the operator clicks Retry while an auto-retry is still awaiting.
+  if (entry.status === 'retrying') return;
 
   entry.status = 'retrying';
   renderAll();
@@ -168,9 +173,9 @@ async function _retryIncidentCreate(entry) {
   //    closed / deleted the local row in the meantime, we still succeeded
   //    on the backend — just log a note and skip the local swap.
   const localInc = state.UI_STATE.incidents.find(x => x.id === entry.localIncidentId);
+  const oldId = entry.localIncidentId;
+  const newId = serverInc.id;
   if (localInc) {
-    const oldId = localInc.id;
-    const newId = serverInc.id;
     if (oldId !== newId) {
       localInc.id = newId;
       localInc.opened = serverInc.opened;
@@ -181,7 +186,20 @@ async function _retryIncidentCreate(entry) {
       if (state.UI_STATE.linkedIncidentId === oldId) state.UI_STATE.linkedIncidentId = newId;
     }
   } else {
-    console.warn('_retryIncidentCreate: local incident', entry.localIncidentId, 'gone by retry time; backend row exists as', serverInc.id);
+    console.warn('_retryIncidentCreate: local incident', oldId, 'gone by retry time; backend row exists as', newId);
+  }
+
+  // 2a. Orphan rewrite: after the incident create failed, dispatchSend may
+  //     have enqueued 'incident-message' outbox entries with
+  //     entry.incidentId === oldId (the local placeholder). Rewrite those
+  //     to the real server UUID so their retries hit the correct endpoint
+  //     instead of failing forever against a UUID the backend doesn't know.
+  if (oldId !== newId) {
+    for (const other of state.UI_STATE.outbox) {
+      if (other.kind === 'incident-message' && other.incidentId === oldId) {
+        other.incidentId = newId;
+      }
+    }
   }
 
   // 3. Flush queued messages. Each is best-effort; failures become their

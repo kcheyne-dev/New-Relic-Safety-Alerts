@@ -532,7 +532,40 @@ export function buildPersistPayload() {
       isTest:           state.UI_STATE.isTest,
     },
     noteAttachments:  (state.UI_STATE.noteAttachments || []).map(stripAtt),
+    // Failed-send outbox — persist so entries survive reloads and the
+    // boot-time autoRetryPending() sweep has something to retry.
+    // Attachments inside apiPayload go through stripAtt to avoid blowing
+    // the localStorage quota (attachments can be up to ATT_EMBED_LIMIT
+    // each and outbox entries can accumulate without auto-purge).
+    outbox: (state.UI_STATE.outbox || []).map(_stripOutboxAtts),
   };
+}
+
+/** Strip base64-heavy attachment payloads inside an outbox entry before
+ *  localStorage save. The `data:` URL is what would blow the quota; the
+ *  metadata (name/size/type) stays so the retry UI can still show what
+ *  was queued. On retry, the API call fires without attachment data —
+ *  matching how attachments behave in the crisisLog / incidents persist
+ *  pipelines (see stripMessageAtts / stripIncident). */
+function _stripOutboxAtts(entry) {
+  if (!entry) return entry;
+  const out = { ...entry };
+  if (entry.apiPayload?.attachments) {
+    out.apiPayload = {
+      ...entry.apiPayload,
+      attachments: entry.apiPayload.attachments.map(stripAtt),
+    };
+  }
+  if (Array.isArray(entry.queuedMessages)) {
+    out.queuedMessages = entry.queuedMessages.map(q => {
+      if (!q?.apiPayload?.attachments) return q;
+      return {
+        ...q,
+        apiPayload: { ...q.apiPayload, attachments: q.apiPayload.attachments.map(stripAtt) },
+      };
+    });
+  }
+  return out;
 }
 
 export function saveState() {
@@ -585,6 +618,11 @@ export function loadState() {
       if (typeof data.draft.composeAdvanced === 'boolean') state.UI_STATE.composeAdvanced = data.draft.composeAdvanced;
     }
     if (Array.isArray(data.noteAttachments)) state.UI_STATE.noteAttachments = data.noteAttachments;
+    // Restore failed-send outbox. autoRetryPending() runs after loadState
+    // completes (legacy-app.js:1063) and will attempt one retry per entry
+    // per session. Backward-compat: old saves without `outbox` field leave
+    // state.UI_STATE.outbox at its state.js initial [], not undefined.
+    if (Array.isArray(data.outbox)) state.UI_STATE.outbox = data.outbox;
     if (data.savedAt) state.lastSavedAt = new Date(data.savedAt);
     return true;
   } catch (err) {
