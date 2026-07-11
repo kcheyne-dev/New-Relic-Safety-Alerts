@@ -3,25 +3,43 @@ import { evaluateMeteoAlarm } from '../pipeline/thresholds.js';
 import { log } from '../log.js';
 
 /**
- * MeteoAlarm — European weather warnings via the MeteoGate OGC EDR API.
+ * MeteoAlarm — European weather warnings via an OGC EDR API.
  *
  * UPSTREAM (the data): MeteoAlarm, the EUMETNET-operated aggregation of CAP 1.2
  * warning messages authored by each member country's national meteorological
  * agency (DWD Germany, AEMET Spain, Met Éireann Ireland, Météo-France, etc.).
  *
- * TRANSPORT (this adapter): MeteoGate (`api.meteogate.eu`) — the modern
- * OGC API-EDR gateway. Replaces the 2026-06-24 "MeteoAlarm REVIVED" per-country
- * Atom+CAP1.2 fan-out with a single index call returning GeoJSON. See
- * memory/meteogate_api.md for full architecture notes from the 2026-06-29
- * night discovery session (probe scripts in backend/scripts/probe-meteogate-*).
+ * TRANSPORT (this adapter, TWO PROVIDERS supported):
  *
- * AUTH: `apikey: <TOKEN>` header. Token comes from METEOGATE_API_KEY
- * (preferred) or METEOALARM_API_KEY (legacy alias — kept for back-compat).
+ *   1. **meteogate** (default) — `api.meteogate.eu` OGC API-EDR gateway.
+ *      Auth via `apikey: <TOKEN>` header. Token: METEOGATE_API_KEY
+ *      (preferred) or METEOALARM_API_KEY (legacy alias). Proven in prod
+ *      since 2026-06-29. See memory/meteogate_api.md.
  *
- * PIPELINE per cycle:
+ *   2. **meteoalarm-direct** — `api.meteoalarm.org/edr/v1` OGC EDR API
+ *      (direct upstream, no intermediary). Auth via `Authorization: Bearer
+ *      <TOKEN>` header. Token: METEOALARM_DIRECT_TOKEN. Investigated
+ *      2026-07-13; response shape confirmed byte-for-byte compatible with
+ *      MeteoGate (same DigitalOcean Spaces backend for CAP payloads). See
+ *      docs/meteoalarm-direct-vs-meteogate.md.
  *
- *   1. GET /warnings/collections/warnings/locations/ALL
- *      with `?f=json&datetime=<now-23h>/<now>&language=en`.
+ * PROVIDER SELECTION: `METEOALARM_PROVIDER` env var accepts `meteogate` or
+ * `meteoalarm-direct` (or `direct` as shorthand). Defaults to `meteogate`
+ * for a first-deploy safety margin — flip to `meteoalarm-direct` explicitly
+ * to opt in. Once the direct provider is proven for 24h in prod, the
+ * default can ratchet in a follow-up commit.
+ *
+ * BASE URL OVERRIDE: `METEOALARM_BASE_URL_OVERRIDE` optional. Only useful
+ * for the direct provider's test / staging environments:
+ *   - `https://api-test.meteoalarm.org` — test system
+ *   - `https://api.met.dev` — staging system
+ * When set, replaces the provider's default baseUrl. The collectionPath +
+ * auth pattern stay the same. Setting this for the meteogate provider is
+ * unsupported and will likely 404.
+ *
+ * PIPELINE per cycle (identical for both providers):
+ *
+ *   1. GET <baseUrl><collectionPath> with `?f=json&datetime=<now-23h>/<now>&language=<lang>`.
  *      Returns a GeoJSON FeatureCollection of alert REFERENCES (bbox geometry
  *      + alertId + countryCode + supersede metadata + hubLink). Each is a
  *      lightweight pointer, NOT the full warning content.
@@ -78,19 +96,95 @@ import { log } from '../log.js';
  * redistribution.
  */
 
-const API_BASE = 'https://api.meteogate.eu';
-const COLLECTION_PATH = '/warnings/collections/warnings/locations/ALL';
-
 /** Radius bounds applied to the bbox-derived warning radius. */
 const MIN_RADIUS_KM = 30;
 const MAX_RADIUS_KM = 300;
 
-function getApiKey(): string | null {
-  // Preferred name first; fall back to the legacy name so existing .env
-  // files keep working without immediate edits. We renamed the discovery
-  // probes' env-var preference 2026-06-29 night after realizing the token
-  // is for MeteoGate, not MeteoAlarm. See memory/meteogate_api.md.
-  return process.env.METEOGATE_API_KEY || process.env.METEOALARM_API_KEY || null;
+/**
+ * Provider config. Selected at fetch time from METEOALARM_PROVIDER env var.
+ * The two providers serve the same data (both are OGC EDR views over
+ * MeteoAlarm CAP messages) but differ in base URL, auth pattern, and
+ * language-param locale format. See file docblock for full comparison.
+ */
+type MeteoProvider = 'meteogate' | 'meteoalarm-direct';
+
+interface ProviderConfig {
+  /** Human label for logs / error messages. */
+  label: string;
+  /** Scheme + host, no trailing slash. */
+  baseUrl: string;
+  /** Path from baseUrl to the /locations/ALL endpoint. Leading slash. */
+  collectionPath: string;
+  /** Language query-param value. MeteoGate accepts bare `en`; direct API
+   *  wants a locale like `en-GB`. */
+  language: string;
+  /** Env var names, in preference order — first non-empty wins. */
+  tokenEnvVars: readonly string[];
+  /** Given a token, return the request headers for auth. */
+  authHeaders: (token: string) => Record<string, string>;
+}
+
+const PROVIDERS: Record<MeteoProvider, ProviderConfig> = {
+  meteogate: {
+    label:         'MeteoGate (api.meteogate.eu)',
+    baseUrl:       'https://api.meteogate.eu',
+    collectionPath: '/warnings/collections/warnings/locations/ALL',
+    language:      'en',
+    // Preferred name first; legacy alias kept so existing .env files
+    // continue to work. Renamed 2026-06-29 after realizing the token is
+    // for MeteoGate specifically, not MeteoAlarm. See memory/meteogate_api.md.
+    tokenEnvVars:  ['METEOGATE_API_KEY', 'METEOALARM_API_KEY'] as const,
+    authHeaders:   (token) => ({ apikey: token }),
+  },
+  'meteoalarm-direct': {
+    label:         'MeteoAlarm direct (api.meteoalarm.org/edr/v1)',
+    baseUrl:       'https://api.meteoalarm.org',
+    collectionPath: '/edr/v1/collections/warnings/locations/ALL',
+    // Locale format per the OpenAPI spec — bare `en` may be accepted or
+    // may cause empty responses; use `en-GB` to be spec-compliant. The
+    // pickInfo() English-block filter uses startsWith('en') so the
+    // server's response can carry either `en` or `en-GB` and both match.
+    language:      'en-GB',
+    tokenEnvVars:  ['METEOALARM_DIRECT_TOKEN'] as const,
+    authHeaders:   (token) => ({ Authorization: `Bearer ${token}` }),
+  },
+};
+
+/**
+ * Pick the active provider from env. Defaults to `meteogate` for a
+ * first-deploy safety margin — the direct provider is byte-for-byte
+ * response-compatible in probe testing but hasn't run in prod yet. Ops
+ * must set METEOALARM_PROVIDER=meteoalarm-direct (or =direct) to flip.
+ * Once proven for 24h, the default can ratchet in a follow-up commit.
+ */
+function getProvider(): ProviderConfig {
+  const raw = process.env.METEOALARM_PROVIDER?.trim().toLowerCase();
+  if (raw === 'meteoalarm-direct' || raw === 'direct') return PROVIDERS['meteoalarm-direct'];
+  if (raw && raw !== 'meteogate') {
+    log.warn({ provided: raw }, 'meteoalarm.unknown_provider');
+  }
+  return PROVIDERS.meteogate;
+}
+
+/**
+ * Optional base-URL override — lets ops point at staging (api-test /
+ * api.met.dev) for the direct provider without editing code. When set,
+ * replaces the provider's default baseUrl but keeps collectionPath +
+ * auth pattern. Only meaningful for the direct provider today; setting
+ * this while using meteogate will almost certainly 404.
+ */
+function resolveBaseUrl(provider: ProviderConfig): string {
+  const override = process.env.METEOALARM_BASE_URL_OVERRIDE?.trim();
+  if (override) return override.replace(/\/$/, '');
+  return provider.baseUrl;
+}
+
+function getApiKey(provider: ProviderConfig): string | null {
+  for (const name of provider.tokenEnvVars) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return null;
 }
 
 // ---- types -----------------------------------------------------------------
@@ -263,19 +357,26 @@ export const meteoalarmAdapter: SourceAdapter = {
   intervalSeconds: 900,
 
   async fetch(): Promise<RawAndNormalized[]> {
-    const apiKeyMaybe = getApiKey();
+    const provider = getProvider();
+    const baseUrl = resolveBaseUrl(provider);
+    const apiKeyMaybe = getApiKey(provider);
     if (!apiKeyMaybe) {
-      log.warn({}, 'meteoalarm.no_api_key');
+      log.warn(
+        { provider: provider.label, expectedEnvVars: provider.tokenEnvVars },
+        'meteoalarm.no_api_key',
+      );
       return [];
     }
     const apiKey: string = apiKeyMaybe;  // preserves narrowing in nested closures
+    const authHeaders = provider.authHeaders(apiKey);
+    log.debug({ provider: provider.label, baseUrl }, 'meteoalarm.cycle.start');
 
     // 1. Build base query params (page is added per iteration).
     const now = new Date();
     const nowMinus23h = new Date(now.getTime() - 23 * 60 * 60 * 1000);
     const baseParams = new URLSearchParams({
       f: 'json',
-      language: 'en',
+      language: provider.language,
       datetime: `${nowMinus23h.toISOString()}/${now.toISOString()}`,
     });
 
@@ -310,10 +411,10 @@ export const meteoalarmAdapter: SourceAdapter = {
     async function fetchPage(pageNum: number): Promise<PageResult> {
       const params = new URLSearchParams(baseParams);
       params.set('page', String(pageNum));
-      const pageUrl = `${API_BASE}${COLLECTION_PATH}?${params}`;
+      const pageUrl = `${baseUrl}${provider.collectionPath}?${params}`;
       try {
         const resp = await globalThis.fetch(pageUrl, {
-          headers: { apikey: apiKey, 'User-Agent': 'nr-safety-alerts/0.1' },
+          headers: { ...authHeaders, 'User-Agent': 'nr-safety-alerts/0.1' },
         });
         if (resp.status === 204) return { pageNum, ok: true, status: 204, features: [] };
         if (!resp.ok) return { pageNum, ok: false, status: resp.status, features: [] };
