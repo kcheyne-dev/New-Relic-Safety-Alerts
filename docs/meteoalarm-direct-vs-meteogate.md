@@ -241,9 +241,85 @@ Round 3 fetched `/edr/v1/docs` (the Swagger UI page) and extracted the embedded 
    
    Current adapter polls REST every 15 min. MQTT subscribe would be true real-time with sub-second latency for new warnings. **Not a Day-1 swap concern** — MQTT adds a long-lived connection, reconnect logic, broker credentials — but it's a compelling reason to prefer the direct API long-term. Would need a separate adapter mode or a parallel MQTT-consumer service.
 
+## Full OpenAPI spec review (2026-07-13, `/edr/v1/docs/openapi.yaml`)
+
+Ran `fetch-meteoalarm-openapi.ts` to dump the full 19KB YAML to disk and read it end-to-end. Definitive findings that supersede earlier inferences:
+
+### Documented endpoints (only 3 in the spec)
+
+1. `GET /` — MQTT documentation only (not a data endpoint).
+2. `GET /collections/warnings/locations` — territory list.
+3. `GET /collections/warnings/locations/{locationId}` — data query.
+
+The OGC boilerplate endpoints we hit in Round 1 (`/conformance`, `/collections`, `/api`) DO exist and respond — they just aren't documented in this spec. That's consistent with OGC EDR spec-conformant servers exposing the common paths implicitly.
+
+### Auth: two schemes documented, both accepted
+
+- `bearerAuth`: `Authorization: Bearer <token>` — declared as JWT format in the spec, but the actual issued token (`bB7Zo…`, 32 chars) is NOT JWT-shaped (no dots). The `bearerFormat: JWT` in the spec is aspirational or historically inaccurate. Works fine as opaque bearer.
+- `tokenQuery`: `?token=<token>` — alternate for URL-only contexts. Not needed for our use case.
+
+### Query parameters (the concrete contract)
+
+| Param             | Required | Format                                              | Notes                                                                    |
+|-------------------|----------|-----------------------------------------------------|--------------------------------------------------------------------------|
+| `datetime`        | **YES**  | ISO8601 interval `<start>/<end>` (both required)    | Filters by SENT time. Current adapter already sends this correctly.       |
+| `active`          | no       | ISO8601 interval, one endpoint may be omitted       | **NEW capability** not documented in MeteoGate. Filters by ACTIVE (effective) time, potentially simpler than sent-range + local filtering. |
+| `page`            | no       | integer (no upper bound documented)                 | Same pagination as MeteoGate.                                             |
+| `language`        | no       | locale format like `en-GB`, NOT bare `en`           | **Format differs from MeteoGate.** Current adapter sends `language=en`; needs to send `en-GB` (or omit) for direct API. |
+| `awareness_type`  | no       | pipe-separated values, format `14; Marine-Hazard`   | Different from MeteoGate's comma-separated ints; MeteoAlarm CAP Profile v2.0 defines the codes. |
+| `awareness_level` | no       | pipe-separated values, format `2; yellow; Moderate` | Same story — different separator + verbose string format.                 |
+
+### Location codes: 38 in the spec (vs MeteoGate's 40)
+
+Direct API enum: `ALL, SE, SI, RO, MK, PL, FR, EE, GR, LU, LT, IT, DE, ES, BA, NL, CH, FI, PT, RS, MD, SK, HR, BG, IE, CZ, LV, IS, HU, UK, BE, DK, ME, AT, MT, CY, IL, UA` = 38 total.
+
+MeteoGate memory (2026-06-29 sample) listed 40: same as above **plus `NO` (Norway) and `AD` (Andorra)**. The direct API doesn't advertise those two. Not a coverage gap in practice — those countries have low warning volume — but worth noting if operators explicitly filter to `NO` or `AD`.
+
+### Response schema is INCOMPLETE compared to actual response
+
+The spec's `featureGeoJSON.properties` schema documents:
+```
+OBJECTID, alertId, countryCode, featureType, geometryDescription,
+geometryTyoe (SIC — typo, actual field is geometryType),
+hubLink, hubLanguage, indexArea, indexFeature, indexInfo
+```
+
+Round 2's empirical response ALSO returned:
+```
+hubTime, supersedeType, supersededAt, supersededByAlertId
+```
+
+These 4 fields exist in the wire response but the OpenAPI spec doesn't document them. Empirical > spec — the current adapter's supersede-filter logic is safe because the fields ARE present in the actual response, just undocumented.
+
+### Storage backend URL disagrees with empirical
+
+Spec example: `https://storage.meteoalarm.org/api/warnings/...`
+Round 2 empirical: `https://meteo.fra1.digitaloceanspaces.com/api/archive/warnings/...`
+
+Different hosts. Either the spec is outdated or `storage.meteoalarm.org` is a CNAME to the DigitalOcean bucket. The adapter should always follow whatever URL `hubLink` / `links[]` returns and never hardcode either host.
+
+### Error responses
+
+Documented: `401 Unauthorized` (JSON: `{code, description?}`), plus a `default` catch-all (JSON or HTML). NO documented `429` (rate limit), NO `5xx` schemas. Rate limits are not documented anywhere in the spec — matches MeteoGate's (also undocumented) behavior. Same operational posture: assume no throttling; watch for it in prod.
+
+### MQTT (fuller confirmation)
+
+- 37 country topics (`warnings-XX`) + `warnings-ALL`. Matches location enum minus ALL.
+- QoS 0 (fire-and-forget; some warning loss possible on a hiccup). At the 15-min-poll cadence we have today, warnings are eventually picked up by the next poll — but if we go MQTT-only, we should periodically REST-poll as a reconciliation pass.
+- WIS2 topic hierarchy: `origin/a/wis2/eu-eumetnet-warnings/data/core/weather/advisories-warnings` for `warnings-ALL`. Metadata at `origin/a/wis2/eu-eumetnet-warnings/metadata`.
+
+### Impact on the swap (task #54)
+
+Ports that need adjustment beyond "path + auth header":
+
+1. **`language` param**: change `en` → `en-GB` OR drop it. Test both empirically.
+2. **`awareness_level` / `awareness_type` param format**: if the current adapter uses these (memory says `awareness_level=3,4` was probed but not sure if it's in-adapter today), the separator + value format both change. Grep the adapter to confirm.
+3. **Location codes**: existing adapter uses `ALL` — fine. If any special-case logic references `NO` or `AD`, revisit.
+4. **Everything else** — path, auth, response parsing, supersede filtering, bbox math, JSON-variant fetch, geometry link — carries over 1:1.
+
 ## Recommendation
 
-**FINAL after Round 3: SWAP the EDR path as a config flip (Round 2 recommendation stands). MQTT is a separate follow-up with meaningful latency-improvement upside.**
+**FINAL after full OpenAPI review: SWAP the EDR path as a config flip (Round 2 recommendation stands). MQTT is a separate follow-up with meaningful latency-improvement upside.**
 
 The evidence:
 - Response shape is byte-for-byte MeteoGate-compatible.
