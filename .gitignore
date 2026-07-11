@@ -5,3 +5,6 @@ node_modules/
 user-manual.html
 quick-reference.html
 New Relic Safety Alerts.pdf
+
+# Fetched MeteoAlarm OpenAPI spec (see backend/scripts/fetch-meteoalarm-openapi.ts)
+docs/meteoalarm-openapi-fetched.yaml
