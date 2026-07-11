@@ -39,9 +39,9 @@
  */
 
 import { state } from './state.js';
-import { uid } from './helpers.js';
+import { esc, uid } from './helpers.js';
 import { API_BASE, commsApi, incidentsApi } from './api.js';
-import { toast } from './modals.js';
+import { closeModal, showModal, toast } from './modals.js';
 import { saveState } from './persistence.js';
 import { renderAll } from './render.js';
 
@@ -209,4 +209,113 @@ async function _retryIncidentCreate(entry) {
   }
 
   toast(`✓ Incident + ${queued.length} message${queued.length === 1 ? '' : 's'} recovered from outbox.`);
+}
+
+/**
+ * Look up a failed-outbox entry by msg.id. Used by renderCCLog to decide
+ * whether to append a "⚠ Send failed — Retry" chip to a message row.
+ * Returns the entry object or undefined. Only 'comms' and 'incident-message'
+ * entries carry msgId; 'incident-create' entries carry the ORIGINAL
+ * messageId that triggered the create, if any.
+ */
+export function outboxEntryForMsg(msgId) {
+  if (!msgId) return undefined;
+  return state.UI_STATE.outbox.find(e => e.msgId === msgId);
+}
+
+/**
+ * Small inline HTML chip for the Log tab, shown next to a message that's
+ * queued in the outbox. Click triggers retryEntry(); render.js's re-render
+ * on state change will make the chip disappear once retry succeeds.
+ */
+export function outboxChipHTML(entryId) {
+  return `<button class="outbox-chip" data-outbox-retry="${esc(entryId)}" title="This send failed to persist to backend. Click to retry.">⚠ Send failed — Retry</button>`;
+}
+
+/**
+ * Full-list outbox modal. Shows each queued entry with its display info,
+ * attempts count, last error, and per-row [Retry] + [Dismiss] buttons.
+ * Auto-rebuilds itself after any button click so state stays in sync.
+ */
+export function showOutboxModal() {
+  const entries = state.UI_STATE.outbox.slice().reverse();   // newest first
+  const html = entries.length
+    ? entries.map(_outboxRowHTML).join('')
+    : '<div class="empty" style="padding:20px;text-align:center;color:var(--muted)">No failed sends. Everything made it through.</div>';
+
+  showModal(`
+    <h3>Failed sends — Outbox</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Sends the backend rejected or couldn't be reached. Retry when the backend recovers, or dismiss to clear.
+      ${entries.length ? `<b>${entries.length}</b> queued.` : ''}
+    </p>
+    <div class="outbox-list" style="max-height:60vh;overflow-y:auto">${html}</div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="outbox-close">Close</button>
+    </div>
+  `);
+
+  document.getElementById('outbox-close').onclick = closeModal;
+
+  // Wire per-row retry / dismiss buttons. Use event delegation to survive
+  // the rebuild after each action.
+  const listEl = document.querySelector('.outbox-list');
+  if (listEl) {
+    listEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-ob-action]');
+      if (!btn) return;
+      const id = btn.dataset.obId;
+      if (btn.dataset.obAction === 'retry') {
+        btn.disabled = true;
+        btn.textContent = 'Retrying…';
+        await retryEntry(id);
+        // Rebuild the modal in place so the row goes away on success or
+        // updates attempts/lastError on failure.
+        _rebuildOutboxModal();
+      } else if (btn.dataset.obAction === 'dismiss') {
+        dismissEntry(id);
+        _rebuildOutboxModal();
+      }
+    });
+  }
+}
+
+function _outboxRowHTML(e) {
+  const kindLabel = e.kind === 'comms' ? 'Standalone message'
+                  : e.kind === 'incident-message' ? 'Incident message'
+                  : 'Incident create';
+  const d = e.display || {};
+  const offices = (d.offices || []).map(o => `<span class="src-pill">${esc(o)}</span>`).join('');
+  const channels = (d.channels || []).map(c => `<span class="src-pill">${esc(c)}</span>`).join('');
+  const reach = d.reach ? `<span class="src-pill">${d.reach.toLocaleString()} recipients</span>` : '';
+  const testBadge = d.isTest ? '<span class="test-badge" title="Drill mode — routed to test channel">🧪 Test</span>' : '';
+  const attempts = e.attempts > 0 ? ` · ${e.attempts} previous ${e.attempts === 1 ? 'retry' : 'retries'}` : '';
+  const when = new Date(e.when).toLocaleString();
+  return `
+    <div class="outbox-entry" data-ob-entry-id="${esc(e.id)}" style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">
+      <div style="font-size:11px;color:var(--muted)">
+        <b>${esc(kindLabel)}</b> · ${esc(when)}${attempts} ${testBadge}
+      </div>
+      ${d.subject ? `<div style="font-weight:600;font-size:12px;margin:4px 0">${esc(d.subject)}</div>` : ''}
+      <div style="font-size:11px;margin:4px 0">
+        ${offices}${channels}${reach}
+      </div>
+      <div style="font-size:11px;color:var(--red);margin-top:4px" title="${esc(e.lastError || '')}">
+        ${esc((e.lastError || '').slice(0, 120))}${(e.lastError || '').length > 120 ? '…' : ''}
+      </div>
+      <div class="modal-actions" style="margin-top:8px">
+        <button class="btn-ghost" data-ob-action="dismiss" data-ob-id="${esc(e.id)}">Dismiss</button>
+        <button class="btn-primary" style="width:auto;margin:0;padding:6px 12px" data-ob-action="retry" data-ob-id="${esc(e.id)}">Retry</button>
+      </div>
+    </div>`;
+}
+
+function _rebuildOutboxModal() {
+  // The modal-back overlay stays; we just replace the inner modal HTML.
+  // Same technique as bindRiskModalHandlers uses for the risk-search
+  // debounce re-render in modals.js.
+  if (document.getElementById('modal-back')) {
+    closeModal();
+    showOutboxModal();
+  }
 }

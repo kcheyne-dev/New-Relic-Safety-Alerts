@@ -107,6 +107,7 @@ import {
   bootDemoMode,
   bootTestScenarios,
 } from './demo.js';
+import { autoRetryPending } from './outbox.js';
 
 /* ============================================================
    New Relic Safety Alerts — single-file prototype (v2, faithful)
@@ -1054,6 +1055,12 @@ renderAll();
 if (_restored) {
   setTimeout(() => toast(`Restored from local save${state.lastSavedAt?` (${relTime(state.lastSavedAt.toISOString())} ago)`:''}.`), 400);
 }
+// Boot-time outbox sweep. Any failed-send entries that survived a page
+// reload get one silent retry per session — done AFTER loadState so
+// state.UI_STATE.outbox is populated, and AFTER renderAll so the header
+// badge is already in place (retry successes will hide it via re-render).
+// If API_BASE is empty (mock mode), autoRetryPending() is a no-op.
+autoRetryPending();
 /* Fit map to show all offices, with padding for the rails/header */
 map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
 let resizeTimer;

@@ -151,7 +151,7 @@ import {
   createIncident,
   reopenIncident,
 } from './incidents.js';
-import { enqueueFailure } from './outbox.js';
+import { autoRetryPending, enqueueFailure } from './outbox.js';
 
 /* Module-scoped debounce handle for the Risk modal search input. Moved from
    legacy-app.js as part of the 2026-07-13 legacy-app modularization Phase 1 —
@@ -195,6 +195,13 @@ export function confirmSend() {
 }
 
 export function dispatchSend(body, channels, reach) {
+  // Auto-retry sweep BEFORE the new send: any outbox entry we haven't
+  // already retried this session gets one silent attempt. Runs first so a
+  // fresh dispatch also flushes any stale queued sends — the operator's
+  // action is a natural moment to probe whether the backend recovered.
+  // fire-and-forget; doesn't block the current send.
+  autoRetryPending();
+
   const tpl = allTemplates().find(t => t.id === state.UI_STATE.template);
   const tplName = tpl?.name || 'Custom message';
 

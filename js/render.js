@@ -134,6 +134,7 @@ import {
   addIncidentLog,
   reopenIncident,
 } from './incidents.js';
+import { outboxChipHTML, outboxEntryForMsg, retryEntry, showOutboxModal } from './outbox.js';
 
 export function isModalOpen() { return !!document.getElementById('modal-back'); }
 
@@ -703,11 +704,19 @@ export function renderComposeForm() {
 
 export function renderCCLog() {
   if (!state.UI_STATE.crisisLog.length) return '<div class="empty">No messages sent yet.</div>';
-  return state.UI_STATE.crisisLog.slice().reverse().map(e => `
-    <div class="crisis-log-entry${e.isTest?' is-test':''}">
+  return state.UI_STATE.crisisLog.slice().reverse().map(e => {
+    // Outbox chip: if this message has a queued failure, surface it inline
+    // so the operator sees "message locally logged" AND "backend never got
+    // it" side by side. Retry button goes through outbox.retryEntry via
+    // the click handler wired in bindCCHandlers.
+    const outboxEntry = outboxEntryForMsg(e.id);
+    const outboxChip = outboxEntry ? outboxChipHTML(outboxEntry.id) : '';
+    return `
+    <div class="crisis-log-entry${e.isTest?' is-test':''}${outboxEntry?' is-failed':''}">
       <div>
         <span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${esc(e.by)}</span>
         ${e.isTest?' <span class="test-badge" title="Drill — sent in test mode, routed to test channel only">🧪 Test</span>':''}
+        ${outboxChip}
       </div>
       ${e.subject?`<div style="font-weight:600;font-size:12px;margin-top:2px">${esc(e.subject)}</div>`:''}
       <div class="body" style="white-space:pre-wrap">${linkify(esc(e.body))}</div>
@@ -719,7 +728,8 @@ export function renderCCLog() {
         ${e.responseRequired?'<span class="src-pill" style="color:var(--green);border-color:var(--green)">tracked</span>':''}
         ${e.attachments?.length?`<span class="src-pill">📎 ${e.attachments.length}</span>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 export function renderRoom() {
@@ -771,6 +781,19 @@ export function wireAttZone({ zoneId, inputId, pickId, getList, setList, onChang
 }
 
 export function bindCCHandlers() {
+  // Outbox retry chip clicks in the Log tab. Uses event delegation on the
+  // whole CC panel so the binding survives Log-tab re-renders. Fire-and-
+  // forget — retryEntry handles state mutations + re-render on completion.
+  document.querySelectorAll('[data-outbox-retry]').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const entryId = btn.dataset.outboxRetry;
+      btn.disabled = true;
+      btn.textContent = 'Retrying…';
+      retryEntry(entryId);
+    };
+  });
+
   // Compose attachments zone
   wireAttZone({
     zoneId: 'att-zone-cc',
@@ -1462,6 +1485,14 @@ export function renderStatusStrip() {
         <div class="ss-value">${okSources}/${SOURCES.length}</div>
       </div>
     </button>
+    ${state.UI_STATE.outbox.length ? `
+    <button class="ss-chip clickable warn" data-ss-action="outbox" title="Sends that failed backend persist — click to view + retry">
+      <span class="ss-icon" aria-hidden="true">📤</span>
+      <div style="text-align:left">
+        <div class="ss-label">Outbox</div>
+        <div class="ss-value">${state.UI_STATE.outbox.length} failed</div>
+      </div>
+    </button>` : ''}
     ${(function lastFetchChip() {
       // Live-mode-only — bare Pages and #api=mock don't have a backend to
       // age out, and an empty chip would be more confusing than absent.
@@ -1546,6 +1577,8 @@ export function renderStatusStrip() {
       document.getElementById('btn-help')?.blur();
       // Trigger the existing freshness modal directly
       App.showFreshness?.();
+    } else if (action === 'outbox') {
+      showOutboxModal();
     } else if (action === 'toggle-relevance') {
       state.UI_STATE.officeRelevantOnly = !state.UI_STATE.officeRelevantOnly;
       toast(state.UI_STATE.officeRelevantOnly
