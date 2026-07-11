@@ -1,19 +1,109 @@
 /**
- * NRSA / S.T.A.R. View — legacy app script (extracted from inline block).
+ * NRSA / S.T.A.R. View — legacy app script.
  *
  * SESSION 2 / Step A (2026-06-19): the entire inline <script>...</script>
- * block from index.html was lifted into this file verbatim. No logic changes
- * vs. the previous inline version — purely a mechanical move so:
- *   - <script defer src="./js/legacy-app.js"> actually defers (the inline
- *     defer attribute is silently ignored by the HTML spec when there is
- *     no src attribute);
- *   - the module bridge in main.js can execute BEFORE this script and
- *     wire window.STATE / window.ALERTS / etc. (bridge added in Step B).
+ * block from index.html was lifted into this file verbatim. Since then,
+ * modularization sessions 1-3 + cleanup extracted most of the logic into
+ * dedicated ES modules under js/*.
  *
- * This file is intentionally LARGE (~6300 lines). It will shrink in
- * sessions 3+ as render / modals / persistence / api functions migrate
- * to their dedicated modules. For now, treat it as the single legacy unit.
+ * Phase 2 of legacy-app modularization (2026-07-13, atomic commit): this
+ * file is NOW an ES module. Script tag in index.html:234 is
+ * <script type="module" src="./js/legacy-app.js">. All previously-bare
+ * cross-module reads are now explicit imports at the top of this file.
+ * Reassignable state (state.ALERTS, state.TRAVELERS, state.EMPLOYEES, ...) reads and writes
+ * go through the state singleton (state.ALERTS = [...], etc.). The old
+ * bare `STATE.X` reads are now `state.UI_STATE.X`.
+ *
+ * The Object.assign(window, {...}) block at the bottom of this file
+ * re-exposes the identifiers OTHER modules still read from window — the
+ * 12 top-level functions and 4 top-level consts flagged by grep-audit as
+ * cross-module reads. The App namespace (window.App = {...} at line ~mid
+ * file) stays as-is; it was always explicitly attached and never depended
+ * on classic-script fall-through.
+ *
+ * Import surface: 69 sibling-module exports grouped by source module.
+ * If any new bare identifier gets added, `npm run lint` will fire no-undef
+ * immediately — that's the whole point of the modularization.
  */
+
+import {
+  ALERT_TYPES,
+  COUNTRY_PRESENCE,
+  OFFICES,
+  OFFICE_BY_ID,
+  SEVERITY,
+  SEV_COLOR,
+  SEV_NAME,
+  SEV_RANK,
+  SOURCES,
+  TEMPLATES,
+  TEMPLATE_CATEGORIES,
+  TEST_ROUTING,
+} from './constants.js';
+import { state } from './state.js';
+import {
+  enrichEventWithImpact,
+  esc,
+  fmtHeadcount,
+  linkify,
+  nowMinus,
+  rand,
+  randomName,
+  relTime,
+  suggestTemplate,
+  uid,
+} from './helpers.js';
+import {
+  applyPanelWidths,
+  applyTheme,
+  buildLayerControls,
+  closePanel,
+  isModalOpen,
+  openPanel,
+  positionToolsDropdown,
+  renderAll,
+  renderCC,
+  renderEmployees,
+  renderFeed,
+  renderIncidents,
+  renderOffices,
+  renderStatusStrip,
+  renderTravelers,
+  selectAlert,
+  setCcTab,
+  setupPanelResize,
+  showFreshness,
+  startStatusStripTicker,
+  togglePanel,
+} from './render.js';
+import {
+  bcpAvailableCountries,
+  clearBCIWaitingChip,
+  closeModal,
+  riskModalHTML,
+  showBCPModal,
+  showModal,
+  showRiskProfileModal,
+  showTravelersList,
+  toast,
+} from './modals.js';
+import {
+  exportData,
+  loadState,
+  resetData,
+  showAlertDetails,
+} from './persistence.js';
+import {
+  API_BASE,
+  getStoredToken,
+  mapBackendCategory,
+  showLoginModal,
+} from './api.js';
+import { createIncident } from './incidents.js';
+import {
+  bootDemoMode,
+  bootTestScenarios,
+} from './demo.js';
 
 /* ============================================================
    New Relic Safety Alerts — single-file prototype (v2, faithful)
@@ -57,13 +147,13 @@
  * Pages headcount is undefined and the UI should show pending-integration
  * placeholders rather than NaN or "undefined". */
 
-/* ACLED risk-rollup helpers — ACLED_RISK is mock data populated only in
+/* ACLED risk-rollup helpers — state.ACLED_RISK is mock data populated only in
  * #api=mock (see ACLED_RISK_MOCK + demo IIFE boot). In live + bare Pages
  * the BCI Country Risk Profile panel shows a "pending ACLED" placeholder. */
 
 /* Sum the per-country rollups across the supplied country names. Returns
  * the same schema each ACLED_RISK_MOCK entry has, with totalEvents added.
- * Countries the operator selected that aren't in ACLED_RISK contribute 0. */
+ * Countries the operator selected that aren't in state.ACLED_RISK contribute 0. */
 
 /* WHO Disease Outbreak helpers — same gating pattern as ACLED. Empty in
  * live + bare Pages until the WHO adapter ships; populated from
@@ -83,8 +173,8 @@
  * shows, just grouped by country.
  *
  * Works in BOTH live and mock modes (no integration gating needed —
- * uses ALERTS state directly). In live mode, the backend feeds it
- * real data. In mock mode, the seed ALERTS + demo cycler feed it.
+ * uses state.ALERTS state directly). In live mode, the backend feeds it
+ * real data. In mock mode, the seed state.ALERTS + demo cycler feed it.
  */
 
 /** Map an alert to a country name. Tries office country first (most
@@ -113,7 +203,7 @@
 /** Empty hazard rollup with all keys zeroed and travelAdvisoryLevel null. */
 
 /** Aggregate active alerts in the given country into a single hazard rollup.
- *  Looks at ALERTS state — the same array the dashboard renders. */
+ *  Looks at state.ALERTS state — the same array the dashboard renders. */
 
 /** Sum live-hazard rollups across multiple countries. Travel Advisory level
  *  takes the MAX across countries (highest sev wins). */
@@ -130,14 +220,14 @@
  * Override either way with URL hash:  #api=https://your-deployed-backend.example.com
  * Or force mock mode:                  #api=mock
  *
- * MOCK MODE = no network calls, hardcoded ALERTS, dashboard works fully offline.
+ * MOCK MODE = no network calls, hardcoded state.ALERTS, dashboard works fully offline.
  * LIVE MODE = JWT login modal, fetches /api/events, subscribes to SSE stream.
  */
 
 
 /* ---------- 2. Mock data generators ---------- */
 
-ALERTS = [
+state.ALERTS = [
   { id:'a1',  sev:'high', type:'Civil Unrest',     source:'GDELT',      title:'Planned protest near Westminster — possible road closures',
     location:'London, UK', officeId:'LON', lat:51.501, lng:-0.124, radiusKm:5,
     summary:'Multiple groups gathering at Parliament Square 14:00 local. MPS advising avoidance of Whitehall.', issued: nowMinus(95) },
@@ -224,13 +314,13 @@ function buildEmployees() {
   });
   return list;
 }
-EMPLOYEES = buildEmployees();
+state.EMPLOYEES = buildEmployees();
 
 /* Travelers — populated only in #api=mock by the demo bootstrap (TRAVELERS_MOCK
    defined alongside the demo simulator). Live + bare GitHub Pages keep
-   TRAVELERS = [] and the Travelers modal / BCI exposure readout show
+   state.TRAVELERS = [] and the Travelers modal / BCI exposure readout show
    "Pending Navan integration" placeholders, mirroring the existing
-   Workday-pending pattern for REMOTE_EMPLOYEES. The Navan API will return
+   Workday-pending pattern for state.REMOTE_EMPLOYEES. The Navan API will return
    the same record shape as TRAVELERS_MOCK below; production will swap the
    bootstrap line for a fetch. */
 
@@ -251,8 +341,8 @@ EMPLOYEES = buildEmployees();
  */
 
 
-STATE.visibleOffices    = OFFICES.map(o => o.id);
-STATE.visibleAlertTypes = ALERT_TYPES.slice();
+state.UI_STATE.visibleOffices    = OFFICES.map(o => o.id);
+state.UI_STATE.visibleAlertTypes = ALERT_TYPES.slice();
 
 /* ---------- 4. Map setup ---------- */
 const map = L.map('map', { worldCopyJump: true, minZoom: 2, maxZoom: 14, zoomControl: true })
@@ -385,14 +475,14 @@ function hazardPopupHTML(def, z) {
 /** Manage live tile overlays (precip + temp). */
 async function applyTileOverlays() {
   // Precipitation radar — RainViewer
-  if (STATE.hazards.precip) {
+  if (state.UI_STATE.hazards.precip) {
     const layer = await ensurePrecipTileLayer();
-    if (layer && STATE.hazards.precip && !map.hasLayer(layer)) layer.addTo(map);
+    if (layer && state.UI_STATE.hazards.precip && !map.hasLayer(layer)) layer.addTo(map);
   } else if (tileOverlayLayers.precip && map.hasLayer(tileOverlayLayers.precip)) {
     map.removeLayer(tileOverlayLayers.precip);
   }
   // Live land surface temperature — NASA GIBS
-  if (STATE.hazards.temp) {
+  if (state.UI_STATE.hazards.temp) {
     const layer = ensureTempTileLayer();
     if (layer && !map.hasLayer(layer)) layer.addTo(map);
   } else if (tileOverlayLayers.temp && map.hasLayer(tileOverlayLayers.temp)) {
@@ -410,7 +500,7 @@ async function applyTileOverlays() {
 
 /* Test-mode routing — single channel + single distro shared across all offices.
  *
- * When STATE.isTest is true at dispatch, the message is routed exclusively
+ * When state.UI_STATE.isTest is true at dispatch, the message is routed exclusively
  * to these endpoints regardless of the office picker, AND the body is
  * prefixed with a clear drill-warning preamble. The Slack / email / SMS
  * integrations are still simulated stubs in this build, but encoding the
@@ -451,14 +541,14 @@ function testRecipientsForChannel(ch) {
 
 /* ---------- 12. INCIDENTS render ---------- */
 function selectIncident(id) {
-  STATE.selectedIncidentId = id;
-  STATE.incidentTab = 'details';
+  state.UI_STATE.selectedIncidentId = id;
+  state.UI_STATE.incidentTab = 'details';
   renderIncidents();
 }
 function visibleIncidents() {
-  const f = STATE.incidentListFilter;
-  if (f === 'all') return STATE.incidents;
-  return STATE.incidents.filter(i => i.status === f);
+  const f = state.UI_STATE.incidentListFilter;
+  if (f === 'all') return state.UI_STATE.incidents;
+  return state.UI_STATE.incidents.filter(i => i.status === f);
 }
 
 /* ---------- 13. Layers panel + filters ---------- */
@@ -493,7 +583,7 @@ function loadEmpCSV(file) {
           officeLat:o.lat, officeLng:o.lng,
         });
       });
-      EMPLOYEES = out;
+      state.EMPLOYEES = out;
       renderEmployees();
       toast(`${out.length} employees loaded${skipped?` · ${skipped} skipped (unknown office)`:''}.`);
     } catch(err) {
@@ -527,7 +617,7 @@ function loadTravCSV(file) {
         lng: parseFloat(idx('lng') >= 0 ? c[idx('lng')] : 0)||0,
         atOffice: ((idx('at_office') >= 0 ? c[idx('at_office')] : '')||'').trim().toUpperCase()||null,
       }));
-      TRAVELERS = out;
+      state.TRAVELERS = out;
       renderTravelers(); renderOffices();
       toast(`${out.length} travelers loaded.`);
     } catch(err) {
@@ -552,7 +642,7 @@ function setupDraw() {
     document.querySelectorAll('[data-shape]').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     disableAllDrawHandlers();              // ensure only one shape handler is live
-    if (STATE.fence) clearFence();
+    if (state.UI_STATE.fence) clearFence();
     drawHandlers[b.dataset.shape].enable();
     toast('Click on the map to draw.');
     // Announce draw-mode activation through the aria-live region in the
@@ -569,19 +659,19 @@ function setupDraw() {
   document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-mode]').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
-    STATE.fenceMode = b.dataset.mode;
-    if (STATE.fence) computeFenceResults();
+    state.UI_STATE.fenceMode = b.dataset.mode;
+    if (state.UI_STATE.fence) computeFenceResults();
   }));
   map.on(L.Draw.Event.CREATED, e => {
     disableAllDrawHandlers();              // exit drawing mode after a shape lands
     document.querySelectorAll('[data-shape]').forEach(x => x.classList.remove('active'));
     const layer = e.layer; layers.fence.addLayer(layer);
-    STATE.fence = { layer, shape: e.layerType };
+    state.UI_STATE.fence = { layer, shape: e.layerType };
     computeFenceResults();
     // If the BCI form was waiting for a fence, close Map Tools and reopen
     // the modal with form state preserved + useFence pre-checked.
-    if (typeof BCP_FORM !== 'undefined' && BCP_FORM._waitingForFence) {
-      BCP_FORM.useFence = true;
+    if (typeof state.BCP_FORM !== 'undefined' && state.BCP_FORM._waitingForFence) {
+      state.BCP_FORM.useFence = true;
       if (typeof clearBCIWaitingChip === 'function') clearBCIWaitingChip();
       document.getElementById('tools-dropdown').classList.remove('open');
       showBCPModal(true);
@@ -593,7 +683,7 @@ function setupDraw() {
 }
 function clearFence() {
   layers.fence.clearLayers();
-  STATE.fence = null;
+  state.UI_STATE.fence = null;
   document.getElementById('fence-bottom').style.display = 'none';
   document.getElementById('fence-results').innerHTML = '<div class="empty">Draw a shape to see results.</div>';
   document.getElementById('fence-result-summary').textContent = '';
@@ -601,16 +691,16 @@ function clearFence() {
   renderAll();
 }
 function pointInFence(lat, lng) {
-  if (!STATE.fence) return false;
-  const layer = STATE.fence.layer;
+  if (!state.UI_STATE.fence) return false;
+  const layer = state.UI_STATE.fence.layer;
   if (layer.getRadius) {
     const c = layer.getLatLng();
     return map.distance([lat,lng], [c.lat, c.lng]) <= layer.getRadius();
   }
-  if (layer.getBounds && STATE.fence.shape === 'rectangle') {
+  if (layer.getBounds && state.UI_STATE.fence.shape === 'rectangle') {
     return layer.getBounds().contains([lat, lng]);
   }
-  if (STATE.fence.shape === 'polygon') {
+  if (state.UI_STATE.fence.shape === 'polygon') {
     const pts = layer.getLatLngs()[0];
     let inside = false;
     for (let i=0,j=pts.length-1;i<pts.length;j=i++) {
@@ -623,12 +713,12 @@ function pointInFence(lat, lng) {
   return false;
 }
 function computeFenceResults() {
-  if (!STATE.fence) return;
+  if (!state.UI_STATE.fence) return;
   const offIn = OFFICES.filter(o => pointInFence(o.lat, o.lng));
-  const empIn = EMPLOYEES.filter(e => pointInFence(STATE.empMode==='zip'?e.lat:e.officeLat, STATE.empMode==='zip'?e.lng:e.officeLng));
-  const travIn = TRAVELERS.filter(t => pointInFence(t.lat, t.lng));
-  const alertIn = ALERTS.filter(a => pointInFence(a.lat, a.lng));
-  STATE.fence.results = { offices: offIn, employees: empIn, travelers: travIn, alerts: alertIn };
+  const empIn = state.EMPLOYEES.filter(e => pointInFence(state.UI_STATE.empMode==='zip'?e.lat:e.officeLat, state.UI_STATE.empMode==='zip'?e.lng:e.officeLng));
+  const travIn = state.TRAVELERS.filter(t => pointInFence(t.lat, t.lng));
+  const alertIn = state.ALERTS.filter(a => pointInFence(a.lat, a.lng));
+  state.UI_STATE.fence.results = { offices: offIn, employees: empIn, travelers: travIn, alerts: alertIn };
   // dropdown
   const drop = document.getElementById('fence-results');
   drop.innerHTML = `
@@ -656,16 +746,16 @@ function computeFenceResults() {
   const badge = document.getElementById('fence-badge');
   if (maxSev) badge.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${SEV_COLOR[SEVERITY[maxSev-1]]};margin-left:4px"></span>`;
   // Filter mode hides things outside
-  if (STATE.fenceMode === 'filter') {
+  if (state.UI_STATE.fenceMode === 'filter') {
     // dim non-fenced offices visually (re-render with subset)
-    STATE.visibleOffices = offIn.map(o => o.id);
-    document.querySelectorAll('[data-vis-office]').forEach(c => c.checked = STATE.visibleOffices.includes(c.dataset.visOffice));
+    state.UI_STATE.visibleOffices = offIn.map(o => o.id);
+    document.querySelectorAll('[data-vis-office]').forEach(c => c.checked = state.UI_STATE.visibleOffices.includes(c.dataset.visOffice));
     renderAll();
   }
 }
 function exportFenceCSV() {
-  if (!STATE.fence?.results) return;
-  const r = STATE.fence.results;
+  if (!state.UI_STATE.fence?.results) return;
+  const r = state.UI_STATE.fence.results;
   const rows = [['Type','Name','Office','Role/Dest','Lat','Lng']];
   r.employees.forEach(e => rows.push(['home', e.name, e.office, e.role||'', e.lat, e.lng]));
   r.travelers.forEach(t => rows.push(['traveler', t.name, t.home, t.destCity, t.lat, t.lng]));
@@ -677,10 +767,10 @@ function exportFenceCSV() {
   toast('Geofence exported.');
 }
 function fenceToCrisis() {
-  if (!STATE.fence?.results) return;
-  STATE.selectedOffices = STATE.fence.results.offices.map(o => o.id);
+  if (!state.UI_STATE.fence?.results) return;
+  state.UI_STATE.selectedOffices = state.UI_STATE.fence.results.offices.map(o => o.id);
   openPanel('crisis'); setCcTab('compose'); renderCC();
-  toast(`${STATE.selectedOffices.length} office(s) pre-selected.`);
+  toast(`${state.UI_STATE.selectedOffices.length} office(s) pre-selected.`);
 }
 
 /* ---------- 15. Panels & dropdown management ---------- */
@@ -739,11 +829,11 @@ function openMapToolsTab(tab) {
 document.querySelectorAll('[data-feed-tab]').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('[data-feed-tab]').forEach(x => x.classList.remove('active'));
   t.classList.add('active');
-  STATE.feedTab = t.dataset.feedTab;
+  state.UI_STATE.feedTab = t.dataset.feedTab;
   renderFeed();
 }));
 document.querySelectorAll('[data-cc-tab]').forEach(t => t.addEventListener('click', () => setCcTab(t.dataset.ccTab)));
-document.getElementById('feed-search').addEventListener('input', e => { STATE.search = e.target.value; renderFeed(); });
+document.getElementById('feed-search').addEventListener('input', e => { state.UI_STATE.search = e.target.value; renderFeed(); });
 
 document.getElementById('btn-reset-view').onclick = () => App.resetView();
 document.addEventListener('keydown', e => {
@@ -757,7 +847,7 @@ document.addEventListener('keydown', e => {
   App.resetView();
 });
 
-document.getElementById('btn-style').onclick = () => applyTheme(STATE.theme === 'dark' ? 'light' : 'dark');
+document.getElementById('btn-style').onclick = () => applyTheme(state.UI_STATE.theme === 'dark' ? 'light' : 'dark');
 // restore saved theme on boot
 try {
   const saved = localStorage.getItem('nrsa-theme');
@@ -823,7 +913,7 @@ document.getElementById('btn-new-incident').onclick = () => {
 /* ---------- 17. Public hooks for popup buttons ---------- */
 window.App = {
   targetOffice(id) {
-    if (!STATE.selectedOffices.includes(id)) STATE.selectedOffices.push(id);
+    if (!state.UI_STATE.selectedOffices.includes(id)) state.UI_STATE.selectedOffices.push(id);
     openPanel('crisis'); setCcTab('compose'); renderCC();
     toast(`${id} added to Crisis Comms.`);
   },
@@ -838,30 +928,30 @@ window.App = {
     // close any open popup, fit to all offices
     map.closePopup();
     map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
-    STATE.selectedAlertId = null;
+    state.UI_STATE.selectedAlertId = null;
     renderFeed();
   },
   removeOffice(id) {
-    STATE.selectedOffices = STATE.selectedOffices.filter(x => x !== id);
+    state.UI_STATE.selectedOffices = state.UI_STATE.selectedOffices.filter(x => x !== id);
     renderCC();
   },
   crisisFromAlert(alertId) {
-    const a = ALERTS.find(x => x.id === alertId); if (!a) return;
-    if (a.officeId && !STATE.selectedOffices.includes(a.officeId)) {
-      STATE.selectedOffices = [a.officeId];
+    const a = state.ALERTS.find(x => x.id === alertId); if (!a) return;
+    if (a.officeId && !state.UI_STATE.selectedOffices.includes(a.officeId)) {
+      state.UI_STATE.selectedOffices = [a.officeId];
     }
     // Pre-fill subject with alert context, only if currently empty
-    if (!STATE.subject) {
+    if (!state.UI_STATE.subject) {
       const o = a.officeId ? OFFICE_BY_ID[a.officeId] : null;
-      STATE.subject = `[${SEV_NAME[a.sev]}] ${a.title}${o?` — ${o.name}`:''}`;
+      state.UI_STATE.subject = `[${SEV_NAME[a.sev]}] ${a.title}${o?` — ${o.name}`:''}`;
     }
     // Smart-suggest a template based on the alert. Only if the operator hasn't
     // already picked one (e.g. via a prior Crisis click + draft persistence).
     let suggestedTplName = '';
-    if (!STATE.template) {
+    if (!state.UI_STATE.template) {
       const id = suggestTemplate(a);
       if (id && TEMPLATES[id]) {
-        STATE.template = id;
+        state.UI_STATE.template = id;
         suggestedTplName = TEMPLATES[id].name;
       }
     }
@@ -913,7 +1003,7 @@ applyPanelWidths();
 setupPanelResize();
 renderAll();
 if (_restored) {
-  setTimeout(() => toast(`Restored from local save${lastSavedAt?` (${relTime(lastSavedAt.toISOString())} ago)`:''}.`), 400);
+  setTimeout(() => toast(`Restored from local save${state.lastSavedAt?` (${relTime(state.lastSavedAt.toISOString())} ago)`:''}.`), 400);
 }
 /* Fit map to show all offices, with padding for the rails/header */
 map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
@@ -923,7 +1013,7 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(() => {
     map.invalidateSize();
     // only re-fit if user hasn't drilled into a specific selection
-    if (!STATE.selectedAlertId && !STATE.selectedIncidentId && !STATE.fence) {
+    if (!state.UI_STATE.selectedAlertId && !state.UI_STATE.selectedIncidentId && !state.UI_STATE.fence) {
       map.fitBounds(L.latLngBounds(OFFICES.map(o => [o.lat, o.lng])), { padding: [40, 60] });
     }
   }, 120);
@@ -939,11 +1029,11 @@ function handleHashRoute() {
   const h = location.hash;
   let m;
   if (m = h.match(/^#alert\/(.+)$/)) {
-    const a = ALERTS.find(x => x.id === m[1]);
+    const a = state.ALERTS.find(x => x.id === m[1]);
     if (a) { selectAlert(a.id); openPanel('alerts'); }
     history.replaceState(null, '', location.pathname + location.search);
   } else if (m = h.match(/^#open-incident\/(.+)$/)) {
-    const a = ALERTS.find(x => x.id === m[1]);
+    const a = state.ALERTS.find(x => x.id === m[1]);
     if (a && a.officeId) {
       const inc = createIncident({
         title: a.title, offices: [a.officeId], severity: a.sev,
@@ -956,7 +1046,7 @@ function handleHashRoute() {
     }
     history.replaceState(null, '', location.pathname + location.search);
   } else if (m = h.match(/^#incident\/(.+)$/)) {
-    const inc = STATE.incidents.find(x => x.id === m[1]);
+    const inc = state.UI_STATE.incidents.find(x => x.id === m[1]);
     if (inc) { openPanel('incident'); selectIncident(inc.id); }
     history.replaceState(null, '', location.pathname + location.search);
   }
@@ -985,7 +1075,7 @@ handleHashRoute();
  *
  * Wraps the /api/incidents/* and /api/comms/* endpoints and translates
  * the backend's snake_case payloads into the camelCase shape the
- * frontend STATE.incidents and STATE.crisisLog use. Each helper either
+ * frontend state.UI_STATE.incidents and state.UI_STATE.crisisLog use. Each helper either
  * returns the mapped result or throws — callers should handle errors
  * with a try/catch + toast or graceful fallback.
  *
@@ -993,7 +1083,7 @@ handleHashRoute();
  * with a clear error so localStorage paths can take over.
  */
 
-/** Map a backend incidents row into the prototype's STATE.incidents shape. */
+/** Map a backend incidents row into the prototype's state.UI_STATE.incidents shape. */
 
 
 
@@ -1031,13 +1121,13 @@ handleHashRoute();
  * (or any time the API persist failed and the user kept working) live in
  * localStorage with a local-shape id (`i_xxx` from uid()). Once the user
  * boots in live mode against a healthy backend, those incidents would be
- * silently overwritten by backfillIncidents — which replaces STATE.incidents
+ * silently overwritten by backfillIncidents — which replaces state.UI_STATE.incidents
  * with the server's canonical list. So before we backfill, we sweep up any
  * local-only entries and POST them.
  *
  * Strategy: best-effort, sequential. Create the incident on the server,
- * swap STATE.incidents[i].id (and STATE.responses[id], STATE.selectedIncidentId,
- * STATE.linkedIncidentId) to the new server UUID, then post each
+ * swap state.UI_STATE.incidents[i].id (and state.UI_STATE.responses[id], state.UI_STATE.selectedIncidentId,
+ * state.UI_STATE.linkedIncidentId) to the new server UUID, then post each
  * message / note / response / close in order. Each sub-resource is wrapped
  * in its own try/catch so a single failure doesn't strand the rest of the
  * incident's history.
@@ -1056,7 +1146,7 @@ if (API_BASE) {
 }
 
 /* =========================================================================
-   21b. TRAVELERS LIST MODAL
+   21b. state.TRAVELERS LIST MODAL
    Click ✈ Travelers in header → modal with sortable table, search, type
    filter (flight/hotel/office), CSV export, and per-row actions: 📍 zoom
    map to the traveler, ✉ pre-fill Crisis Comms with traveler context.
@@ -1153,15 +1243,15 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
    Two entry points:
    • Header button 🌐 Risk Profile → opens this modal cold (empty selection)
    • BCI modal "View full Risk Profile →" link → opens this modal pre-
-     populated with BCP_FORM.countries
+     populated with state.BCP_FORM.countries
 
    Live + bare Pages mode: shows pending-integration placeholder.
-   Mock mode: full UI populated from ACLED_RISK / ACLED_RISK_MOCK.
+   Mock mode: full UI populated from state.ACLED_RISK / ACLED_RISK_MOCK.
    ========================================================================= */
 
 
 /* Build the country list for the chip grid:
- *   - Union of COUNTRY_PRESENCE (always loaded) + ACLED_RISK (mock-only)
+ *   - Union of COUNTRY_PRESENCE (always loaded) + state.ACLED_RISK (mock-only)
  *   - Filtered by search (substring on name) and region filter
  *   - Sorted by ACLED total event count DESC when available so high-incident
  *     countries surface first; alphabetical when no ACLED data
@@ -1196,10 +1286,52 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
    that gate now lives inside each exported function, so we just call them
    here unconditionally and they no-op outside mock mode.
 
-   Both functions touch a wide surface: ALERTS / TRAVELERS / EMPLOYEES,
+   Both functions touch a wide surface: state.ALERTS / state.TRAVELERS / state.EMPLOYEES,
    render pipeline (renderAll, enrichEventWithImpact, buildEmployees), modals
    (showModal, showBCPModal, App.closeModal), and toast — all bridged to
    window via main.js, so bare references inside demo.js resolve at call time.
    ========================================================================= */
+
+/* ---------- Object.assign(window, {...}) — Phase 2 module re-attach ----------
+   legacy-app.js is now an ES module (2026-07-13). Top-level function decls
+   and const decls no longer implicitly attach to window like they did under
+   classic-script mode. This block explicitly re-exposes the identifiers
+   OTHER modules read as bare globals (audit'd via grep in the Phase 2
+   commit). Bare reads in a module still fall through to the global scope
+   (window) for LOOKUP — but only if the property is explicitly attached
+   somehow. This is that "somehow".
+
+   Grouped for readability. Adding a new top-level fn that other modules
+   need? Add it here. Removing a bare read from a consumer module? Consider
+   trimming from here (and from eslint.config.js globals).
+
+   NOT re-attached (module-scoped only, internal to legacy-app.js):
+     - ensurePrecipTileLayer, ensureTempTileLayer, testRecipientsForChannel,
+       disableAllDrawHandlers, setupDraw, computeFenceResults, openMapToolsTab,
+       tick, handleHashRoute — no cross-module code refs per Phase 2 audit.
+     - exportFenceCSV, fenceToCrisis, showAlertDetails-adjacent — reached
+       via window.App = {...} (line ~mid file, explicit attach) so window
+       resolution works. */
+Object.assign(window, {
+  // Leaflet map instance + layer refs (real Leaflet usage in render.js:470, 1509)
+  map,
+  layers,
+  TILES,
+  OFFICE_MARKERS,
+  // Top-level functions other modules call as bare identifiers
+  buildEmployees,       // demo.js:375 (state.EMPLOYEES = buildEmployees())
+  hazardPopupHTML,      // render.js:266, 271 (popup bindings)
+  applyTileOverlays,    // render.js:303
+  selectIncident,       // render.js:1127, 1522 + modals.js:301
+  visibleIncidents,     // render.js:945
+  loadEmpCSV,           // render.js:1312 (CSV file input handler)
+  loadTravCSV,          // render.js:1315
+  clearFence,           // modals.js:848 (BCI fence-clear button)
+  pointInFence,         // modals.js:644, 645 (fence-inside filter)
+  setMapToolsTab,       // modals.js:841
+  _fmtTravDate,         // modals.js:464, 467 (traveler date formatting)
+  _fmtTravTime,         // modals.js:462 (traveler flight-time formatting)
+});
+
 bootDemoMode();
 bootTestScenarios();

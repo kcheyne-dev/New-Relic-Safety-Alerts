@@ -67,14 +67,15 @@ export default [
         // Bridged identifiers from js/constants.js (Object.assign onto window
         // in main.js step 5). Trim entries as modules switch to explicit
         // imports. See the docblock above.
-        SEVERITY: 'readonly',
-        SEV_RANK: 'readonly',
-        SEV_NAME: 'readonly',
-        SEV_COLOR: 'readonly',
-        ALERT_TYPES: 'readonly',
-        SOURCES: 'readonly',
-        OFFICES: 'readonly',
-        OFFICE_BY_ID: 'readonly',
+        //
+        // SEVERITY / SEV_RANK / SEV_NAME / SEV_COLOR / ALERT_TYPES / SOURCES /
+        // OFFICES / OFFICE_BY_ID / TEMPLATES / TEMPLATE_CATEGORIES / TEST_ROUTING
+        // all trimmed 2026-07-13 (Phase 2 of legacy-app modularization). Phase 2
+        // converted legacy-app.js to an ES module and added explicit imports
+        // for every constant it used; render.js was extended in the same
+        // commit to import the constants it had been reading bare. That
+        // leaves ZERO bare readers of these 11 identifiers across js/ — the
+        // ESLint globals list no longer needs to declare them.
         // COUNTRY_PRESENCE trimmed 2026-07-13 (modals.js first-imports):
         // helpers.js already imported (batch C); modals.js added imports
         // this batch. Grep confirms no other bare users.

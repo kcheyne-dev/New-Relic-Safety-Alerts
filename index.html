@@ -227,10 +227,12 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-<!-- Module bridge — sets up window.state + getter/setters for window.STATE /
-     window.ALERTS / etc. so legacy-app.js can keep using bare identifiers.
-     Loaded BEFORE legacy-app.js; both are deferred and execute in document order. -->
+<!-- Module bridge — main.js sets up window.state + getter/setters for
+     window.STATE / window.ALERTS / etc. Historically legacy-app.js read those
+     bare; as of 2026-07-13 legacy-app.js is also an ES module and reads them
+     via explicit imports. Both scripts are module-type and execute in
+     document order (implicit defer for module scripts). -->
 <script type="module" src="./js/main.js"></script>
-<script defer src="./js/legacy-app.js"></script>
+<script type="module" src="./js/legacy-app.js"></script>
 </body>
 </html>

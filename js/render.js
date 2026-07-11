@@ -45,13 +45,31 @@
  * loop after the bridge is ready. Same rationale as bootLiveMode.
  */
 
+// Bridge-cleanup render.js constants hygiene (2026-07-13, Phase 2 of
+// legacy-app modularization). Extended imports from {OFFICES, HAZARD_ZONES,
+// ...} to cover every constants.js identifier render.js references in code.
+// Grep-audit found 10 previously-bare constants: SEVERITY (5 refs), SEV_NAME
+// (11), SEV_COLOR (4), SEV_RANK (2), ALERT_TYPES (1), SOURCES (7), TEMPLATES
+// (1), TEMPLATE_CATEGORIES (1), TEST_ROUTING (2), OFFICE_BY_ID (6). Adding
+// them here unlocks ESLint globals trims — legacy-app.js now imports these
+// too (Phase 2 atomic commit), so render.js was the last bare-reader.
 import {
+  ALERT_TYPES,
   ATT_EMBED_LIMIT,
   HAZARD_ZONES,
   OFFICES,
+  OFFICE_BY_ID,
   PANEL_MIN_W,
   PANEL_MAX_W,
   ROLE_TAG_STYLE,
+  SEVERITY,
+  SEV_COLOR,
+  SEV_NAME,
+  SEV_RANK,
+  SOURCES,
+  TEMPLATES,
+  TEMPLATE_CATEGORIES,
+  TEST_ROUTING,
   TILE_OVERLAYS,
 } from './constants.js';
 import { state } from './state.js';
