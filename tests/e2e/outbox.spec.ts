@@ -90,12 +90,20 @@ test.describe('NRSA failed-outbox smoke', () => {
     await page.click('#rail-crisis');
     await pickFirstOffice(page);
 
-    // Uncheck response-required so this becomes a standalone comms send
-    // (dispatchSend flow: no linkedIncidentId + no responseRequired → commsApi.send).
-    const respRequired = page.locator('#resp-required');
-    if (await respRequired.isChecked()) {
-      await respRequired.uncheck();
-    }
+    // Force this send to take the standalone-comms branch of dispatchSend
+    // (no linkedIncidentId + responseRequired=false → commsApi.send). The
+    // #resp-required checkbox is hidden inside the collapsed "Advanced"
+    // disclosure by default, so poking it via the UI would require opening
+    // that disclosure first. Cleaner to set the flag directly on state
+    // and let the next render pick it up.
+    await page.evaluate(() => {
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const s = (window as any).state;
+      if (s?.UI_STATE) {
+        s.UI_STATE.responseRequired = false;
+        s.UI_STATE.linkedIncidentId = null;   // guard against contamination from prior smoke run
+      }
+    });
 
     const failBody = `${RUN_ID} SCENARIO 1 — forced comms failure`;
     await page.fill('#msg-body', failBody);
@@ -151,6 +159,20 @@ test.describe('NRSA failed-outbox smoke', () => {
     // Switch back to the Compose tab; the previous send left us on Log.
     await page.click('#panel-crisis .tab[data-cc-tab="compose"]');
     await pickFirstOffice(page);
+
+    // Belt-and-suspenders: ensure the standalone-comms branch fires again.
+    // dispatchSend resets linkedIncidentId based on inc after each send, but
+    // renders in between may pick up a fresh state — reasserting here keeps
+    // the test hermetic against future dispatchSend body changes.
+    await page.evaluate(() => {
+      /* eslint-disable @typescript-eslint/no-explicit-any */
+      const s = (window as any).state;
+      if (s?.UI_STATE) {
+        s.UI_STATE.responseRequired = false;
+        s.UI_STATE.linkedIncidentId = null;
+      }
+    });
+
     const failBody2 = `${RUN_ID} SCENARIO 3 — for dismiss`;
     await page.fill('#msg-body', failBody2);
     await page.click('#btn-send');
