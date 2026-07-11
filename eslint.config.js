@@ -230,7 +230,8 @@ export default [
           'visibleIncidents',
           'loadEmpCSV', 'loadTravCSV',
           '_fmtTravDate', '_fmtTravTime',
-          '_riskSearchDebounce',
+          // _riskSearchDebounce moved to modals.js module scope 2026-07-13 (Phase 1
+          // of legacy-app modularization — see modals.js top-level let)
         ].map(name => [name, 'readonly'])),
       },
     },

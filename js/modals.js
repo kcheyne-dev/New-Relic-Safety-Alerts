@@ -152,6 +152,17 @@ import {
   reopenIncident,
 } from './incidents.js';
 
+/* Module-scoped debounce handle for the Risk modal search input. Moved from
+   legacy-app.js as part of the 2026-07-13 legacy-app modularization Phase 1 —
+   modals.js was the sole consumer, and keeping it as a top-level `let` in
+   legacy-app.js would have required a window getter/setter shim after
+   legacy-app.js becomes an ES module (module top-level `let`s do NOT auto-
+   attach to window). It survives the re-bind cycle that happens on every
+   modal re-render — bindRiskModalHandlers() is called both on initial open
+   and after every re-render, and we want a single shared timer rather than
+   one per call. */
+let _riskSearchDebounce = null;
+
 export function confirmSend() {
   const channels = Object.entries(state.UI_STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
   if (!channels.length || !state.UI_STATE.selectedOffices.length) return;
