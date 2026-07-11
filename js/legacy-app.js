@@ -14,12 +14,14 @@
  * go through the state singleton (state.ALERTS = [...], etc.). The old
  * bare `STATE.X` reads are now `state.UI_STATE.X`.
  *
- * The Object.assign(window, {...}) block at the bottom of this file
- * re-exposes the identifiers OTHER modules still read from window — the
- * 12 top-level functions and 4 top-level consts flagged by grep-audit as
- * cross-module reads. The App namespace (window.App = {...} at line ~mid
- * file) stays as-is; it was always explicitly attached and never depended
- * on classic-script fall-through.
+ * The Object.assign(window, {...}) block re-exposes the identifiers OTHER
+ * modules still read from window — the 12 top-level functions and 4
+ * top-level consts flagged by grep-audit as cross-module reads. It's
+ * placed EARLY (right after `const OFFICE_MARKERS = {};`) so it runs
+ * BEFORE any top-level call into another module that reads via window.
+ * The App namespace (window.App = {...} at line ~mid file) stays as-is;
+ * it was always explicitly attached and never depended on classic-script
+ * fall-through.
  *
  * Import surface: 69 sibling-module exports grouped by source module.
  * If any new bare identifier gets added, `npm run lint` will fire no-undef
@@ -398,6 +400,52 @@ const layers = {
 
 /* ---------- 6. Office markers + popups ---------- */
 const OFFICE_MARKERS = {};
+
+/* ---------- Object.assign(window, {...}) — Phase 2 module re-attach ----------
+   legacy-app.js is an ES module (2026-07-13). Top-level `function` decls and
+   `const` decls no longer implicitly attach to window like they did under
+   classic-script mode. This block explicitly re-exposes the identifiers
+   OTHER modules read as bare globals (audit'd via grep in the Phase 2
+   commit). Bare reads in a module fall through to the global scope for
+   LOOKUP — but only if the property has been explicitly attached. This is
+   that "somehow".
+
+   MUST run BEFORE any top-level call into another module that reads these
+   via window (buildLayerControls / renderAll / etc. at the bottom of this
+   file). Placed right after `const OFFICE_MARKERS = {};` — the last const
+   the block references. Functions are hoisted, so referencing them here
+   before their textual declaration further down the file is safe.
+
+   NOT re-attached (module-scoped only, internal to legacy-app.js):
+     - ensurePrecipTileLayer, ensureTempTileLayer, testRecipientsForChannel,
+       disableAllDrawHandlers, setupDraw, computeFenceResults, openMapToolsTab,
+       tick, handleHashRoute — no cross-module code refs per Phase 2 audit.
+     - exportFenceCSV, fenceToCrisis, exportData, resetData, showAlertDetails,
+       showFreshness, selectAlert, openMapToolsTab, closeModal — reached
+       via window.App = {...} (line ~mid file, explicit attach) so window
+       resolution works. */
+Object.assign(window, {
+  // Leaflet map instance + layer refs (real Leaflet usage in render.js:470, 1509)
+  map,
+  layers,
+  TILES,
+  OFFICE_MARKERS,
+  // Top-level functions other modules call as bare identifiers.
+  // These are `function` decls further down the file — hoisted so the
+  // reference here works even though they textually appear later.
+  buildEmployees,       // demo.js:375 (state.EMPLOYEES = buildEmployees())
+  hazardPopupHTML,      // render.js:266, 271 (popup bindings)
+  applyTileOverlays,    // render.js:303
+  selectIncident,       // render.js:1127, 1522 + modals.js:301
+  visibleIncidents,     // render.js:945
+  loadEmpCSV,           // render.js:1312 (CSV file input handler)
+  loadTravCSV,          // render.js:1315
+  clearFence,           // modals.js:848 (BCI fence-clear button)
+  pointInFence,         // modals.js:644, 645 (fence-inside filter)
+  setMapToolsTab,       // modals.js:841
+  _fmtTravDate,         // modals.js:464, 467 (traveler date formatting)
+  _fmtTravTime,         // modals.js:462 (traveler flight-time formatting)
+});
 
 /* ---------- 7. Alert dots ---------- */
 
@@ -1292,46 +1340,15 @@ document.getElementById('btn-bcp').onclick = () => showBCPModal();
    window via main.js, so bare references inside demo.js resolve at call time.
    ========================================================================= */
 
-/* ---------- Object.assign(window, {...}) — Phase 2 module re-attach ----------
-   legacy-app.js is now an ES module (2026-07-13). Top-level function decls
-   and const decls no longer implicitly attach to window like they did under
-   classic-script mode. This block explicitly re-exposes the identifiers
-   OTHER modules read as bare globals (audit'd via grep in the Phase 2
-   commit). Bare reads in a module still fall through to the global scope
-   (window) for LOOKUP — but only if the property is explicitly attached
-   somehow. This is that "somehow".
-
-   Grouped for readability. Adding a new top-level fn that other modules
-   need? Add it here. Removing a bare read from a consumer module? Consider
-   trimming from here (and from eslint.config.js globals).
-
-   NOT re-attached (module-scoped only, internal to legacy-app.js):
-     - ensurePrecipTileLayer, ensureTempTileLayer, testRecipientsForChannel,
-       disableAllDrawHandlers, setupDraw, computeFenceResults, openMapToolsTab,
-       tick, handleHashRoute — no cross-module code refs per Phase 2 audit.
-     - exportFenceCSV, fenceToCrisis, showAlertDetails-adjacent — reached
-       via window.App = {...} (line ~mid file, explicit attach) so window
-       resolution works. */
-Object.assign(window, {
-  // Leaflet map instance + layer refs (real Leaflet usage in render.js:470, 1509)
-  map,
-  layers,
-  TILES,
-  OFFICE_MARKERS,
-  // Top-level functions other modules call as bare identifiers
-  buildEmployees,       // demo.js:375 (state.EMPLOYEES = buildEmployees())
-  hazardPopupHTML,      // render.js:266, 271 (popup bindings)
-  applyTileOverlays,    // render.js:303
-  selectIncident,       // render.js:1127, 1522 + modals.js:301
-  visibleIncidents,     // render.js:945
-  loadEmpCSV,           // render.js:1312 (CSV file input handler)
-  loadTravCSV,          // render.js:1315
-  clearFence,           // modals.js:848 (BCI fence-clear button)
-  pointInFence,         // modals.js:644, 645 (fence-inside filter)
-  setMapToolsTab,       // modals.js:841
-  _fmtTravDate,         // modals.js:464, 467 (traveler date formatting)
-  _fmtTravTime,         // modals.js:462 (traveler flight-time formatting)
-});
+/* Object.assign(window, {...}) block was here (line ~1315) in the initial
+   Phase 2 commit but MOVED UP to run right after `const OFFICE_MARKERS = {};`
+   (2026-07-13 Phase 2 hotfix). Rationale: legacy-app.js has top-level calls
+   into render.js starting at line ~1050 (buildLayerControls, applyPanelWidths,
+   setupPanelResize, renderAll) — those functions read window.map/layers/etc.
+   via bare fall-through. If Object.assign runs AFTER those calls, they see
+   undefined and crash. Under classic script `const map = ...` implicitly
+   created window.map so ordering didn't matter; under module it does.
+   See the block in the map-setup section above for the actual code. */
 
 bootDemoMode();
 bootTestScenarios();
