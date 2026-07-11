@@ -153,9 +153,106 @@ Round 2 probe (endpoints still to verify against direct API):
 - Metadata portal HTML extraction — same technique as
   `probe-meteogate-discover.ts` to find the real Metadata routes.
 
+## Round 2 probe findings (2026-07-13, `probe-meteoalarm-direct-round2.ts` output)
+
+**Definitive: the direct EDR API is byte-for-byte response-compatible with MeteoGate at the payload level.**
+
+Concrete confirmations:
+
+1. **Feature property set is IDENTICAL to MeteoGate.**
+   Direct API returns (from `properties` of the first feature):
+   ```
+   OBJECTID, alertId, countryCode, featureType,
+   geometryDescription, geometryType, hubLanguage, hubLink, hubTime,
+   indexArea, indexFeature, indexInfo,
+   supersedeType, supersededAt, supersededByAlertId
+   ```
+   Compare with MeteoGate memory doc (memory/meteogate_api.md, lines 51-64):
+   ```
+   alertId, countryCode, hubLink, hubTime,
+   supersededByAlertId, supersededAt, supersedeType,
+   geometryType, geometryDescription, featureType,
+   indexArea, indexFeature, indexInfo,
+   hubLanguage, OBJECTID
+   ```
+   Same 15 properties in different order. Every field the current adapter
+   reads is present in the direct response.
+
+2. **CAP backend storage is IDENTICAL.**
+   `hubLink` and `links[rel=canonical|json|xml|geometry]` all point at
+   `meteo.fra1.digitaloceanspaces.com/api/archive/...` — the same
+   DigitalOcean Spaces bucket MeteoGate references. No mystery about
+   CAP-fetch semantics or auth: it's a presigned URL, no headers needed,
+   and the JSON variant that lets us skip XML parsing is present at
+   `links[rel=json]`.
+
+3. **Territory list matches.**
+   `/collections/warnings/locations` returns a GeoJSON FeatureCollection
+   with the same 40 territory codes (ALL, MT, EE, LT, ..., with
+   country-shaped bbox Polygons and titles like "Malta", "Estonia").
+
+4. **Query semantics match.**
+   `datetime=<start>/<end>` closed-range works. `language=en` works.
+   `?f=json` content negotiation works. Response shape is a standard
+   GeoJSON FeatureCollection. Same 100-feature-page implied by returned
+   count.
+
+5. **Live volume is comparable.**
+   23h window over ALL: 100 features returned, 38 superseded (38%).
+   MeteoGate's 2026-06-29 sample showed 100 returned / 81 superseded
+   (81%). Different supersede ratio is normal variance in different
+   weather days — same shape, same semantics, just different alert
+   populations.
+
+6. **OpenAPI spec 404s at the discoverable path.** `/edr/v1/docs/openapi`
+   returned 404 despite `/api` linking there. Suggests the docs URL
+   might have moved, or docs are served only via the Swagger UI HTML.
+   Not blocking — the /ALL response shape gives us everything we need.
+
+7. **Metadata API is unclear.** Portal HTML extraction found only
+   `/metadata/v1/changelog` linked (which itself returns HTML). Whatever
+   the Metadata API's real routes are, they're not discoverable from
+   the LiveView portal. Since our EDR use case doesn't need metadata
+   right now, this is a follow-up for later, not a blocker.
+
 ## Recommendation
 
-**REVISED after Round 1: HOLD, run Round 2, then likely swap or add fallback.**
+**REVISED after Round 2: SWAP is now the clear direction. Implement as a config flip so we can toggle back if needed.**
+
+The evidence:
+- Response shape is byte-for-byte MeteoGate-compatible.
+- CAP storage backend is literally the same DigitalOcean bucket.
+- Auth pattern is standard (Bearer) — simpler HTTP client code.
+- One less service dependency (retiring MeteoGate).
+- Direct is upstream — one fewer layer that can have outages or policy
+  changes.
+- Estimated code delta: <20 lines, no logic changes.
+
+Implementation approach — **make it configurable, not hard-coded**:
+
+1. Introduce a `METEOALARM_PROVIDER` env var accepting `meteogate` or
+   `meteoalarm-direct`. Defaults to `meteoalarm-direct` (new primary).
+2. Adapter reads `MeteoAlarm.baseUrl` + `MeteoAlarm.authHeader` derived
+   from the provider var, defaulting the auth to `Authorization: Bearer`
+   for direct and `apikey: <TOKEN>` for MeteoGate.
+3. Both tokens stay in `.env` under separate names so we can flip
+   providers by changing one env var without editing code or re-issuing
+   credentials.
+4. Ship the swap behind the config flag; roll back is one env-var flip
+   + restart.
+
+Non-blocking follow-ups (future sessions):
+- Discover the Metadata API's real routes (probe from Swagger UI HTML
+  rather than the LiveView portal). Adds capabilities beyond MeteoGate
+  parity if the metadata is useful for threshold tuning or
+  operator context.
+- Fetch + review the OpenAPI JSON if we can find its real URL — would
+  document any rate limits or quota semantics we've inferred but not
+  confirmed.
+
+## Legacy: original recommendation (superseded above by Round 2)
+
+**HOLD the swap, capture the token, run one probe.**
 
 The direct API is almost certainly a viable swap target given the
 OGC-EDR conformance match. But before recommending the swap definitively:
