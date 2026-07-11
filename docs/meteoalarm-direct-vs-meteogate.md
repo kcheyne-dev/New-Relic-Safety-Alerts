@@ -215,9 +215,35 @@ Concrete confirmations:
    the LiveView portal. Since our EDR use case doesn't need metadata
    right now, this is a follow-up for later, not a blocker.
 
+## Round 3 probe findings (2026-07-13, Swagger UI extraction)
+
+Round 3 fetched `/edr/v1/docs` (the Swagger UI page) and extracted the embedded OpenAPI spec URL from its JavaScript config. Findings:
+
+1. **EDR OpenAPI spec is at `/edr/v1/docs/openapi.yaml`.** Round 2's guess at `/docs/openapi` (no extension) 404'd; the real URL is the `.yaml` suffix. Also implied to exist at `/docs/openapi.json` per Round 1's `/api` response but that returns 404 — YAML is the only format live.
+
+2. **Metadata API `/metadata/v1/docs` returns 404.** No Swagger UI for Metadata. Either it's not publicly documented, or docs live at a non-standard path. **Concluded: treat Metadata API as a black box.** Not blocking the EDR swap; a future exploration if a specific capability from Metadata becomes valuable.
+
+3. **API scale.** OpenAPI info block says "aggregates and accessibly provides warnings from 38 European National Meteorological and Hydrological Services" — matches the 40 territory codes we observed (38 countries + ALL + likely a "test" entry).
+
+4. **Multiple environments available.** OpenAPI servers list:
+   - Production: `https://api.meteoalarm.org/edr/v1`
+   - Test: `https://api-test.meteoalarm.org/edr/v1`
+   - Staging: `https://api.met.dev/edr/v1`
+   
+   Test/staging are useful for validating adapter changes without production impact — currently we don't have that option with MeteoGate.
+
+5. **BIG FINDING: MQTT real-time streams.** OpenAPI documents a real-time push path via MQTT that MeteoGate doesn't advertise:
+   - Broker: `mqtts://api.meteoalarm.org`
+   - Test broker: `mqtts://api-test.meteoalarm.org`
+   - Message format: GeoJSON
+   - Auth: token
+   - Topics: `warnings-ALL`, `warnings-MT`, `warnings-SI`, `warnings-EE`, `warnings-SE`, `warnings-FR`, `warnings-LT`, `warnings-PL`, `warnings-RO`, `warnings-IT`, ... one topic per territory + `-ALL`
+   
+   Current adapter polls REST every 15 min. MQTT subscribe would be true real-time with sub-second latency for new warnings. **Not a Day-1 swap concern** — MQTT adds a long-lived connection, reconnect logic, broker credentials — but it's a compelling reason to prefer the direct API long-term. Would need a separate adapter mode or a parallel MQTT-consumer service.
+
 ## Recommendation
 
-**REVISED after Round 2: SWAP is now the clear direction. Implement as a config flip so we can toggle back if needed.**
+**FINAL after Round 3: SWAP the EDR path as a config flip (Round 2 recommendation stands). MQTT is a separate follow-up with meaningful latency-improvement upside.**
 
 The evidence:
 - Response shape is byte-for-byte MeteoGate-compatible.
