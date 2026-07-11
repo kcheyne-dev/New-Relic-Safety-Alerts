@@ -147,3 +147,12 @@ Object.assign(window, incidents);
    the inline IIFEs until this cleanup made it the live source. */
 import * as demo from './demo.js';
 Object.assign(window, demo);
+
+/* Step 12: bridge the failed-send outbox. Introduced 2026-07-13 as the
+   first product-work item after bridge cleanup closed. Every dispatchSend
+   / createIncident failure gets enqueued here so operators have a durable
+   trail + retry path. The header badge + Log-tab chip UI reads outboxCount()
+   and the module exports handle enqueue/retry/dismiss. Auto-retry sweep
+   fires on every dispatchSend + once on boot via autoRetryPending(). */
+import * as outbox from './outbox.js';
+Object.assign(window, outbox);

@@ -86,6 +86,35 @@ export const state = {
     attachments: [],          // current Compose draft attachments
     noteAttachments: [],      // current note-input attachments
     crisisLog: [],
+    // Failed-outbox — persistent list of sends that failed backend persist.
+    // Each entry has enough info to retry the API call end-to-end. Populated
+    // by the .catch handlers in dispatchSend (modals.js) + createIncident
+    // (incidents.js) via enqueueFailure() from outbox.js. Displayed via the
+    // header badge + a full-list modal + inline chips in the Crisis Comms
+    // Log tab.
+    //
+    // Entry shape:
+    //   {
+    //     id:          'ob_xxx',         // unique outbox id
+    //     kind:        'comms' | 'incident-message' | 'incident-create',
+    //     when:        ISO,               // when the send was originally attempted
+    //     attempts:    number,            // total retry attempts (0 initially, ++ on each retry)
+    //     lastError:   string,            // most recent error message
+    //     status:      'pending' | 'retrying' | 'failed',
+    //     msgId:       string | null,     // original msg.id for matching against crisisLog rows
+    //     // Union by `kind`:
+    //     apiPayload:               { ... }  // comms + incident-message
+    //     incidentId:               string   // incident-message only
+    //     incidentCreatePayload:    { ... }  // incident-create only (title/description/severity/offices/alertId)
+    //     localIncidentId:          string   // incident-create only — local id to swap after successful retry
+    //     queuedMessages:           [...]    // incident-create only — messages that were stranded by the failed create
+    //     // Display info (denormalized for the outbox UI):
+    //     display: { subject, offices, channels, reach, isTest }
+    //   }
+    //
+    // Retention: entries stay until operator dismisses. No auto-purge.
+    // On successful retry (auto or manual): entry is hard-deleted.
+    outbox: [],
     // roomMessages seed values previously used `nowMinus(N)` (a helper
     // defined in the inline script). Inlining the math here so state.js
     // is self-contained — equivalent semantics, no helpers.js dependency.

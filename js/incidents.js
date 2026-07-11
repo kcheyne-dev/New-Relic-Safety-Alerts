@@ -61,6 +61,7 @@ import {
   API_BASE,
   incidentsApi,
 } from './api.js';
+import { enqueueFailure } from './outbox.js';
 
 export function createIncident({ title, offices, severity, description, messageId, alertId }) {
   const inc = {
@@ -109,22 +110,11 @@ export function createIncident({ title, offices, severity, description, messageI
         // sees whatever dispatchSend queued. Don't replace `inc` with a
         // re-lookup by id here; that would race the queue.
         //
-        // BEST-EFFORT FAILURE SEMANTICS: each queued send has its own
-        // .catch that toasts and drops the message. If the operator never
-        // saw the toast (left the tab, etc.), the message vanishes on
-        // next reload because stripIncident() strips _pendingMessages
-        // before localStorage save (helpers.js). That's a deliberate
-        // trade — keeping a stale queue across reloads risks duplicate
-        // sends after a server-side write succeeded but the client never
-        // saw the response. The single Crisis-Comm-lost edge case is
-        // rare (would need backend success on create + failure on the
-        // SAME session's queued message, with the operator missing the
-        // toast) and acceptable vs. the duplicate-send risk. Smoke
-        // covers the happy path. If this becomes a real loss in
-        // practice, the fix is to persist failed-queue entries to a
-        // separate localStorage key with a "retry pending sends" UI on
-        // next boot, NOT to keep _pendingMessages in stripIncident's
-        // payload.
+        // Queued sends: each is best-effort. Failures now enqueue to the
+        // outbox (2026-07-13) instead of toast-and-drop. The operator sees
+        // failed queued sends in the header badge + Log-tab chip and can
+        // retry when the backend recovers. Fixes the "single Crisis-Comm-
+        // lost edge case" the old code documented as an acceptable trade.
         const queued = inc._pendingMessages || [];
         inc._pendingMessages = [];
         for (const q of queued) {
@@ -132,20 +122,51 @@ export function createIncident({ title, offices, severity, description, messageI
             if (serverMsgId) q.msg.id = serverMsgId;
           }).catch((e) => {
             console.warn('queued message persist failed:', e);
-            toast('⚠ A queued message failed to persist to backend.');
+            enqueueFailure({
+              kind: 'incident-message',
+              incidentId: newId,
+              apiPayload: q.apiPayload,
+              msgId: q.msg?.id ?? null,
+              display: q.display || {
+                subject: q.apiPayload?.subject || `[${q.apiPayload?.templateName || 'Custom'}]`,
+                offices: q.apiPayload?.offices || [],
+                channels: q.apiPayload?.channels || [],
+                reach: q.apiPayload?.recipientsCount || 0,
+                isTest: !!q.apiPayload?.isTest,
+              },
+            }, e);
+            toast('⚠ A queued message failed — queued in outbox for retry.');
           });
         }
 
         renderIncidents();
       })
       .catch((err) => {
+        // Whole-incident create failed. Enqueue an 'incident-create' outbox
+        // entry carrying the original create payload PLUS any messages that
+        // were stranded waiting for the (never-received) server id. Retry
+        // re-runs the entire create+flush dance via _retryIncidentCreate.
         console.warn('incident create persist failed (kept local):', err);
         inc._persistPending = false;
-        const stranded = (inc._pendingMessages || []).length;
+        const stranded = (inc._pendingMessages || []).slice();
         inc._pendingMessages = [];
-        toast(stranded
-          ? `⚠ Incident + ${stranded} message(s) saved locally — backend persist failed.`
-          : '⚠ Incident saved locally — backend persist failed. See console.');
+        enqueueFailure({
+          kind: 'incident-create',
+          incidentCreatePayload: { title, description, severity, offices, alertId: alertId || undefined },
+          localIncidentId: inc.id,
+          queuedMessages: stranded,
+          msgId: messageId || null,
+          display: {
+            subject: title,
+            offices: offices.slice(),
+            channels: [],   // create itself has no channels; queued messages have their own
+            reach: 0,
+            isTest: false,
+          },
+        }, err);
+        toast(stranded.length
+          ? `⚠ Incident + ${stranded.length} message(s) queued in outbox for retry.`
+          : '⚠ Incident queued in outbox — backend persist failed.');
       });
   }
 

@@ -151,6 +151,7 @@ import {
   createIncident,
   reopenIncident,
 } from './incidents.js';
+import { enqueueFailure } from './outbox.js';
 
 /* Module-scoped debounce handle for the Risk modal search input. Moved from
    legacy-app.js as part of the 2026-07-13 legacy-app modularization Phase 1 —
@@ -319,28 +320,52 @@ export function dispatchSend(body, channels, reach) {
       attachments:      msg.attachments,
       isTest:           msg.isTest,
     };
+    // Display info denormalized onto every outbox entry so the retry UI
+    // can render subject/channels/offices without cross-referencing the
+    // crisisLog (which the operator may have manipulated in the meantime).
+    const displayInfo = {
+      subject:  msg.subject || `[${tplName}]`,
+      offices:  msg.offices.slice(),
+      channels: msg.channels.slice(),
+      reach:    msg.recipients,
+      isTest:   msg.isTest,
+    };
     if (inc && !inc._persistPending) {
       incidentsApi.sendMessage(inc.id, apiPayload).then((serverMsgId) => {
         if (serverMsgId) msg.id = serverMsgId;
       }).catch(err => {
         console.warn('incident-linked message persist failed:', err);
-        toast('⚠ Message logged locally — backend persist failed.');
+        enqueueFailure({
+          kind: 'incident-message',
+          incidentId: inc.id,
+          apiPayload,
+          msgId: msg.id,
+          display: displayInfo,
+        }, err);
+        toast('⚠ Send failed — queued in outbox for retry.');
       });
     } else if (inc && inc._persistPending) {
       // Race fix (2026-06-18): the incident's create() round-trip is still
       // in flight, so its server UUID isn't known yet. Park this message
       // on a queue; createIncident's .then() handler will flush it after
-      // the UUID swap. Without this branch, the first Response-Required
-      // send silently skipped backend persist — the smoke harness caught
-      // this on its first run.
+      // the UUID swap. If the create ultimately FAILS, incidents.js's
+      // .catch handler drains _pendingMessages into the outbox as part
+      // of an 'incident-create' entry — so nothing goes silent even in
+      // the double-failure case.
       inc._pendingMessages = inc._pendingMessages || [];
-      inc._pendingMessages.push({ msg, apiPayload });
+      inc._pendingMessages.push({ msg, apiPayload, display: displayInfo });
     } else {
       commsApi.send(apiPayload).then((serverMsgId) => {
         if (serverMsgId) msg.id = serverMsgId;
       }).catch(err => {
         console.warn('standalone comms persist failed:', err);
-        toast('⚠ Message logged locally — backend persist failed.');
+        enqueueFailure({
+          kind: 'comms',
+          apiPayload,
+          msgId: msg.id,
+          display: displayInfo,
+        }, err);
+        toast('⚠ Send failed — queued in outbox for retry.');
       });
     }
   }
