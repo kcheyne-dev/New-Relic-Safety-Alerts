@@ -147,78 +147,36 @@ export default [
         lastSavedAt: 'readonly',
         lastRefreshAt: 'readonly',
 
-        // Bridged functions from helpers/api/persistence/render/modals/
-        // incidents/demo — each module does Object.assign(window, exports)
-        // in main.js. Any module can call any other's exports via bare
-        // identifier. Enumerated verbatim from the exports of each module.
-        // Regen via:
-        //   for f in helpers.js api.js persistence.js render.js modals.js \
-        //             incidents.js demo.js; do
-        //     grep -oE '^export (async )?function [a-zA-Z_][a-zA-Z0-9_]*|^export const [a-zA-Z_][a-zA-Z0-9_]*' js/$f \
-        //       | sed -E 's/^export (async )?(function|const) //'
-        //   done | sort -u
-        // Trim entries from the corresponding module as it migrates to
-        // explicit imports and no longer needs the bridge for that name.
+        // Bridged identifiers that live in legacy-app.js. Modules reach
+        // them as bare globals because legacy-app.js declares them at top-
+        // level or attaches them to window via the Object.assign block at
+        // line ~425 (Phase 2 hotfix). Every module-owned identifier that
+        // WAS in this list got trimmed during the 2026-07-13 ESLint globals
+        // second-pass (commit TBD) — cross-module bare reads are gone
+        // now that every consumer imports explicitly. What remains is the
+        // last-mile legacy-app.js bridge only.
+        //
+        // Trim gate: as legacy-app.js content migrates into proper modules
+        // (further sessions), or as consumer modules stop bare-reading these
+        // identifiers, remove the matching entry.
+        //
+        // Historical trim log (session 2026-07-13):
+        //   Pre-Phase-2 baseline: 247 globals
+        //   Phase 2 (legacy-app modularization, commit 4f06d65): -11 constants
+        //     (SEVERITY, SEV_RANK, SEV_NAME, SEV_COLOR, ALERT_TYPES, SOURCES,
+        //      OFFICES, OFFICE_BY_ID, TEMPLATES, TEMPLATE_CATEGORIES, TEST_ROUTING)
+        //   Second-pass (this commit): -157 module-owned identifiers (helpers,
+        //     api, persistence, render, modals, incidents, demo exports) that
+        //     were no longer bare-read cross-module. Added 4 hygiene imports:
+        //     api.js gained bindRiskModalHandlers + riskModalHTML from
+        //     modals.js; legacy-app.js gained bootLiveMode from api.js;
+        //     render.js gained fileToAttachment from helpers.js. Rest was
+        //     just comment-only "false positives" — those never needed a
+        //     global in the first place.
+        //   Cumulative: 247 → ~64 (~74% reduction; remainder is browser
+        //     stdlib + reassignable-state accessors + last-mile legacy-app.js
+        //     bridges).
         ...Object.fromEntries([
-          // helpers.js
-          '_emptyHazardRollup', 'activeAlertsForOffice', 'aggregateAcledRisk',
-          'alertCountryFor', 'alertPriorityScore', 'allTargets', 'allTemplates',
-          'attachmentChipHTML', 'distanceKm', 'enrichEventWithImpact', 'esc',
-          'fileIcon', 'fileToAttachment', 'fmtClock', 'fmtHeadcount', 'fmtSize',
-          'hasAcledRisk', 'hasOfficeHeadcounts', 'hasWhoOutbreaks', 'linkify',
-          'liveHazardsAggregated', 'liveHazardsForCountry', 'maxSevForOffice',
-          'normalizeWhoCountry', 'nowMinus', 'outbreaksAggregated',
-          'outbreaksForCountry', 'passesFilter', 'rand', 'randomName',
-          'recipientsForChannel', 'relTime', 'relevanceTierOf', 'stripAtt',
-          'stripIncident', 'stripMessageAtts', 'suggestTemplate', 'sumHeadcount',
-          'targetById', 'topScore', 'travelersAtOffice', 'uid', 'visibleAlerts',
-          // api.js
-          'API_BASE', 'apiFetch', 'backfillAlerts', 'backfillIncidents',
-          'backfillWhoOutbreaks', 'bootLiveMode', 'clearStoredToken', 'commsApi',
-          'getStoredToken', 'incidentsApi', 'isLocalIncidentId', 'isPrescribedFire',
-          'mapBackendCategory', 'mapBackendType', 'mapIncidentRowToState',
-          'mapLogRow', 'mapMessageRow', 'mapNoteRow', 'migrateLocalIncidents',
-          'showLoginModal', 'storeToken', 'subscribeLiveStream',
-          // persistence.js
-          'buildPersistPayload', 'exportData', 'exportIncidentReport', 'loadState',
-          'resetData', 'saveState', 'showAlertDetails',
-          // render.js
-          'alertCardHTML', 'alertPopupHTML', 'applyPanelWidths', 'applyTheme',
-          'bindCCHandlers', 'bindIncidentDetailHandlers', 'bindIncidentListHandlers',
-          'buildLayerControls', 'closePanel', 'hasDraftContent', 'isModalOpen',
-          'msgRowHTML', 'officePopup', 'openPanel', 'positionToolsDropdown',
-          'renderAlertDots', 'renderAll', 'renderCC', 'renderCCLog',
-          'renderFreshnessBanner',
-          'renderComposeForm', 'renderEmployees', 'renderFeed', 'renderHazardZones',
-          'renderHazards', 'renderIncidentDetail', 'renderIncidentDetailHTML',
-          'renderIncidentFilter', 'renderIncidentList', 'renderIncidentTab',
-          'renderIncidents', 'renderOffices', 'renderRailAlerts', 'renderRoom',
-          'renderStatusStrip', 'renderTemplatePickerOptions', 'renderTravelers',
-          'selectAlert', 'setCcTab', 'setIncidentTab', 'setupPanelResize',
-          'showFreshness', 'startStatusStripTicker', 'togglePanel',
-          'updateHazardLegend', 'wireAttZone',
-          // modals.js
-          'bcpAcledRiskHTML', 'bcpAvailableCountries', 'bcpExposureInScope',
-          'bcpExposureSummaryHTML', 'bcpFormBodyHTML', 'bcpModalHTML',
-          'bindBCPFormHandlers', 'bindBCPHandlers', 'bindRiskModalHandlers',
-          'bindTravListHandlers', 'bindTravListRowHandlers', 'clearBCIWaitingChip',
-          'closeModal', 'confirmSend', 'declareBCP', 'dispatchSend',
-          'exportTravelersCSV', 'refreshBCPExposure', 'refreshTravList',
-          'riskCountryList', 'riskLiveHazardsHTML', 'riskModalHTML',
-          'showBCIWaitingChip', 'showBCPModal', 'showModal',
-          'showRiskProfileModal', 'showTravelersList', 'toast',
-          'travListBodyHTML', 'travListRowsHTML', 'travRowHTML', 'travSortValue',
-          'updateBCPDeclareButton',
-          // incidents.js
-          'addIncidentLog', 'buildResponseShells', 'createIncident', 'reopenIncident',
-          // demo.js
-          'bootDemoMode', 'bootTestScenarios',
-
-          // Bridged identifiers that live in legacy-app.js (still an inline
-          // script). Modules reach them as bare globals because legacy-app.js
-          // declares them at top-level or attaches them to window. These are
-          // the last-mile bridges — as legacy-app.js content moves into
-          // proper modules, entries here should be trimmed to match.
           'App',                    // window.App = {...} — top-level namespace
           'map', 'layers',          // Leaflet map instance + layer refs
           'TILES', 'OFFICE_MARKERS',// Tile config + office marker cache

@@ -84,6 +84,7 @@ import {
   allTemplates,
   attachmentChipHTML,
   esc,
+  fileToAttachment,
   fmtHeadcount,
   fmtSize,
   linkify,

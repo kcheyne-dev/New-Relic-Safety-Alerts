@@ -97,6 +97,7 @@ import {
 } from './persistence.js';
 import {
   API_BASE,
+  bootLiveMode,
   getStoredToken,
   mapBackendCategory,
   showLoginModal,

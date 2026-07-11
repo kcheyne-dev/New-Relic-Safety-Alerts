@@ -50,7 +50,9 @@ import {
   stripIncident,
 } from './helpers.js';
 import {
+  bindRiskModalHandlers,
   closeModal,
+  riskModalHTML,
   showModal,
   toast,
 } from './modals.js';
