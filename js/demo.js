@@ -31,7 +31,7 @@
  * exist at import time.
  */
 
-import { OFFICE_BY_ID } from './constants.js';
+import { OFFICE_BY_ID, OFFICES } from './constants.js';
 import {
   OFFICE_HEADCOUNTS_MOCK,
   TRAVELERS_MOCK,
@@ -51,8 +51,8 @@ import {
 // substitute the bare identifiers, restore state.REMOTE_EMPLOYEES with state
 // prefix, restore _MOCK variants unchanged.
 import { state } from './state.js';
-import { esc, uid } from './helpers.js';
-import { closeModal, showModal, toast } from './modals.js';
+import { enrichEventWithImpact, esc, uid } from './helpers.js';
+import { closeModal, showBCPModal, showModal, toast } from './modals.js';
 import { renderAll } from './render.js';
 import { API_BASE } from './api.js';
 
@@ -494,7 +494,7 @@ export function bootTestScenarios() {
           summary: 'Strong shaking reported near Hayward fault. Initial reports of facade damage downtown. No tsunami advisory issued.',
           issued: new Date().toISOString(),
         });
-        App.closeModal();
+        closeModal();
       }
 
       // Scenario 2 — Traveler threat: civil unrest at a current non-office traveler's city
@@ -502,7 +502,7 @@ export function bootTestScenarios() {
         const t = state.TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || state.TRAVELERS[0];
         if (!t) {
           try { toast('No traveler available for synthetic threat.'); } catch (_) {}
-          App.closeModal();
+          closeModal();
           return;
         }
         injectAndRender({
@@ -518,12 +518,12 @@ export function bootTestScenarios() {
           summary: `Multiple injuries reported. Curfew possible in affected districts. Traveler ${t.name} flagged within proximity radius.`,
           issued: new Date().toISOString(),
         });
-        App.closeModal();
+        closeModal();
       }
 
       // Scenario 3 — BCI declaration: pre-fill the existing BCI modal for a Japan quake
       function fireBciScenario() {
-        App.closeModal();
+        closeModal();
         Object.assign(state.BCP_FORM, {
           eventTypeId: 'quake',
           title: 'M7.4 earthquake — Tohoku coast, Japan',
@@ -545,7 +545,7 @@ export function bootTestScenarios() {
         const removed = before - state.ALERTS.length;
         renderAll();
         refreshClearPill();
-        App.closeModal();   // idempotent — fine when called from the floating pill
+        closeModal();   // idempotent — fine when called from the floating pill
         try { toast(`🧹 Cleared ${removed} synthetic event${removed === 1 ? '' : 's'}`); } catch (_) {}
       }
 
