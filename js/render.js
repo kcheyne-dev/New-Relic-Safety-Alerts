@@ -83,7 +83,7 @@ export function renderOffices() {
   layers.offices.clearLayers();
   for (const k in OFFICE_MARKERS) delete OFFICE_MARKERS[k];
   OFFICES.forEach(o => {
-    if (!STATE.visibleOffices.includes(o.id)) return;
+    if (!state.UI_STATE.visibleOffices.includes(o.id)) return;
     const sev = maxSevForOffice(o.id);
     const sevClass = sev ? 's-'+sev : 's-none';
     const visitors = travelersAtOffice(o.id).length;
@@ -176,10 +176,10 @@ export function renderAlertDots() {
 
 export function renderEmployees() {
   layers.emp.clearLayers();
-  if (!STATE.showEmployees) return;
+  if (!state.UI_STATE.showEmployees) return;
   EMPLOYEES.forEach(e => {
-    const lat = STATE.empMode === 'zip' ? e.lat : e.officeLat;
-    const lng = STATE.empMode === 'zip' ? e.lng : e.officeLng;
+    const lat = state.UI_STATE.empMode === 'zip' ? e.lat : e.officeLat;
+    const lng = state.UI_STATE.empMode === 'zip' ? e.lng : e.officeLng;
     const icon = L.divIcon({ html:'<div class="emp-mk"></div>', className:'', iconSize:[10,10] });
     const m = L.marker([lat, lng], { icon });
     m.bindPopup(`<h4>${esc(e.name)}</h4><div class="addr">${esc(e.role)} · ${esc(OFFICE_BY_ID[e.office]?.name||'')}</div>`);
@@ -190,7 +190,7 @@ export function renderEmployees() {
 
 export function renderTravelers() {
   layers.trav.clearLayers();
-  if (!STATE.showTravelers) return;
+  if (!state.UI_STATE.showTravelers) return;
   TRAVELERS.forEach(t => {
     if (t.atOffice) return; // shown as office badge
     const symbol = t.type === 'flight' ? '✈️' : '🏨';
@@ -215,7 +215,7 @@ export function renderHazardZones() {
   layers.hazards.clearLayers();
   const active = [];
   Object.entries(HAZARD_ZONES).forEach(([key, def]) => {
-    if (!STATE.hazards[key]) return;
+    if (!state.UI_STATE.hazards[key]) return;
     active.push({ key, def });
     def.zones.forEach(z => {
       const halo = L.circle([z.lat, z.lng], {
@@ -237,7 +237,7 @@ export function renderHazardZones() {
 
 export function updateHazardLegend(active) {
   // update Map Tools header badge with active-overlay count
-  const overlayCount = Object.values(STATE.hazards).filter(Boolean).length;
+  const overlayCount = Object.values(state.UI_STATE.hazards).filter(Boolean).length;
   const badge = document.getElementById('tools-badge');
   if (badge) {
     badge.innerHTML = overlayCount
@@ -247,8 +247,8 @@ export function updateHazardLegend(active) {
   const leg = document.getElementById('hazard-legend');
   if (!leg) return;
   const entries = [...active.map(({def}) => ({ label: def.label, color: def.color, count: def.zones.length, source: def.source, sourceUrl: def.sourceUrl }))];
-  if (STATE.hazards.precip) entries.push({ label: TILE_OVERLAYS.precip.label, color: '#3b82f6', count: 'live', source: TILE_OVERLAYS.precip.source, sourceUrl: TILE_OVERLAYS.precip.sourceUrl });
-  if (STATE.hazards.temp)   entries.push({ label: TILE_OVERLAYS.temp.label,   color: '#dc2626', count: 'live', source: TILE_OVERLAYS.temp.source,   sourceUrl: TILE_OVERLAYS.temp.sourceUrl });
+  if (state.UI_STATE.hazards.precip) entries.push({ label: TILE_OVERLAYS.precip.label, color: '#3b82f6', count: 'live', source: TILE_OVERLAYS.precip.source, sourceUrl: TILE_OVERLAYS.precip.sourceUrl });
+  if (state.UI_STATE.hazards.temp)   entries.push({ label: TILE_OVERLAYS.temp.label,   color: '#dc2626', count: 'live', source: TILE_OVERLAYS.temp.source,   sourceUrl: TILE_OVERLAYS.temp.sourceUrl });
   if (!entries.length) { leg.style.display = 'none'; leg.innerHTML = ''; return; }
   leg.style.display = '';
   leg.innerHTML = `<div class="leg-title">Map overlays active</div>` +
@@ -296,7 +296,7 @@ export function renderFeed() {
   const alerts = visibleAlerts();
   renderRailAlerts();
   if (!alerts.length) { body.innerHTML = '<div class="empty">No alerts match the current filter.</div>'; return; }
-  if (STATE.feedTab === 'office') {
+  if (state.UI_STATE.feedTab === 'office') {
     const groups = {};
     alerts.forEach(a => {
       const key = a.officeId || '—';
@@ -311,7 +311,7 @@ export function renderFeed() {
       const o = OFFICE_BY_ID[oid];
       const sev = list.reduce((m,a)=>SEV_RANK[a.sev]>m?SEV_RANK[a.sev]:m,0);
       const sevName = SEVERITY[sev-1];
-      const expanded = STATE.expandedOffices.has(oid);
+      const expanded = state.UI_STATE.expandedOffices.has(oid);
       const visible = expanded ? list : list.slice(0,5);
       const more = list.length - visible.length;
       return `<div class="office-group">
@@ -363,7 +363,7 @@ export function renderFeed() {
     e.stopPropagation();
     const a = ALERTS.find(x => x.id === el.dataset.id);
     if (a && a.officeId) {
-      STATE.selectedOffices = [a.officeId];
+      state.UI_STATE.selectedOffices = [a.officeId];
       openPanel('crisis'); setCcTab('compose'); renderCC();
       toast(`${a.officeId} pre-loaded in Crisis Comms.`);
     }
@@ -374,16 +374,16 @@ export function renderFeed() {
   }));
   body.querySelectorAll('[data-expand]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
-    STATE.expandedOffices.add(el.dataset.expand); renderFeed();
+    state.UI_STATE.expandedOffices.add(el.dataset.expand); renderFeed();
   }));
   body.querySelectorAll('[data-collapse]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
-    STATE.expandedOffices.delete(el.dataset.collapse); renderFeed();
+    state.UI_STATE.expandedOffices.delete(el.dataset.collapse); renderFeed();
   }));
 }
 
 export function alertCardHTML(a) {
-  const sel = STATE.selectedAlertId === a.id ? 'selected' : '';
+  const sel = state.UI_STATE.selectedAlertId === a.id ? 'selected' : '';
   const officeBadges = (a.affectedOfficeIds || []).map(id =>
     `<span class="impact-badge impact-office" title="${esc(OFFICE_BY_ID[id]?.name || id)} office in impact radius">🏢 ${esc(id)}</span>`
   ).join('');
@@ -426,14 +426,14 @@ export function alertCardHTML(a) {
 }
 
 export function selectAlert(id) {
-  STATE.selectedAlertId = id;
+  state.UI_STATE.selectedAlertId = id;
   const a = ALERTS.find(x => x.id === id); if (!a) return;
   map.setView([a.lat, a.lng], Math.max(map.getZoom(), 5));
   renderFeed();
   toast(`${SEV_NAME[a.sev]} · ${a.title}`);
 }
 
-// Bridge-cleanup render.js pilot (2026-07-13): STATE.ccTab bare → state.UI_STATE.
+// Bridge-cleanup render.js pilot (2026-07-13): state.UI_STATE.ccTab bare → state.UI_STATE.
 // renderCC is a sibling — module-local, unchanged.
 export function setCcTab(t) { state.UI_STATE.ccTab = t;
   document.querySelectorAll('[data-cc-tab]').forEach(el => el.classList.toggle('active', el.dataset.ccTab===t));
@@ -442,9 +442,9 @@ export function setCcTab(t) { state.UI_STATE.ccTab = t;
 
 export function renderCC() {
   const body = document.getElementById('cc-body');
-  document.getElementById('cc-log-count').textContent = STATE.crisisLog.length;
-  if (STATE.ccTab === 'compose') body.innerHTML = renderComposeForm();
-  else if (STATE.ccTab === 'log') body.innerHTML = renderCCLog();
+  document.getElementById('cc-log-count').textContent = state.UI_STATE.crisisLog.length;
+  if (state.UI_STATE.ccTab === 'compose') body.innerHTML = renderComposeForm();
+  else if (state.UI_STATE.ccTab === 'log') body.innerHTML = renderCCLog();
   else body.innerHTML = renderRoom();
   bindCCHandlers();
 }
@@ -463,44 +463,44 @@ export function renderTemplatePickerOptions() {
     const list = byCat.get(cat.id) || [];
     if (list.length === 0) continue;
     optgroups.push(`<optgroup label="${esc(cat.label)}">${
-      list.map(t => `<option value="${esc(t.id)}" ${STATE.template===t.id?'selected':''}>${esc(t.name)}</option>`).join('')
+      list.map(t => `<option value="${esc(t.id)}" ${state.UI_STATE.template===t.id?'selected':''}>${esc(t.name)}</option>`).join('')
     }</optgroup>`);
   }
   // Custom templates last
   const custom = byCat.get('custom') || [];
   if (custom.length > 0) {
     optgroups.push(`<optgroup label="Custom">${
-      custom.map(t => `<option value="${esc(t.id)}" ${STATE.template===t.id?'selected':''}>${esc(t.name)}</option>`).join('')
+      custom.map(t => `<option value="${esc(t.id)}" ${state.UI_STATE.template===t.id?'selected':''}>${esc(t.name)}</option>`).join('')
     }</optgroup>`);
   }
   return `<option value="">— select —</option>${optgroups.join('')}`;
 }
 
 export function hasDraftContent() {
-  return STATE.selectedOffices.length > 0 || STATE.customMessage || STATE.subject || STATE.template;
+  return state.UI_STATE.selectedOffices.length > 0 || state.UI_STATE.customMessage || state.UI_STATE.subject || state.UI_STATE.template;
 }
 
 export function renderComposeForm() {
-  const reachOffices = STATE.selectedOffices.length;
-  const reachEmps = STATE.selectedOffices.reduce((s,id)=>{
+  const reachOffices = state.UI_STATE.selectedOffices.length;
+  const reachEmps = state.UI_STATE.selectedOffices.reduce((s,id)=>{
     const t = targetById(id); return s + (t?.headcount || 0);
   },0);
-  const reachTrav = TRAVELERS.filter(t => STATE.selectedOffices.includes(t.atOffice)).length;
-  const activeChannels = Object.entries(STATE.channels).filter(([k,v])=>v).map(([k])=>k);
-  const message = STATE.customMessage ||
-    (STATE.template ? (allTemplates().find(t=>t.id===STATE.template)?.body || '') : '');
+  const reachTrav = TRAVELERS.filter(t => state.UI_STATE.selectedOffices.includes(t.atOffice)).length;
+  const activeChannels = Object.entries(state.UI_STATE.channels).filter(([k,v])=>v).map(([k])=>k);
+  const message = state.UI_STATE.customMessage ||
+    (state.UI_STATE.template ? (allTemplates().find(t=>t.id===state.UI_STATE.template)?.body || '') : '');
 
   // toggle "Clear ✕" button visibility
   const clearBtn = document.getElementById('btn-clear-draft');
   if (clearBtn) clearBtn.style.display = hasDraftContent() ? '' : 'none';
 
-  const linked = STATE.linkedIncidentId ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId) : null;
+  const linked = state.UI_STATE.linkedIncidentId ? state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.linkedIncidentId) : null;
   // Defensive: test mode is unavailable inside an existing incident's compose
   // flow (operator clarification 2026-06-18, Q3). Force-clear here so the flag
   // can never leak through unnoticed if the operator linked an incident after
   // toggling test on. The toggle UI is also hidden when `linked`, but this is
-  // belt-and-suspenders: dispatchSend reads STATE.isTest, not the DOM.
-  if (linked && STATE.isTest) STATE.isTest = false;
+  // belt-and-suspenders: dispatchSend reads state.UI_STATE.isTest, not the DOM.
+  if (linked && state.UI_STATE.isTest) state.UI_STATE.isTest = false;
   const linkedBanner = linked ? `
     <div class="linked-banner">
       <span class="linked-icon" aria-hidden="true">🔗</span>
@@ -523,15 +523,15 @@ export function renderComposeForm() {
       </div>
       <select id="cc-office-pick" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px 8px;font-size:12px;margin-bottom:6px">
         <option value="">Select an office...</option>
-        ${OFFICES.filter(o=>!STATE.selectedOffices.includes(o.id)).map(o=>`<option value="${o.id}">${o.id} · ${o.name}${o.headcount!=null?` · ${o.headcount.toLocaleString()}`:''}</option>`).join('')}
-        ${STATE.customLocations.filter(c=>!STATE.selectedOffices.includes(c.id)).map(c=>`<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)} (custom)</option>`).join('')}
+        ${OFFICES.filter(o=>!state.UI_STATE.selectedOffices.includes(o.id)).map(o=>`<option value="${o.id}">${o.id} · ${o.name}${o.headcount!=null?` · ${o.headcount.toLocaleString()}`:''}</option>`).join('')}
+        ${state.UI_STATE.customLocations.filter(c=>!state.UI_STATE.selectedOffices.includes(c.id)).map(c=>`<option value="${esc(c.id)}">${esc(c.id)} · ${esc(c.name)} (custom)</option>`).join('')}
       </select>
       <div style="display:flex;gap:4px;margin-bottom:6px">
         <input type="text" id="cc-new-loc" placeholder="Add new location..." style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px"/>
         <button class="btn-ghost" id="cc-add-loc">Add</button>
       </div>
       <div class="chip-list" id="chip-list" style="border:0;background:transparent;padding:0">
-        ${STATE.selectedOffices.map(id=>{
+        ${state.UI_STATE.selectedOffices.map(id=>{
           const t = targetById(id);
           return `<span class="chip" data-id="${esc(id)}">${esc(t?t.name:id)}<x onclick="App.removeOffice('${esc(id)}')">×</x></span>`;
         }).join('')}
@@ -541,8 +541,8 @@ export function renderComposeForm() {
     <div class="field">
       <label>Channels</label>
       <div class="channel-row">
-        <div class="channel-pill ${STATE.channels.slack?'on':''}" data-ch="slack">💬 slack</div>
-        <div class="channel-pill ${STATE.channels.email?'on':''}" data-ch="email">✉️ email</div>
+        <div class="channel-pill ${state.UI_STATE.channels.slack?'on':''}" data-ch="slack">💬 slack</div>
+        <div class="channel-pill ${state.UI_STATE.channels.email?'on':''}" data-ch="email">✉️ email</div>
         <div class="channel-pill disabled" data-ch="sms">📱 sms</div>
       </div>
     </div>
@@ -551,7 +551,7 @@ export function renderComposeForm() {
       <label>Recipients</label>
       <div style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 10px;font-size:11px;display:flex;flex-direction:column;gap:4px">
         ${activeChannels.map(ch => {
-          const recs = recipientsForChannel(ch, STATE.selectedOffices);
+          const recs = recipientsForChannel(ch, state.UI_STATE.selectedOffices);
           const icon = ch==='slack'?'💬':ch==='email'?'✉️':'📱';
           return `<div style="display:flex;gap:6px;align-items:flex-start"><span>${icon}</span><span style="color:var(--text)">${recs.join(', ')}</span></div>`;
         }).join('')}
@@ -579,12 +579,12 @@ export function renderComposeForm() {
     ${(() => {
       // Advanced disclosure — keeps secondary fields out of the way for the 80% case
       const adv = [];
-      if (STATE.subject) adv.push('Subject set');
-      if (STATE.attachments.length) adv.push(`${STATE.attachments.length} attachment${STATE.attachments.length===1?'':'s'}`);
-      if (!STATE.responseRequired) adv.push('Response off');
-      if (STATE.reminderInterval !== '15m') adv.push('Reminder ' + STATE.reminderInterval);
+      if (state.UI_STATE.subject) adv.push('Subject set');
+      if (state.UI_STATE.attachments.length) adv.push(`${state.UI_STATE.attachments.length} attachment${state.UI_STATE.attachments.length===1?'':'s'}`);
+      if (!state.UI_STATE.responseRequired) adv.push('Response off');
+      if (state.UI_STATE.reminderInterval !== '15m') adv.push('Reminder ' + state.UI_STATE.reminderInterval);
       const hint = adv.length ? `<span class="cc-advanced-hint"> · ${adv.join(' · ')}</span>` : '';
-      const open = STATE.composeAdvanced;
+      const open = state.UI_STATE.composeAdvanced;
       return `<button class="cc-advanced-toggle" type="button" id="cc-advanced-toggle" aria-expanded="${open}">
         <span class="cc-advanced-caret">${open ? '▾' : '▸'}</span>
         Advanced${hint}
@@ -592,7 +592,7 @@ export function renderComposeForm() {
       ${open ? `<div class="cc-advanced-body">
         <div class="field">
           <label>Subject</label>
-          <input type="text" id="cc-subject" value="${esc(STATE.subject)}" placeholder="[Severity] Safety Alert — ..."/>
+          <input type="text" id="cc-subject" value="${esc(state.UI_STATE.subject)}" placeholder="[Severity] Safety Alert — ..."/>
         </div>
         <div class="field">
           <label>Attachments & Links</label>
@@ -602,39 +602,39 @@ export function renderComposeForm() {
             <input type="file" id="att-input-cc" multiple style="display:none"/>
             <div style="font-size:10px;margin-top:4px">URLs in your message auto-link. Files ≤ ${fmtSize(ATT_EMBED_LIMIT)} are embedded.</div>
           </div>
-          ${STATE.attachments.length ? `<div class="att-list">${STATE.attachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
+          ${state.UI_STATE.attachments.length ? `<div class="att-list">${state.UI_STATE.attachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
         </div>
         <div class="field" style="margin-bottom:6px">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text);font-weight:400">
-            <input type="checkbox" id="resp-required" ${STATE.responseRequired?'checked':''} style="width:auto"/>
+            <input type="checkbox" id="resp-required" ${state.UI_STATE.responseRequired?'checked':''} style="width:auto"/>
             Response required (track per-employee status in incident)
           </label>
         </div>
         <div class="field" style="display:flex;align-items:center;gap:8px">
           <label style="margin-bottom:0;text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted);font-weight:400">Remind after</label>
           <select id="reminder" style="flex:1">
-            <option value="15m" ${STATE.reminderInterval==='15m'?'selected':''}>15 minutes</option>
-            <option value="30m" ${STATE.reminderInterval==='30m'?'selected':''}>30 minutes</option>
-            <option value="1h"  ${STATE.reminderInterval==='1h' ?'selected':''}>1 hour</option>
-            <option value="4h"  ${STATE.reminderInterval==='4h' ?'selected':''}>4 hours</option>
-            <option value="1d"  ${STATE.reminderInterval==='1d' ?'selected':''}>1 day</option>
+            <option value="15m" ${state.UI_STATE.reminderInterval==='15m'?'selected':''}>15 minutes</option>
+            <option value="30m" ${state.UI_STATE.reminderInterval==='30m'?'selected':''}>30 minutes</option>
+            <option value="1h"  ${state.UI_STATE.reminderInterval==='1h' ?'selected':''}>1 hour</option>
+            <option value="4h"  ${state.UI_STATE.reminderInterval==='4h' ?'selected':''}>4 hours</option>
+            <option value="1d"  ${state.UI_STATE.reminderInterval==='1d' ?'selected':''}>1 day</option>
           </select>
         </div>
       </div>` : ''}`;
     })()}
 
     ${linked ? '' : `
-    <div class="test-mode-row ${STATE.isTest ? 'on' : ''}" title="Send a test (drill) message instead of a real one. The message lands in a real incident with an is_test flag so the audit trail stays clear.">
+    <div class="test-mode-row ${state.UI_STATE.isTest ? 'on' : ''}" title="Send a test (drill) message instead of a real one. The message lands in a real incident with an is_test flag so the audit trail stays clear.">
       <label>
-        <input type="checkbox" id="cc-test-mode" ${STATE.isTest?'checked':''} style="width:auto;margin:0;flex-shrink:0;"/>
+        <input type="checkbox" id="cc-test-mode" ${state.UI_STATE.isTest?'checked':''} style="width:auto;margin:0;flex-shrink:0;"/>
         <span class="tm-title">🧪 Send as Test</span>
         <span class="tm-hint">Drill mode — message logs with TEST badge, routes to ${esc(TEST_ROUTING.slack)} only, [TEST] prefix prepended.</span>
       </label>
     </div>`}
 
     <button class="btn-primary cc-send" id="btn-send" ${reachOffices&&activeChannels.length?'':'disabled'}
-      style="${STATE.isTest && !linked ? 'background:#22d3ee;color:#053041;border-color:#0891b2;' : ''}">
-      ${STATE.isTest && !linked
+      style="${state.UI_STATE.isTest && !linked ? 'background:#22d3ee;color:#053041;border-color:#0891b2;' : ''}">
+      ${state.UI_STATE.isTest && !linked
         ? `🧪 Send as Test to ${esc(TEST_ROUTING.slack)} ▶`
         : linked
           ? `Send & log to incident ▶`
@@ -644,8 +644,8 @@ export function renderComposeForm() {
 }
 
 export function renderCCLog() {
-  if (!STATE.crisisLog.length) return '<div class="empty">No messages sent yet.</div>';
-  return STATE.crisisLog.slice().reverse().map(e => `
+  if (!state.UI_STATE.crisisLog.length) return '<div class="empty">No messages sent yet.</div>';
+  return state.UI_STATE.crisisLog.slice().reverse().map(e => `
     <div class="crisis-log-entry${e.isTest?' is-test':''}">
       <div>
         <span class="when">${new Date(e.when).toLocaleString()}</span> · <span class="who">${esc(e.by)}</span>
@@ -666,7 +666,7 @@ export function renderCCLog() {
 
 export function renderRoom() {
   return `<div class="room-thread" id="room-thread">
-    ${STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${esc(m.from)}</span><span class="when">${relTime(m.when)} ago</span><div style="white-space:pre-wrap">${linkify(esc(m.body))}</div></div>`).join('')}
+    ${state.UI_STATE.roomMessages.map(m=>`<div class="room-msg"><span class="from">${esc(m.from)}</span><span class="when">${relTime(m.when)} ago</span><div style="white-space:pre-wrap">${linkify(esc(m.body))}</div></div>`).join('')}
   </div>
   <div class="room-input">
     <input id="room-input" placeholder="Post to CMT situation room..." />
@@ -718,24 +718,24 @@ export function bindCCHandlers() {
     zoneId: 'att-zone-cc',
     inputId: 'att-input-cc',
     pickId: 'att-pick-cc',
-    getList: () => STATE.attachments,
-    setList: (list) => { STATE.attachments = list; },
+    getList: () => state.UI_STATE.attachments,
+    setList: (list) => { state.UI_STATE.attachments = list; },
     onChange: () => renderCC(),
   });
   // Bind remove buttons (att-list is sibling-ish; cover all in compose form)
   document.querySelectorAll('.compose-form [data-att-remove]').forEach(b => b.onclick = () => {
-    STATE.attachments = STATE.attachments.filter(a => a.id !== b.dataset.attRemove);
+    state.UI_STATE.attachments = state.UI_STATE.attachments.filter(a => a.id !== b.dataset.attRemove);
     renderCC();
   });
 
   // Template dropdown
   document.getElementById('cc-tpl-pick')?.addEventListener('change', e => {
-    STATE.template = e.target.value;
-    const t = allTemplates().find(x => x.id === STATE.template);
+    state.UI_STATE.template = e.target.value;
+    const t = allTemplates().find(x => x.id === state.UI_STATE.template);
     if (t) {
-      STATE.customMessage = t.body;
+      state.UI_STATE.customMessage = t.body;
       // auto-fill subject if empty
-      if (!STATE.subject) STATE.subject = `[Safety] ${t.name}${STATE.selectedOffices.length===1?` — ${targetById(STATE.selectedOffices[0])?.name||''} Office`:''}`;
+      if (!state.UI_STATE.subject) state.UI_STATE.subject = `[Safety] ${t.name}${state.UI_STATE.selectedOffices.length===1?` — ${targetById(state.UI_STATE.selectedOffices[0])?.name||''} Office`:''}`;
     }
     renderCC();
   });
@@ -752,9 +752,9 @@ export function bindCCHandlers() {
       const body = document.getElementById('utpl-body').value.trim();
       if (!name || !body) { toast('Name and body required.'); return; }
       const id = 'u_'+Math.random().toString(36).slice(2,7);
-      STATE.userTemplates.push({ id, name, body });
-      STATE.template = id;
-      STATE.customMessage = body;
+      state.UI_STATE.userTemplates.push({ id, name, body });
+      state.UI_STATE.template = id;
+      state.UI_STATE.customMessage = body;
       closeModal();
       renderCC();
       toast('Template saved.');
@@ -765,7 +765,7 @@ export function bindCCHandlers() {
   document.querySelectorAll('[data-ch]').forEach(c => c.addEventListener('click', () => {
     const k = c.dataset.ch;
     if (k === 'sms') return;
-    STATE.channels[k] = !STATE.channels[k];
+    state.UI_STATE.channels[k] = !state.UI_STATE.channels[k];
     renderCC();
   }));
 
@@ -773,7 +773,7 @@ export function bindCCHandlers() {
   document.getElementById('cc-office-pick')?.addEventListener('change', e => {
     const id = e.target.value;
     if (!id) return;
-    if (!STATE.selectedOffices.includes(id)) STATE.selectedOffices.push(id);
+    if (!state.UI_STATE.selectedOffices.includes(id)) state.UI_STATE.selectedOffices.push(id);
     renderCC();
   });
   // Add custom location
@@ -782,8 +782,8 @@ export function bindCCHandlers() {
     const name = inp.value.trim();
     if (!name) return;
     const id = 'CL_'+Math.random().toString(36).slice(2,5).toUpperCase();
-    STATE.customLocations.push({ id, name });
-    STATE.selectedOffices.push(id);
+    state.UI_STATE.customLocations.push({ id, name });
+    state.UI_STATE.selectedOffices.push(id);
     inp.value = '';
     renderCC();
     toast(`Custom location "${name}" added.`);
@@ -793,42 +793,42 @@ export function bindCCHandlers() {
   });
   document.getElementById('cc-add-all')?.addEventListener('click', e => {
     e.preventDefault();
-    STATE.selectedOffices = OFFICES.map(o => o.id);
+    state.UI_STATE.selectedOffices = OFFICES.map(o => o.id);
     renderCC();
   });
   document.getElementById('cc-clear-offices')?.addEventListener('click', e => {
     e.preventDefault();
-    STATE.selectedOffices = [];
+    state.UI_STATE.selectedOffices = [];
     renderCC();
   });
 
   // Subject + message + response + reminder
-  document.getElementById('cc-subject')?.addEventListener('input', e => { STATE.subject = e.target.value; saveState(); });
-  document.getElementById('msg-body')?.addEventListener('input', e => { STATE.customMessage = e.target.value; saveState(); });
+  document.getElementById('cc-subject')?.addEventListener('input', e => { state.UI_STATE.subject = e.target.value; saveState(); });
+  document.getElementById('msg-body')?.addEventListener('input', e => { state.UI_STATE.customMessage = e.target.value; saveState(); });
   document.getElementById('cc-clear-msg')?.addEventListener('click', e => {
     e.preventDefault();
-    STATE.customMessage = ''; STATE.template = ''; STATE.subject = '';
+    state.UI_STATE.customMessage = ''; state.UI_STATE.template = ''; state.UI_STATE.subject = '';
     renderCC();
   });
   document.getElementById('cc-advanced-toggle')?.addEventListener('click', () => {
-    STATE.composeAdvanced = !STATE.composeAdvanced;
+    state.UI_STATE.composeAdvanced = !state.UI_STATE.composeAdvanced;
     renderCC();
   });
   document.getElementById('cc-unlink')?.addEventListener('click', e => {
     e.preventDefault();
-    STATE.linkedIncidentId = null;
+    state.UI_STATE.linkedIncidentId = null;
     toast('Unlinked. Next message will create a new incident.');
     renderCC();
   });
-  document.getElementById('resp-required')?.addEventListener('change', e => STATE.responseRequired = e.target.checked);
+  document.getElementById('resp-required')?.addEventListener('change', e => state.UI_STATE.responseRequired = e.target.checked);
   // Test-mode toggle: re-render the form so the Send button + recipient hint
   // pick up the new state. (Cheap — Compose re-render is sub-ms.)
   document.getElementById('cc-test-mode')?.addEventListener('change', e => {
-    STATE.isTest = !!e.target.checked;
+    state.UI_STATE.isTest = !!e.target.checked;
     saveState();
     renderCC();
   });
-  document.getElementById('reminder')?.addEventListener('change', e => STATE.reminderInterval = e.target.value);
+  document.getElementById('reminder')?.addEventListener('change', e => state.UI_STATE.reminderInterval = e.target.value);
 
   // Send
   document.getElementById('btn-send')?.addEventListener('click', confirmSend);
@@ -837,7 +837,7 @@ export function bindCCHandlers() {
   document.getElementById('room-send')?.addEventListener('click', () => {
     const inp = document.getElementById('room-input');
     if (!inp.value.trim()) return;
-    STATE.roomMessages.push({ from:'cowork-3p', when:new Date().toISOString(), body:inp.value });
+    state.UI_STATE.roomMessages.push({ from:'cowork-3p', when:new Date().toISOString(), body:inp.value });
     inp.value=''; renderCC();
   });
 
@@ -857,10 +857,10 @@ export function bindCCHandlers() {
         </div>`);
       document.getElementById('modal-cancel').onclick = closeModal;
       document.getElementById('modal-confirm').onclick = () => {
-        STATE.selectedOffices = [];
-        STATE.template = ''; STATE.customMessage = ''; STATE.subject = '';
-        STATE.attachments = [];
-        STATE.channels = { slack:true, email:false, sms:false };
+        state.UI_STATE.selectedOffices = [];
+        state.UI_STATE.template = ''; state.UI_STATE.customMessage = ''; state.UI_STATE.subject = '';
+        state.UI_STATE.attachments = [];
+        state.UI_STATE.channels = { slack:true, email:false, sms:false };
         closeModal();
         renderCC();
         toast('Draft cleared.');
@@ -869,12 +869,12 @@ export function bindCCHandlers() {
   }
 }
 
-// Bridge-cleanup render.js pilot: STATE.incidentTab bare → state.UI_STATE.
+// Bridge-cleanup render.js pilot: state.UI_STATE.incidentTab bare → state.UI_STATE.
 export function setIncidentTab(t) { state.UI_STATE.incidentTab = t; renderIncidentDetail(); }
 
 export function renderIncidents() {
   const body = document.getElementById('incident-body');
-  const open = STATE.incidents.filter(i => i.status === 'open');
+  const open = state.UI_STATE.incidents.filter(i => i.status === 'open');
   // Quiet-state: when no incidents are open, drop the badge's pulse + red
   // tint so the rail doesn't shout for attention during a calm shift.
   // .quiet is an additive class — .live stays so the layout (sizing,
@@ -882,8 +882,8 @@ export function renderIncidents() {
   const incBadge = document.getElementById('incident-active-badge');
   incBadge.textContent = open.length;
   incBadge.classList.toggle('quiet', open.length === 0);
-  if (!STATE.incidents.length) { body.innerHTML = '<div class="empty">No incidents. Click <b>+ New</b> to create one, or send a Crisis message with Response Required.</div>'; return; }
-  if (!STATE.selectedIncidentId || !STATE.incidents.find(x => x.id === STATE.selectedIncidentId)) {
+  if (!state.UI_STATE.incidents.length) { body.innerHTML = '<div class="empty">No incidents. Click <b>+ New</b> to create one, or send a Crisis message with Response Required.</div>'; return; }
+  if (!state.UI_STATE.selectedIncidentId || !state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId)) {
     body.innerHTML = renderIncidentFilter() + renderIncidentList(); bindIncidentListHandlers(); return;
   }
   body.innerHTML = renderIncidentFilter() + renderIncidentList() + renderIncidentDetailHTML();
@@ -891,10 +891,10 @@ export function renderIncidents() {
 }
 
 export function renderIncidentFilter() {
-  const open   = STATE.incidents.filter(i => i.status === 'open').length;
-  const closed = STATE.incidents.filter(i => i.status === 'closed').length;
-  const total  = STATE.incidents.length;
-  const f = STATE.incidentListFilter;
+  const open   = state.UI_STATE.incidents.filter(i => i.status === 'open').length;
+  const closed = state.UI_STATE.incidents.filter(i => i.status === 'closed').length;
+  const total  = state.UI_STATE.incidents.length;
+  const f = state.UI_STATE.incidentListFilter;
   return `<div class="msg-filter" role="tablist" aria-label="Filter incidents">
     <button class="${f==='open'?'active':''}" data-i-filter="open"  role="tab" aria-selected="${f==='open'}">Open ${open}</button>
     <button class="${f==='closed'?'active':''}" data-i-filter="closed" role="tab" aria-selected="${f==='closed'}">Closed ${closed}</button>
@@ -918,7 +918,7 @@ export function renderIncidentList() {
         ? `<span class="test-badge" title="Every message in this incident was sent in test mode">🧪 Drill</span>`
         : `<span class="test-badge" title="${testCount} of ${msgs} messages were sent in test mode">🧪 incl. test</span>`;
     return `
-    <div class="incident-row ${STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${esc(i.id)}">
+    <div class="incident-row ${state.UI_STATE.selectedIncidentId===i.id?'selected':''} ${i.status==='closed'?'closed':''}" data-id="${esc(i.id)}">
       <div class="i-title">${esc(i.title)}</div>
       <div class="i-meta">
         <span class="sev-pill ${i.severity}">${SEV_NAME[i.severity]}</span>
@@ -938,8 +938,8 @@ export function renderIncidentDetail() {
 }
 
 export function renderIncidentDetailHTML() {
-  const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return '';
-  const resp = STATE.responses[inc.id] || {};
+  const inc = state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId); if (!inc) return '';
+  const resp = state.UI_STATE.responses[inc.id] || {};
   const rs = Object.values(resp);
   const ok = rs.filter(r=>r.status==='ok').length;
   const help = rs.filter(r=>r.status==='help').length;
@@ -963,7 +963,7 @@ export function renderIncidentDetailHTML() {
         ['responses','Responses', total],
         ['notes','Notes', inc.notes.length],
         ['log','Log'],
-      ].map(([t,label,count])=>`<div class="tab ${STATE.incidentTab===t?'active':''}" data-i-tab="${t}">${label}${count!==undefined?` <span class="count">${count}</span>`:''}</div>`).join('')}
+      ].map(([t,label,count])=>`<div class="tab ${state.UI_STATE.incidentTab===t?'active':''}" data-i-tab="${t}">${label}${count!==undefined?` <span class="count">${count}</span>`:''}</div>`).join('')}
     </div>
     <div style="flex:1; overflow-y:auto">${renderIncidentTab(inc, ok, help, no, total, pct)}</div>
   </div>`;
@@ -971,7 +971,7 @@ export function renderIncidentDetailHTML() {
 
 export function renderIncidentTab(inc, ok, help, no, total, pct) {
   const isOpen = inc.status === 'open';
-  if (STATE.incidentTab === 'details') {
+  if (state.UI_STATE.incidentTab === 'details') {
     return `<div style="padding:12px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${esc(inc.description)}</div>
       ${inc.closedNote?`<div style="font-size:11px;background:var(--bg3);border-left:3px solid var(--red);padding:6px 10px;margin-bottom:10px;border-radius:0 4px 4px 0"><b>Closure note:</b> ${esc(inc.closedNote)}<div style="color:var(--muted);font-size:10px;margin-top:2px">${inc.closedAt?new Date(inc.closedAt).toLocaleString():''}</div></div>`:''}
@@ -993,7 +993,7 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
       </div>
     </div>`;
   }
-  if (STATE.incidentTab === 'comms') {
+  if (state.UI_STATE.incidentTab === 'comms') {
     const msgs = (inc.messages||[]).slice().sort((a,b) => new Date(a.when) - new Date(b.when));
     return `<div style="padding:8px 0">
       ${isOpen?`<div style="padding:8px 12px;border-bottom:1px solid var(--border)">
@@ -1022,8 +1022,8 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
       }).join('')}
     </div>`;
   }
-  if (STATE.incidentTab === 'responses') {
-    const resp = STATE.responses[inc.id] || {};
+  if (state.UI_STATE.incidentTab === 'responses') {
+    const resp = state.UI_STATE.responses[inc.id] || {};
     const empRows = []; const travRows = []; const remoteRows = [];
     Object.entries(resp).forEach(([eid, r]) => {
       if (r.traveler) {
@@ -1037,7 +1037,7 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
         if (e) empRows.push({ eid, name: e.name, who: e.role, status: r.status });
       }
     });
-    const filt = STATE.msgFilter;
+    const filt = state.UI_STATE.msgFilter;
     const f = (rows) => filt==='all' ? rows : rows.filter(r => (filt==='no'?r.status==='no': r.status===filt));
     const allRows = [...empRows, ...travRows, ...remoteRows];
     return `<div class="msg-filter">
@@ -1051,7 +1051,7 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
     ${travRows.length ? `<div class="section-h">✈ Travelers (${travRows.length})</div>${f(travRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}
     ${remoteRows.length ? `<div class="section-h">🏠 Remote Employees (${remoteRows.length})</div>${f(remoteRows).map(r=>msgRowHTML(r,inc)).join('')}` : ''}`;
   }
-  if (STATE.incidentTab === 'notes') {
+  if (state.UI_STATE.incidentTab === 'notes') {
     return `<div style="padding:8px 12px;border-bottom:1px solid var(--border)">
       <textarea id="note-input" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:6px 8px;font-size:12px;min-height:48px;resize:vertical" placeholder="Add a note... (paste URLs to make them clickable)"></textarea>
       <div class="att-zone" id="att-zone-note" style="margin-top:6px">
@@ -1059,7 +1059,7 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
         <button type="button" class="att-pick-btn" id="att-pick-note">Choose files</button>
         <input type="file" id="att-input-note" multiple style="display:none"/>
       </div>
-      ${STATE.noteAttachments.length ? `<div class="att-list">${STATE.noteAttachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
+      ${state.UI_STATE.noteAttachments.length ? `<div class="att-list">${state.UI_STATE.noteAttachments.map(a => attachmentChipHTML(a, true)).join('')}</div>` : ''}
       <div style="display:flex;justify-content:flex-end;margin-top:6px">
         <button class="btn-ghost" id="note-add">Add Note</button>
       </div>
@@ -1070,7 +1070,7 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
       ${n.attachments?.length?`<div class="att-list">${n.attachments.map(a => attachmentChipHTML(a, false)).join('')}</div>`:''}
     </div>`).join('') : '<div class="empty">No notes yet.</div>'}`;
   }
-  if (STATE.incidentTab === 'log') {
+  if (state.UI_STATE.incidentTab === 'log') {
     return `${inc.log.length ? inc.log.slice().reverse().map(l=>`<div class="log-entry-i kind-${l.kind}"><span class="when">${new Date(l.when).toLocaleString()} · ${l.by}</span><div>${l.body}</div></div>`).join('') : '<div class="empty">No activity logged.</div>'}`;
   }
 }
@@ -1087,17 +1087,17 @@ export function msgRowHTML(r, inc) {
 export function bindIncidentListHandlers() {
   document.querySelectorAll('.incident-row').forEach(el => el.addEventListener('click', () => selectIncident(el.dataset.id)));
   document.querySelectorAll('[data-i-filter]').forEach(el => el.addEventListener('click', () => {
-    STATE.incidentListFilter = el.dataset.iFilter; renderIncidents();
+    state.UI_STATE.incidentListFilter = el.dataset.iFilter; renderIncidents();
   }));
 }
 
 export function bindIncidentDetailHandlers() {
   document.querySelectorAll('[data-i-tab]').forEach(el => el.addEventListener('click', () => setIncidentTab(el.dataset.iTab)));
-  document.querySelectorAll('[data-mfilter]').forEach(el => el.addEventListener('click', () => { STATE.msgFilter = el.dataset.mfilter; renderIncidentDetail(); }));
+  document.querySelectorAll('[data-mfilter]').forEach(el => el.addEventListener('click', () => { state.UI_STATE.msgFilter = el.dataset.mfilter; renderIncidentDetail(); }));
   document.querySelectorAll('[data-eid]').forEach(b => b.addEventListener('click', () => {
-    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    const inc = state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId); if (!inc) return;
     const eid = b.dataset.eid; const st = b.dataset.st;
-    STATE.responses[inc.id][eid] = { ...STATE.responses[inc.id][eid], status: st, when: new Date().toISOString(), by: 'Admin' };
+    state.UI_STATE.responses[inc.id][eid] = { ...state.UI_STATE.responses[inc.id][eid], status: st, when: new Date().toISOString(), by: 'Admin' };
     addIncidentLog(inc.id, 'msg', `Status logged for <b>${esc(eid)}</b>: ${esc(st)}`);
     renderIncidentDetail();
     // Live mode: persist response to backend. Strip the "T-" traveler prefix
@@ -1126,23 +1126,23 @@ export function bindIncidentDetailHandlers() {
     zoneId: 'att-zone-note',
     inputId: 'att-input-note',
     pickId: 'att-pick-note',
-    getList: () => STATE.noteAttachments,
-    setList: (list) => { STATE.noteAttachments = list; },
+    getList: () => state.UI_STATE.noteAttachments,
+    setList: (list) => { state.UI_STATE.noteAttachments = list; },
     onChange: () => renderIncidentDetail(),
   });
   document.querySelectorAll('.note-entry [data-att-remove]').forEach(b => {
     // shouldn't be removable in saved notes; no-op
   });
   document.querySelectorAll('#att-zone-note ~ .att-list [data-att-remove]').forEach(b => b.onclick = () => {
-    STATE.noteAttachments = STATE.noteAttachments.filter(a => a.id !== b.dataset.attRemove);
+    state.UI_STATE.noteAttachments = state.UI_STATE.noteAttachments.filter(a => a.id !== b.dataset.attRemove);
     renderIncidentDetail();
   });
   document.getElementById('note-add')?.addEventListener('click', () => {
-    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    const inc = state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId); if (!inc) return;
     const inp = document.getElementById('note-input');
-    if (!inp.value.trim() && !STATE.noteAttachments.length) return;
+    if (!inp.value.trim() && !state.UI_STATE.noteAttachments.length) return;
     const noteBody = inp.value;
-    const noteAtts = STATE.noteAttachments.slice();
+    const noteAtts = state.UI_STATE.noteAttachments.slice();
     const noteObj = {
       id: null,           // server-assigned on success; stays null if persist fails
       when: new Date().toISOString(), by:'cowork-3p',
@@ -1153,7 +1153,7 @@ export function bindIncidentDetailHandlers() {
     const attCount = noteAtts.length;
     addIncidentLog(inc.id, 'note', `Note added: ${esc(noteBody.slice(0,80))}${noteBody.length>80?'…':''}${attCount?` <span class="src-pill">📎 ${attCount}</span>`:''}`);
     inp.value = '';
-    STATE.noteAttachments = [];
+    state.UI_STATE.noteAttachments = [];
     renderIncidentDetail();
     // Live mode: persist note. Don't revert local on failure — note is too
     // valuable to vanish if the network blips. Toast the warning instead.
@@ -1167,11 +1167,11 @@ export function bindIncidentDetailHandlers() {
     }
   });
   document.getElementById('btn-simulate')?.addEventListener('click', () => {
-    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    const inc = state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId); if (!inc) return;
     let n=0;
-    Object.entries(STATE.responses[inc.id]).forEach(([k,r]) => {
+    Object.entries(state.UI_STATE.responses[inc.id]).forEach(([k,r]) => {
       if (r.status==='no' && Math.random() < 0.55) {
-        STATE.responses[inc.id][k] = { ...r, status: Math.random()<.92?'ok':'help', when:new Date().toISOString(), by:'auto' };
+        state.UI_STATE.responses[inc.id][k] = { ...r, status: Math.random()<.92?'ok':'help', when:new Date().toISOString(), by:'auto' };
         n++;
       }
     });
@@ -1180,18 +1180,18 @@ export function bindIncidentDetailHandlers() {
     renderIncidentDetail();
   });
   document.getElementById('btn-send-msg')?.addEventListener('click', () => {
-    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
-    STATE.linkedIncidentId = inc.id;
-    STATE.selectedOffices = inc.offices.slice();
+    const inc = state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId); if (!inc) return;
+    state.UI_STATE.linkedIncidentId = inc.id;
+    state.UI_STATE.selectedOffices = inc.offices.slice();
     openPanel('crisis');
     setCcTab('compose');
     renderCC();
     toast(`Linked to "${inc.title}". Compose your next message.`);
   });
-  document.getElementById('btn-reopen-inc')?.addEventListener('click', () => reopenIncident(STATE.selectedIncidentId));
-  document.getElementById('btn-export-inc')?.addEventListener('click', () => exportIncidentReport(STATE.selectedIncidentId));
+  document.getElementById('btn-reopen-inc')?.addEventListener('click', () => reopenIncident(state.UI_STATE.selectedIncidentId));
+  document.getElementById('btn-export-inc')?.addEventListener('click', () => exportIncidentReport(state.UI_STATE.selectedIncidentId));
   document.getElementById('btn-close-inc')?.addEventListener('click', () => {
-    const inc = STATE.incidents.find(x => x.id === STATE.selectedIncidentId); if (!inc) return;
+    const inc = state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.selectedIncidentId); if (!inc) return;
     showModal(`<h3>Close Incident</h3>
       <p style="font-size:12px;color:var(--muted)">Add a closure note for the permanent record.</p>
       <textarea id="close-note" style="width:100%;min-height:80px;background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:7px;font-size:12px;margin-top:6px"
@@ -1232,21 +1232,21 @@ export function buildLayerControls() {
     <div class="toggle-row"><label>${t}</label><input type="checkbox" data-vis-type="${t}" checked/></div>`).join('');
   document.querySelectorAll('[data-vis-office]').forEach(c => c.addEventListener('change', e => {
     const id = e.target.dataset.visOffice;
-    STATE.visibleOffices = e.target.checked
-      ? [...new Set([...STATE.visibleOffices, id])]
-      : STATE.visibleOffices.filter(x => x !== id);
+    state.UI_STATE.visibleOffices = e.target.checked
+      ? [...new Set([...state.UI_STATE.visibleOffices, id])]
+      : state.UI_STATE.visibleOffices.filter(x => x !== id);
     renderAll();
   }));
   document.querySelectorAll('[data-vis-type]').forEach(c => c.addEventListener('change', e => {
     const t = e.target.dataset.visType;
-    STATE.visibleAlertTypes = e.target.checked
-      ? [...new Set([...STATE.visibleAlertTypes, t])]
-      : STATE.visibleAlertTypes.filter(x => x !== t);
+    state.UI_STATE.visibleAlertTypes = e.target.checked
+      ? [...new Set([...state.UI_STATE.visibleAlertTypes, t])]
+      : state.UI_STATE.visibleAlertTypes.filter(x => x !== t);
     renderAll();
   }));
   document.querySelectorAll('[data-overlay]').forEach(c => c.addEventListener('change', e => {
     const key = e.target.dataset.overlay;
-    STATE.hazards[key] = e.target.checked;
+    state.UI_STATE.hazards[key] = e.target.checked;
     renderHazards();
     if (e.target.checked) {
       const def = HAZARD_ZONES[key] || TILE_OVERLAYS[key];
@@ -1262,12 +1262,12 @@ export function buildLayerControls() {
   document.querySelectorAll('.sev-seg').forEach(s => s.addEventListener('click', () => {
     document.querySelectorAll('.sev-seg').forEach(x => x.classList.remove('active'));
     s.classList.add('active');
-    STATE.filterMinSev = s.dataset.sev;
+    state.UI_STATE.filterMinSev = s.dataset.sev;
     renderAll();
   }));
-  document.getElementById('toggle-employees').addEventListener('change', e => { STATE.showEmployees = e.target.checked; renderEmployees(); });
-  document.getElementById('toggle-travelers').addEventListener('change', e => { STATE.showTravelers = e.target.checked; renderTravelers(); });
-  document.querySelectorAll('input[name="emp-mode"]').forEach(r => r.addEventListener('change', e => { STATE.empMode = e.target.value; renderEmployees(); }));
+  document.getElementById('toggle-employees').addEventListener('change', e => { state.UI_STATE.showEmployees = e.target.checked; renderEmployees(); });
+  document.getElementById('toggle-travelers').addEventListener('change', e => { state.UI_STATE.showTravelers = e.target.checked; renderTravelers(); });
+  document.querySelectorAll('input[name="emp-mode"]').forEach(r => r.addEventListener('change', e => { state.UI_STATE.empMode = e.target.value; renderEmployees(); }));
   document.getElementById('btn-load-emp').addEventListener('click', () => document.getElementById('emp-file').click());
   document.getElementById('btn-clear-emp').addEventListener('click', () => { EMPLOYEES = []; renderEmployees(); toast('Employees cleared.'); });
   document.getElementById('emp-file').addEventListener('change', e => loadEmpCSV(e.target.files[0]));
@@ -1277,18 +1277,18 @@ export function buildLayerControls() {
 }
 
 export function openPanel(p) {
-  STATE.panels[p] = true;
+  state.UI_STATE.panels[p] = true;
   document.getElementById('panel-'+p).classList.remove('collapsed');
   document.getElementById('rail-'+p)?.setAttribute('aria-expanded', 'true');
 }
 
 export function closePanel(p) {
-  STATE.panels[p] = false;
+  state.UI_STATE.panels[p] = false;
   document.getElementById('panel-'+p).classList.add('collapsed');
   document.getElementById('rail-'+p)?.setAttribute('aria-expanded', 'false');
 }
 
-// Bridge-cleanup render.js pilot: STATE.panels bare → state.UI_STATE.
+// Bridge-cleanup render.js pilot: state.UI_STATE.panels bare → state.UI_STATE.
 // closePanel/openPanel are siblings — module-local, unchanged.
 export function togglePanel(p) { state.UI_STATE.panels[p] ? closePanel(p) : openPanel(p); }
 
@@ -1316,7 +1316,7 @@ export function positionToolsDropdown() {
 }
 
 export function applyTheme(theme) {
-  STATE.theme = theme;
+  state.UI_STATE.theme = theme;
   document.documentElement.setAttribute('data-theme', theme);
   document.getElementById('btn-style').textContent = theme === 'dark' ? '🌙' : '☀️';
   TILES.dark.remove(); TILES.light.remove();
@@ -1342,12 +1342,12 @@ export function renderStatusStrip() {
   if (!el) return;
 
   // 1. Compute the at-a-glance state.
-  const openIncidents = STATE.incidents.filter(i => i.status === 'open');
+  const openIncidents = state.UI_STATE.incidents.filter(i => i.status === 'open');
   const visAlerts = visibleAlerts();
   const sevByRank = visAlerts.slice().sort((a,b) => SEV_RANK[b.sev] - SEV_RANK[a.sev]);
   const highest = sevByRank[0] || null;
   const helpCount = openIncidents.reduce((sum, inc) => {
-    const r = STATE.responses[inc.id] || {};
+    const r = state.UI_STATE.responses[inc.id] || {};
     return sum + Object.values(r).filter(x => x.status === 'help').length;
   }, 0);
   const okSources    = SOURCES.filter(s => s.status === 'ok').length;
@@ -1443,11 +1443,11 @@ export function renderStatusStrip() {
         </div>`;
     })()}
     <div class="ss-chip ss-spacer"></div>
-    <button class="ss-chip clickable" data-ss-action="toggle-relevance" title="${STATE.officeRelevantOnly ? 'Showing only events affecting an office or traveler. Click to show all global events.' : 'Showing all global events. Click to limit to office/traveler-relevant.'}">
-      <span class="ss-icon" aria-hidden="true">${STATE.officeRelevantOnly ? '🎯' : '🌐'}</span>
+    <button class="ss-chip clickable" data-ss-action="toggle-relevance" title="${state.UI_STATE.officeRelevantOnly ? 'Showing only events affecting an office or traveler. Click to show all global events.' : 'Showing all global events. Click to limit to office/traveler-relevant.'}">
+      <span class="ss-icon" aria-hidden="true">${state.UI_STATE.officeRelevantOnly ? '🎯' : '🌐'}</span>
       <div style="text-align:left">
         <div class="ss-label">View</div>
-        <div class="ss-value" style="font-size:0.78rem">${STATE.officeRelevantOnly ? `Office-relevant (${visAlerts.length}/${ALERTS.length})` : `All global (${ALERTS.length})`}</div>
+        <div class="ss-value" style="font-size:0.78rem">${state.UI_STATE.officeRelevantOnly ? `Office-relevant (${visAlerts.length}/${ALERTS.length})` : `All global (${ALERTS.length})`}</div>
       </div>
     </button>
     <div class="ss-chip timestamp" title="Last save · last data refresh">
@@ -1460,7 +1460,7 @@ export function renderStatusStrip() {
   el.querySelectorAll('[data-ss-action]').forEach(b => b.addEventListener('click', () => {
     const action = b.dataset.ssAction;
     if (action === 'incidents') {
-      STATE.incidentListFilter = 'open';
+      state.UI_STATE.incidentListFilter = 'open';
       openPanel('incident');
       renderIncidents();
     } else if (action === 'highest' && highest) {
@@ -1472,13 +1472,13 @@ export function renderStatusStrip() {
     } else if (action === 'help') {
       // Find the incident with the most help responses, open it in Responses tab.
       let target = null, max = -1;
-      STATE.incidents.filter(i => i.status === 'open').forEach(inc => {
-        const cnt = Object.values(STATE.responses[inc.id]||{}).filter(r => r.status === 'help').length;
+      state.UI_STATE.incidents.filter(i => i.status === 'open').forEach(inc => {
+        const cnt = Object.values(state.UI_STATE.responses[inc.id]||{}).filter(r => r.status === 'help').length;
         if (cnt > max) { max = cnt; target = inc; }
       });
       if (target) {
-        STATE.msgFilter = 'help';
-        STATE.incidentTab = 'responses';
+        state.UI_STATE.msgFilter = 'help';
+        state.UI_STATE.incidentTab = 'responses';
         openPanel('incident');
         selectIncident(target.id);
       } else {
@@ -1489,8 +1489,8 @@ export function renderStatusStrip() {
       // Trigger the existing freshness modal directly
       App.showFreshness?.();
     } else if (action === 'toggle-relevance') {
-      STATE.officeRelevantOnly = !STATE.officeRelevantOnly;
-      toast(STATE.officeRelevantOnly
+      state.UI_STATE.officeRelevantOnly = !state.UI_STATE.officeRelevantOnly;
+      toast(state.UI_STATE.officeRelevantOnly
         ? '🎯 Showing office-relevant only.'
         : '🌐 Showing all global events.');
       renderAll();
@@ -1603,7 +1603,7 @@ export function startStatusStripTicker() {
 export function applyPanelWidths() {
   ['alerts','crisis','incident'].forEach(p => {
     const el = document.getElementById('panel-'+p);
-    if (el) el.style.width = (STATE.panelWidths?.[p] || 340) + 'px';
+    if (el) el.style.width = (state.UI_STATE.panelWidths?.[p] || 340) + 'px';
   });
 }
 
@@ -1633,7 +1633,7 @@ export function setupPanelResize() {
         document.removeEventListener('mouseup', onUp);
         handle.classList.remove('dragging');
         document.body.classList.remove('resizing-panel');
-        STATE.panelWidths[panelId] = parseInt(panel.style.width, 10) || PANEL_MIN_W;
+        state.UI_STATE.panelWidths[panelId] = parseInt(panel.style.width, 10) || PANEL_MIN_W;
         saveState();
         if (typeof map !== 'undefined' && map) map.invalidateSize();
       }
@@ -1644,7 +1644,7 @@ export function setupPanelResize() {
     handle.addEventListener('dblclick', () => {
       const panelId = handle.dataset.resizePanel;
       const defaults = { alerts: 340, crisis: 360, incident: 360 };
-      STATE.panelWidths[panelId] = defaults[panelId];
+      state.UI_STATE.panelWidths[panelId] = defaults[panelId];
       applyPanelWidths();
       if (typeof map !== 'undefined' && map) map.invalidateSize();
       saveState();
