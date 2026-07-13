@@ -112,8 +112,14 @@ export default [
         // only remaining bare-user for ATT_EMBED_LIMIT and now imports it too.
         // Three of these were "free" — no code change, config just formalized
         // the already-good state.
-        PANEL_MIN_W: 'readonly',
-        PANEL_MAX_W: 'readonly',
+        // PANEL_MIN_W / PANEL_MAX_W trimmed 2026-07-13 (persistence audit):
+        // both only used in render.js which has imported them since day 1
+        // (line 48). Missed by earlier batches — the config listed them
+        // defensively despite render.js's imports pre-dating this whole
+        // migration effort. Grep-audit lesson: whenever a module gets its
+        // FIRST imports, also check whether those existing imports enable
+        // trims — often the config carries defensive entries for years
+        // after the code has actually gone explicit.
         TEST_ROUTING: 'readonly',
         // TEST_PREFIX_SUBJECT / TEST_PREFIX_BODY trimmed 2026-07-13
         // (modals.js first-imports): only used by dispatchSend in
