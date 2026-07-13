@@ -43,7 +43,7 @@
  *
  * BRIDGE RELIANCE (function bodies stay verbatim, references resolve via
  * window-fallthrough at call time):
- *   - State: STATE.X mutations propagate via state.js bridge.
+ *   - State: state.UI_STATE.X mutations propagate via state.js bridge.
  *     BCP_FORM / TRAV_VIEW / RISK_VIEW are bridged direct-assign (object
  *     refs) so .property mutations work without renames.
  *   - Constants: COUNTRY_PRESENCE, OFFICES, OFFICE_BY_ID, BCP_EVENT_TYPES,
@@ -89,24 +89,31 @@ import {
   TEST_PREFIX_BODY,
   TEST_PREFIX_SUBJECT,
 } from './constants.js';
+// Bridge-cleanup modals.js STATE sweep (2026-07-13): 52 bare STATE.X reads
+// converted to state.UI_STATE.X. Adding state import is a prerequisite.
+// Same 3-phase-safe pattern as render.js STATE sweep (commit e81aa0e),
+// though here no protection was needed because modals.js had zero existing
+// state.UI_STATE. references before this batch — a naive single-phase
+// substring replace was safe.
+import { state } from './state.js';
 
 export function confirmSend() {
-  const channels = Object.entries(STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
-  if (!channels.length || !STATE.selectedOffices.length) return;
-  const body = STATE.customMessage || (allTemplates().find(t=>t.id===STATE.template)?.body || '');
+  const channels = Object.entries(state.UI_STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
+  if (!channels.length || !state.UI_STATE.selectedOffices.length) return;
+  const body = state.UI_STATE.customMessage || (allTemplates().find(t=>t.id===state.UI_STATE.template)?.body || '');
   if (!body.trim()) { toast('Pick a template or write a message.'); return; }
-  const reach = STATE.selectedOffices.reduce((s,id)=>s+(targetById(id)?.headcount||0),0);
-  const tplName = allTemplates().find(t=>t.id===STATE.template)?.name || 'Custom';
+  const reach = state.UI_STATE.selectedOffices.reduce((s,id)=>s+(targetById(id)?.headcount||0),0);
+  const tplName = allTemplates().find(t=>t.id===state.UI_STATE.template)?.name || 'Custom';
   showModal(`
     <h3>Confirm send</h3>
     <p style="font-size:12px;color:var(--muted)">Review before dispatching.</p>
     <div class="reach-preview" style="margin-top:8px">
-      <div><b>Offices:</b> ${esc(STATE.selectedOffices.map(id=>targetById(id)?.name||id).join(', '))}</div>
+      <div><b>Offices:</b> ${esc(state.UI_STATE.selectedOffices.map(id=>targetById(id)?.name||id).join(', '))}</div>
       <div><b>Channels:</b> ${channels.map(c=>c.toUpperCase()).join(' + ')}</div>
       <div><b>Recipients:</b> ~${reach.toLocaleString()}</div>
       <div><b>Template:</b> ${esc(tplName)}</div>
-      ${STATE.subject?`<div><b>Subject:</b> ${esc(STATE.subject)}</div>`:''}
-      ${STATE.responseRequired?'<div><b>Response tracking:</b> on (creates new incident)</div>':''}
+      ${state.UI_STATE.subject?`<div><b>Subject:</b> ${esc(state.UI_STATE.subject)}</div>`:''}
+      ${state.UI_STATE.responseRequired?'<div><b>Response tracking:</b> on (creates new incident)</div>':''}
     </div>
     <div style="font-size:11px;background:var(--bg3);border-radius:5px;padding:6px;margin-top:8px;line-height:1.4">${esc(body)}</div>
     <div class="modal-actions">
@@ -121,12 +128,12 @@ export function confirmSend() {
 }
 
 export function dispatchSend(body, channels, reach) {
-  const tpl = allTemplates().find(t => t.id === STATE.template);
+  const tpl = allTemplates().find(t => t.id === state.UI_STATE.template);
   const tplName = tpl?.name || 'Custom message';
 
   // 2026-06-18: drill-mode dispatch.
   //
-  // When STATE.isTest is on (and we are NOT linked to an existing incident,
+  // When state.UI_STATE.isTest is on (and we are NOT linked to an existing incident,
   // because test mode is locked off in that flow), apply three transforms
   // ONLY to the artifact actually delivered to a recipient:
   //   1) Subject prepended with "[TEST] " so a recipient sees TEST first.
@@ -137,9 +144,9 @@ export function dispatchSend(body, channels, reach) {
   // EVERYTHING ELSE is left at the operator's actual selection so the drill
   // exercises the full normal workflow (per the 2026-06-18 spec: "all of the
   // normal features but recorded as test messages"):
-  //   - msg.offices keeps STATE.selectedOffices so the incident scope and
+  //   - msg.offices keeps state.UI_STATE.selectedOffices so the incident scope and
   //     response-tracking shells reflect the drill scenario.
-  //   - msg.responseRequired keeps STATE.responseRequired so the operator
+  //   - msg.responseRequired keeps state.UI_STATE.responseRequired so the operator
   //     can rehearse the response-tracking UI inside the drill incident.
   //   - The auto-incident-create branch fires unchanged when the operator
   //     had Response Required on. The resulting incident is REAL (per Q1
@@ -150,27 +157,27 @@ export function dispatchSend(body, channels, reach) {
   // state, isTest in the API payload, is_test=true in Postgres, 🧪 TEST
   // badge in every render surface (Comms tab, standalone log, incident Log,
   // Export Report).
-  const linkedAtSendTime = STATE.linkedIncidentId
-    ? STATE.incidents.find(x => x.id === STATE.linkedIncidentId)
+  const linkedAtSendTime = state.UI_STATE.linkedIncidentId
+    ? state.UI_STATE.incidents.find(x => x.id === state.UI_STATE.linkedIncidentId)
     : null;
-  const isTest = !!STATE.isTest && !linkedAtSendTime;
+  const isTest = !!state.UI_STATE.isTest && !linkedAtSendTime;
   const testChannels = isTest
     ? channels.filter(c => TEST_ROUTING[c])           // drop SMS (no test routing)
     : channels;
   const sendChannels = isTest && testChannels.length ? testChannels : channels;
   const finalSubject = isTest
-    ? TEST_PREFIX_SUBJECT + (STATE.subject || `[${tplName}]`)
-    : STATE.subject;
+    ? TEST_PREFIX_SUBJECT + (state.UI_STATE.subject || `[${tplName}]`)
+    : state.UI_STATE.subject;
   const finalBody = isTest ? TEST_PREFIX_BODY + body : body;
 
   const msg = {
     id: uid(), when: new Date().toISOString(), by:'cowork-3p',
-    offices: STATE.selectedOffices.slice(), channels: sendChannels.slice(),
+    offices: state.UI_STATE.selectedOffices.slice(), channels: sendChannels.slice(),
     subject: finalSubject,
-    body: finalBody, recipients: reach, responseRequired: STATE.responseRequired,
-    template: STATE.template, templateName: tplName,
-    reminder: STATE.reminderInterval,
-    attachments: STATE.attachments.slice(),
+    body: finalBody, recipients: reach, responseRequired: state.UI_STATE.responseRequired,
+    template: state.UI_STATE.template, templateName: tplName,
+    reminder: state.UI_STATE.reminderInterval,
+    attachments: state.UI_STATE.attachments.slice(),
     incidentId: null,    // filled below
     isTest,              // persisted client-side and propagated through API
   };
@@ -182,21 +189,21 @@ export function dispatchSend(body, channels, reach) {
     msg.incidentId = inc.id;
     inc.messages.push(msg);
     // top up response shells in case offices were added since open
-    buildResponseShells(inc.id, STATE.selectedOffices);
+    buildResponseShells(inc.id, state.UI_STATE.selectedOffices);
     addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
-  } else if (STATE.responseRequired) {
+  } else if (state.UI_STATE.responseRequired) {
     // Create new incident on first response-required send.
     // Auto-link the highest-severity active alert in the affected offices, if any.
     const candidateAlerts = ALERTS
-      .filter(a => a.officeId && STATE.selectedOffices.includes(a.officeId) && passesFilter(a))
+      .filter(a => a.officeId && state.UI_STATE.selectedOffices.includes(a.officeId) && passesFilter(a))
       .sort((a,b) => SEV_RANK[b.sev] - SEV_RANK[a.sev] || new Date(b.issued) - new Date(a.issued));
     const linkedAlert = candidateAlerts[0] || null;
-    const officeNames = STATE.selectedOffices.map(id => targetById(id)?.name || id).join(', ');
+    const officeNames = state.UI_STATE.selectedOffices.map(id => targetById(id)?.name || id).join(', ');
     inc = createIncident({
-      title: `${tplName} — ${STATE.selectedOffices.join(', ')}`,
-      offices: STATE.selectedOffices.slice(),
-      severity: STATE.template==='evac' || STATE.template==='shelter' ? 'high' : 'mod',
-      description: `Incident auto-created when "${tplName}" was dispatched with Response Required enabled. Initial reach: ~${reach.toLocaleString()} recipients across ${officeNames}. Channels: ${channels.map(c=>c.toUpperCase()).join(', ')}. Reminder interval: ${STATE.reminderInterval}.${linkedAlert?` Linked to active alert ${linkedAlert.id}: ${linkedAlert.title}.`:''}`,
+      title: `${tplName} — ${state.UI_STATE.selectedOffices.join(', ')}`,
+      offices: state.UI_STATE.selectedOffices.slice(),
+      severity: state.UI_STATE.template==='evac' || state.UI_STATE.template==='shelter' ? 'high' : 'mod',
+      description: `Incident auto-created when "${tplName}" was dispatched with Response Required enabled. Initial reach: ~${reach.toLocaleString()} recipients across ${officeNames}. Channels: ${channels.map(c=>c.toUpperCase()).join(', ')}. Reminder interval: ${state.UI_STATE.reminderInterval}.${linkedAlert?` Linked to active alert ${linkedAlert.id}: ${linkedAlert.title}.`:''}`,
       messageId: msg.id,
       alertId: linkedAlert ? linkedAlert.id : null,
     });
@@ -205,7 +212,7 @@ export function dispatchSend(body, channels, reach) {
     addIncidentLog(inc.id, 'comm', `Sent <b>${esc(tplName)}</b> via ${channels.join(', ')} to ${reach.toLocaleString()} recipients.`);
   }
 
-  STATE.crisisLog.push(msg);
+  state.UI_STATE.crisisLog.push(msg);
   if (isTest) {
     // Drill-mode toast: clearly signal that nothing went to real recipients,
     // and that the message is logged with the test flag for audit.
@@ -214,15 +221,15 @@ export function dispatchSend(body, channels, reach) {
   } else {
     toast(`✓ Dispatched to ~${reach.toLocaleString()} via ${channels.map(c=>c.toUpperCase()).join('+')}${msg.attachments.length?` · ${msg.attachments.length} attachment${msg.attachments.length===1?'':'s'}`:''}`);
   }
-  STATE.customMessage = ''; STATE.subject = ''; STATE.template = '';
-  STATE.attachments = [];
+  state.UI_STATE.customMessage = ''; state.UI_STATE.subject = ''; state.UI_STATE.template = '';
+  state.UI_STATE.attachments = [];
   // Reset the test toggle after a send. Operators should opt-in deliberately
   // each time — leaving it sticky risks a real send accidentally going to
   // the test channel, which would be a worse failure mode than the reverse
   // (forgetting to toggle on a drill is recoverable; sending real comms to
   // #cmt-test-channel during an actual incident is not).
-  STATE.isTest = false;
-  STATE.linkedIncidentId = inc ? inc.id : null;   // keep linked for subsequent messages in the flow
+  state.UI_STATE.isTest = false;
+  state.UI_STATE.linkedIncidentId = inc ? inc.id : null;   // keep linked for subsequent messages in the flow
   setCcTab('log');
   renderIncidents();
   if (inc) selectIncident(inc.id);
@@ -456,9 +463,9 @@ export function bindTravListRowHandlers() {
     if (!t) return;
     closeModal();
     const locLabel = `${t.name} · ${t.destCity}`;
-    if (!STATE.customLocations.includes(locLabel)) STATE.customLocations.push(locLabel);
-    if (!STATE.subject) STATE.subject = `Safety check — ${t.name} (${t.destCity})`;
-    STATE.template = 'check';
+    if (!state.UI_STATE.customLocations.includes(locLabel)) state.UI_STATE.customLocations.push(locLabel);
+    if (!state.UI_STATE.subject) state.UI_STATE.subject = `Safety check — ${t.name} (${t.destCity})`;
+    state.UI_STATE.template = 'check';
     openPanel('crisis');
     setCcTab('compose');
     renderCC();
@@ -565,7 +572,7 @@ export function bcpAvailableCountries() {
 }
 
 export function bcpExposureInScope() {
-  const useFence = BCP_FORM.useFence && STATE.fence;
+  const useFence = BCP_FORM.useFence && state.UI_STATE.fence;
   let offices, travelers, remote;
   if (useFence) {
     offices = OFFICES.filter(o => pointInFence(o.lat, o.lng));
@@ -645,7 +652,7 @@ export function bcpExposureSummaryHTML(exp) {
 export function bcpFormBodyHTML() {
   const countries = bcpAvailableCountries();
   const exp = bcpExposureInScope();
-  const fenceAvailable = !!STATE.fence;
+  const fenceAvailable = !!state.UI_STATE.fence;
   const useFenceNow = BCP_FORM.useFence && fenceAvailable;
   return `
     <div style="margin-bottom:14px;">
@@ -726,7 +733,7 @@ export function refreshBCPExposure() {
 export function updateBCPDeclareButton() {
   const btn = document.getElementById('bcp-declare-btn'); if (!btn) return;
   const ok = BCP_FORM.acknowledged && BCP_FORM.title.trim().length > 0 &&
-    (BCP_FORM.useFence ? !!STATE.fence : BCP_FORM.countries.length > 0);
+    (BCP_FORM.useFence ? !!state.UI_STATE.fence : BCP_FORM.countries.length > 0);
   btn.disabled = !ok;
   btn.style.opacity = ok ? '1' : '0.5';
   btn.style.cursor = ok ? 'pointer' : 'not-allowed';
@@ -827,30 +834,30 @@ export function declareBCP() {
   // at any office) and remote employees. createIncident's buildResponseShells
   // only covers office-resident employees + travelers atOffice — for a BCI
   // we need the full in-scope population.
-  if (!STATE.responses[inc.id]) STATE.responses[inc.id] = {};
+  if (!state.UI_STATE.responses[inc.id]) state.UI_STATE.responses[inc.id] = {};
   exp.travelers.forEach(t => {
     const key = 'T-' + t.id;
-    if (!STATE.responses[inc.id][key]) {
-      STATE.responses[inc.id][key] = { status:'no', when:null, by:null, traveler:true };
+    if (!state.UI_STATE.responses[inc.id][key]) {
+      state.UI_STATE.responses[inc.id][key] = { status:'no', when:null, by:null, traveler:true };
     }
   });
   exp.remote.forEach(r => {
     const key = 'R-' + r.id;
-    if (!STATE.responses[inc.id][key]) {
-      STATE.responses[inc.id][key] = { status:'no', when:null, by:null, remote:true };
+    if (!state.UI_STATE.responses[inc.id][key]) {
+      state.UI_STATE.responses[inc.id][key] = { status:'no', when:null, by:null, remote:true };
     }
   });
   addIncidentLog(inc.id, 'create',
     `🚨 <b>BCI</b> declared: ${esc(evt.label)}. Exposure: ${exp.officeHeadcount + exp.remoteCount} employees · ${exp.travelerCount} travelers · ${exp.offices.length} office(s).`);
-  STATE.selectedOffices = officeIds.slice();
-  STATE.template = BCP_FORM.templateId;
-  STATE.subject = `[EXTREME · BCI] ${BCP_FORM.title}`;
+  state.UI_STATE.selectedOffices = officeIds.slice();
+  state.UI_STATE.template = BCP_FORM.templateId;
+  state.UI_STATE.subject = `[EXTREME · BCI] ${BCP_FORM.title}`;
   // Only overwrite the Crisis Comm draft if the BCI form contributed context.
   // If BCI message is empty, preserve whatever the operator was already drafting.
   if (BCP_FORM.customMessage && BCP_FORM.customMessage.trim()) {
-    STATE.customMessage = BCP_FORM.customMessage;
+    state.UI_STATE.customMessage = BCP_FORM.customMessage;
   }
-  STATE.linkedIncidentId = inc.id;
+  state.UI_STATE.linkedIncidentId = inc.id;
   closeModal();
   openPanel('crisis');
   setCcTab('compose');
