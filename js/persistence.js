@@ -16,9 +16,9 @@
  *     post-incident artifact for stakeholder reporting.
  *
  * BRIDGE RELIANCE:
- *   - Reads STATE.incidents, STATE.responses, STATE.crisisLog via window
+ *   - Reads state.UI_STATE.incidents, state.UI_STATE.responses, state.UI_STATE.crisisLog via window
  *     (bridged from state.js).
- *   - Reads ALERTS, TRAVELERS, REMOTE_EMPLOYEES via window (state bridge).
+ *   - Reads state.ALERTS, state.TRAVELERS, state.REMOTE_EMPLOYEES via window (state bridge).
  *   - Reads OFFICE_BY_ID, SEV_COLOR, SEV_NAME, SOURCES via window (constants
  *     bridge from constants.js).
  *   - Calls helpers (esc, linkify, fmtSize, fmtHeadcount, sumHeadcount,
@@ -27,7 +27,7 @@
  *     declarations are global on classic scripts).
  *
  * The save flow on every state mutation:
- *   STATE.X = newValue  →  saveState()  →  setTimeout(_saveTimer, 500ms)
+ *   state.UI_STATE.X = newValue  →  saveState()  →  setTimeout(_saveTimer, 500ms)
  *   →  buildPersistPayload()  →  localStorage.setItem(PERSIST_KEY, json)
  *
  * The load flow on boot:
@@ -50,16 +50,22 @@ import {
   SEV_RANK,
   SOURCES,
 } from './constants.js';
+// Bridge-cleanup persistence.js state sweep (2026-07-13): prerequisite for
+// the 45 state.UI_STATE.X → state.UI_state.UI_STATE.X substitutions and the 12
+// reassignable-state migrations (state.ALERTS, state.TRAVELERS, state.EMPLOYEES,
+// state.REMOTE_EMPLOYEES, state.lastSavedAt). Same pattern as render.js commits e81aa0e
+// + dcfb21e and modals.js commits 96f588e + 7b44846.
+import { state } from './state.js';
 
 export function showAlertDetails(id) {
-  const a = ALERTS.find(x => x.id === id); if (!a) return;
+  const a = state.ALERTS.find(x => x.id === id); if (!a) return;
   const o = a.officeId ? OFFICE_BY_ID[a.officeId] : null;
   const ageMin = Math.floor((Date.now() - new Date(a.issued).getTime())/60000);
   const stale = ageMin > 4320 || (SEV_RANK[a.sev]<=1 && ageMin>1440);
   const src = SOURCES.find(s => s.id === a.source) || { name:a.source, status:'ok' };
   const visitors = o ? travelersAtOffice(o.id).length : 0;
   const sevColor = SEV_COLOR[a.sev];
-  const related = ALERTS.filter(x => x.id !== a.id &&
+  const related = state.ALERTS.filter(x => x.id !== a.id &&
     (x.officeId === a.officeId || x.type === a.type) &&
     Math.abs(new Date(x.issued)-new Date(a.issued)) < 6*3600*1000).slice(0,4);
 
@@ -135,8 +141,8 @@ export function showAlertDetails(id) {
 }
 
 export function exportIncidentReport(incidentId) {
-  const inc = STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
-  const resp = STATE.responses[inc.id] || {};
+  const inc = state.UI_STATE.incidents.find(x => x.id === incidentId); if (!inc) return;
+  const resp = state.UI_STATE.responses[inc.id] || {};
   const rs = Object.values(resp);
   const ok = rs.filter(r=>r.status==='ok').length;
   const help = rs.filter(r=>r.status==='help').length;
@@ -152,14 +158,14 @@ export function exportIncidentReport(incidentId) {
   const log = (inc.log||[]).slice();
   const notes = (inc.notes||[]).slice().sort((a,b)=>new Date(a.when)-new Date(b.when));
   // Originating alert (if incident was opened from one)
-  const origAlert = inc.alertId ? ALERTS.find(x => x.id === inc.alertId) : null;
+  const origAlert = inc.alertId ? state.ALERTS.find(x => x.id === inc.alertId) : null;
   const origSrc = origAlert ? (SOURCES.find(s => s.id === origAlert.source) || { name: origAlert.source }) : null;
   // Dashboard permalink (deep link back to this incident)
   const dashRoot = location.href.split('#')[0];
   const dashLink = `${dashRoot}#incident/${inc.id}`;
 
   // Related alerts: any active alert in any affected office (excluding origAlert which has its own section)
-  const relatedAlerts = ALERTS.filter(a =>
+  const relatedAlerts = state.ALERTS.filter(a =>
     a.officeId && inc.offices.includes(a.officeId) &&
     (!origAlert || a.id !== origAlert.id)
   );
@@ -168,13 +174,13 @@ export function exportIncidentReport(incidentId) {
   const employeeRows = []; const travelerRows = []; const remoteRows = [];
   Object.entries(resp).forEach(([eid, r]) => {
     if (r.traveler) {
-      const t = TRAVELERS.find(x => 'T-'+x.id === eid);
+      const t = state.TRAVELERS.find(x => 'T-'+x.id === eid);
       if (t) travelerRows.push({ name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} → ${t.destCity}`, status: r.status, when: r.when, by: r.by });
     } else if (r.remote) {
-      const re = REMOTE_EMPLOYEES.find(x => 'R-'+x.id === eid);
+      const re = state.REMOTE_EMPLOYEES.find(x => 'R-'+x.id === eid);
       if (re) remoteRows.push({ name: re.name, who: `${re.city}, ${re.country} (remote)`, status: r.status, when: r.when, by: r.by });
     } else {
-      const e = EMPLOYEES.find(x => x.id === eid);
+      const e = state.EMPLOYEES.find(x => x.id === eid);
       if (e) employeeRows.push({ name: e.name, who: `${OFFICE_BY_ID[e.office]?.name||e.office} · ${e.role||'—'}`, status: r.status, when: r.when, by: r.by });
     }
   });
@@ -480,29 +486,29 @@ export function buildPersistPayload() {
   return {
     schema: 1,
     savedAt: new Date().toISOString(),
-    incidents:        STATE.incidents.map(stripIncident),
-    responses:        STATE.responses,
-    crisisLog:        STATE.crisisLog.map(stripMessageAtts),
-    roomMessages:     STATE.roomMessages,
-    userTemplates:    STATE.userTemplates,
-    customLocations:  STATE.customLocations,
-    expandedOffices:  Array.from(STATE.expandedOffices || []),
-    incidentListFilter: STATE.incidentListFilter,
-    panelWidths:      STATE.panelWidths,
+    incidents:        state.UI_STATE.incidents.map(stripIncident),
+    responses:        state.UI_STATE.responses,
+    crisisLog:        state.UI_STATE.crisisLog.map(stripMessageAtts),
+    roomMessages:     state.UI_STATE.roomMessages,
+    userTemplates:    state.UI_STATE.userTemplates,
+    customLocations:  state.UI_STATE.customLocations,
+    expandedOffices:  Array.from(state.UI_STATE.expandedOffices || []),
+    incidentListFilter: state.UI_STATE.incidentListFilter,
+    panelWidths:      state.UI_STATE.panelWidths,
     draft: {
-      selectedOffices:  STATE.selectedOffices,
-      channels:         STATE.channels,
-      template:         STATE.template,
-      customMessage:    STATE.customMessage,
-      subject:          STATE.subject,
-      responseRequired: STATE.responseRequired,
-      reminderInterval: STATE.reminderInterval,
-      attachments:      (STATE.attachments || []).map(stripAtt),
-      linkedIncidentId: STATE.linkedIncidentId,
-      composeAdvanced:  STATE.composeAdvanced,
-      isTest:           STATE.isTest,
+      selectedOffices:  state.UI_STATE.selectedOffices,
+      channels:         state.UI_STATE.channels,
+      template:         state.UI_STATE.template,
+      customMessage:    state.UI_STATE.customMessage,
+      subject:          state.UI_STATE.subject,
+      responseRequired: state.UI_STATE.responseRequired,
+      reminderInterval: state.UI_STATE.reminderInterval,
+      attachments:      (state.UI_STATE.attachments || []).map(stripAtt),
+      linkedIncidentId: state.UI_STATE.linkedIncidentId,
+      composeAdvanced:  state.UI_STATE.composeAdvanced,
+      isTest:           state.UI_STATE.isTest,
     },
-    noteAttachments:  (STATE.noteAttachments || []).map(stripAtt),
+    noteAttachments:  (state.UI_STATE.noteAttachments || []).map(stripAtt),
   };
 }
 
@@ -512,7 +518,7 @@ export function saveState() {
     try {
       const json = JSON.stringify(buildPersistPayload());
       localStorage.setItem(PERSIST_KEY, json);
-      lastSavedAt = new Date();
+      state.lastSavedAt = new Date();
       // refresh just the saved indicator in the strip
       const strip = document.getElementById('status-strip');
       if (strip) renderStatusStrip();
@@ -534,29 +540,29 @@ export function loadState() {
       console.warn('Saved data has unknown schema version:', data.schema, '— ignoring.');
       return false;
     }
-    if (Array.isArray(data.incidents))      STATE.incidents = data.incidents;
-    if (data.responses)                     STATE.responses = data.responses;
-    if (Array.isArray(data.crisisLog))      STATE.crisisLog = data.crisisLog;
-    if (Array.isArray(data.roomMessages))   STATE.roomMessages = data.roomMessages;
-    if (Array.isArray(data.userTemplates))  STATE.userTemplates = data.userTemplates;
-    if (Array.isArray(data.customLocations))STATE.customLocations = data.customLocations;
-    if (Array.isArray(data.expandedOffices))STATE.expandedOffices = new Set(data.expandedOffices);
-    if (data.incidentListFilter)            STATE.incidentListFilter = data.incidentListFilter;
-    if (data.panelWidths)                   STATE.panelWidths = { ...STATE.panelWidths, ...data.panelWidths };
+    if (Array.isArray(data.incidents))      state.UI_STATE.incidents = data.incidents;
+    if (data.responses)                     state.UI_STATE.responses = data.responses;
+    if (Array.isArray(data.crisisLog))      state.UI_STATE.crisisLog = data.crisisLog;
+    if (Array.isArray(data.roomMessages))   state.UI_STATE.roomMessages = data.roomMessages;
+    if (Array.isArray(data.userTemplates))  state.UI_STATE.userTemplates = data.userTemplates;
+    if (Array.isArray(data.customLocations))state.UI_STATE.customLocations = data.customLocations;
+    if (Array.isArray(data.expandedOffices))state.UI_STATE.expandedOffices = new Set(data.expandedOffices);
+    if (data.incidentListFilter)            state.UI_STATE.incidentListFilter = data.incidentListFilter;
+    if (data.panelWidths)                   state.UI_STATE.panelWidths = { ...state.UI_STATE.panelWidths, ...data.panelWidths };
     if (data.draft) {
-      STATE.selectedOffices  = data.draft.selectedOffices  || [];
-      STATE.channels         = data.draft.channels         || STATE.channels;
-      STATE.template         = data.draft.template         || '';
-      STATE.customMessage    = data.draft.customMessage    || '';
-      STATE.subject          = data.draft.subject          || '';
-      if (typeof data.draft.responseRequired === 'boolean') STATE.responseRequired = data.draft.responseRequired;
-      STATE.reminderInterval = data.draft.reminderInterval || '15m';
-      STATE.attachments      = data.draft.attachments      || [];
-      STATE.linkedIncidentId = data.draft.linkedIncidentId || null;
-      if (typeof data.draft.composeAdvanced === 'boolean') STATE.composeAdvanced = data.draft.composeAdvanced;
+      state.UI_STATE.selectedOffices  = data.draft.selectedOffices  || [];
+      state.UI_STATE.channels         = data.draft.channels         || state.UI_STATE.channels;
+      state.UI_STATE.template         = data.draft.template         || '';
+      state.UI_STATE.customMessage    = data.draft.customMessage    || '';
+      state.UI_STATE.subject          = data.draft.subject          || '';
+      if (typeof data.draft.responseRequired === 'boolean') state.UI_STATE.responseRequired = data.draft.responseRequired;
+      state.UI_STATE.reminderInterval = data.draft.reminderInterval || '15m';
+      state.UI_STATE.attachments      = data.draft.attachments      || [];
+      state.UI_STATE.linkedIncidentId = data.draft.linkedIncidentId || null;
+      if (typeof data.draft.composeAdvanced === 'boolean') state.UI_STATE.composeAdvanced = data.draft.composeAdvanced;
     }
-    if (Array.isArray(data.noteAttachments)) STATE.noteAttachments = data.noteAttachments;
-    if (data.savedAt) lastSavedAt = new Date(data.savedAt);
+    if (Array.isArray(data.noteAttachments)) state.UI_STATE.noteAttachments = data.noteAttachments;
+    if (data.savedAt) state.lastSavedAt = new Date(data.savedAt);
     return true;
   } catch (err) {
     console.error('Persist load failed:', err);
