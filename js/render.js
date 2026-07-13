@@ -46,6 +46,7 @@
  */
 
 import {
+  ATT_EMBED_LIMIT,
   HAZARD_ZONES,
   PANEL_MIN_W,
   PANEL_MAX_W,

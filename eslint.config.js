@@ -101,10 +101,13 @@ export default [
         // (see api.js:34-39). No code change was needed for these three —
         // the trim just formalizes that reality. First "free" trims of the
         // migration effort.
-        TOKEN_KEY: 'readonly',
-        PERSIST_KEY: 'readonly',
-        PERSIST_DEBOUNCE_MS: 'readonly',
-        ATT_EMBED_LIMIT: 'readonly',
+        // TOKEN_KEY / PERSIST_KEY / PERSIST_DEBOUNCE_MS / ATT_EMBED_LIMIT
+        // trimmed 2026-07-13 (render.js batch C): each already had explicit
+        // imports in its owning module (api.js for TOKEN_KEY; persistence.js
+        // for PERSIST_*; helpers.js for ATT_EMBED_LIMIT); render.js was the
+        // only remaining bare-user for ATT_EMBED_LIMIT and now imports it too.
+        // Three of these were "free" — no code change, config just formalized
+        // the already-good state.
         PANEL_MIN_W: 'readonly',
         PANEL_MAX_W: 'readonly',
         TEST_ROUTING: 'readonly',
