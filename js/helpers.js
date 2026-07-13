@@ -27,6 +27,7 @@ import {
   OFFICE_BY_ID,
   SEVERITY,
   SEV_RANK,
+  TEMPLATES,
   WHO_COUNTRY_ALIASES,
 } from './constants.js';
 import { state } from './state.js';
@@ -255,19 +256,26 @@ export function _emptyHazardRollup() {
 /* =========================================================================
    STATE-COUPLED HELPERS — extracted in session 2 / step C2 (2026-06-19).
 
-   Function bodies reference state-bearing identifiers (ALERTS, STATE,
-   TRAVELERS, WHO_OUTBREAKS, ACLED_RISK) and constants (OFFICES, OFFICE_BY_ID,
-   COUNTRY_PRESENCE, SEV_RANK, etc.) as bare globals. Both groups are
-   bridged onto window by main.js — state via getter/setter for
-   reassignable identifiers, constants via Object.assign. Module-side
-   lookup falls through to window for undeclared identifiers, so the
-   bare references resolve correctly at call time.
+   BRIDGE-CLEANUP STATUS (as of 2026-07-13, batch E): fully explicit.
+   Every function below either imports its dependencies from ./constants
+   or ./state, or is verified as a pure/sibling-call-only helper (see
+   per-function "batch E audit" comments). Legacy-app.js and other
+   modules still reach these functions via the window bridge from
+   main.js's `Object.assign(window, helpers)` — the bridge stays for
+   consumers, only the MODULE→window direction has been cleaned up.
 
-   Sibling helper references (e.g., outbreaksAggregated calling
-   outbreaksForCountry, liveHazardsForCountry calling _emptyHazardRollup)
-   resolve through module scope — every helper is an export in this
-   same file. SEV_TO_LEVEL and LEVEL_RANK constants in liveHazards*
-   are local to those functions and stay unchanged.
+   History:
+     - Session 2/step C2 (2026-06-19): extracted here as bare-window reads
+     - Pilot     (2026-07-03): 3 fns migrated to explicit imports
+     - Batch B   (2026-07-03): 6 more
+     - Batch C   (2026-07-03): 3 more — detection-critical trio, Playwright verified
+     - Batch D   (2026-07-13): 3 more — alert-listing cluster
+     - Batch E   (2026-07-13): 2 more + 3 audit-verified pure
+
+   Sibling helper references (outbreaksAggregated → outbreaksForCountry,
+   liveHazardsAggregated → liveHazardsForCountry, etc.) resolve through
+   module scope — every helper is an export in this same file. Function-
+   local consts (SEV_TO_LEVEL, LEVEL_RANK) stay function-scoped.
    ========================================================================= */
 
 // Bridge-cleanup pilot (2026-07-03): converted from bare-window read to
@@ -318,6 +326,8 @@ export function outbreaksForCountry(countryName) {
   return state.WHO_OUTBREAKS.filter(o => normalizeWhoCountry(o.country) === countryName);
 }
 
+// Bridge-cleanup batch E (2026-07-13) audit: no bare refs — only calls
+// sibling outbreaksForCountry (batch B migrated). No diff needed.
 export function outbreaksAggregated(countryNames) {
   const all = [];
   for (const name of countryNames) {
@@ -407,6 +417,9 @@ export function liveHazardsForCountry(countryName) {
   return out;
 }
 
+// Bridge-cleanup batch E audit: no bare refs — only calls sibling
+// liveHazardsForCountry (batch D migrated), _emptyHazardRollup (pure),
+// and uses local const LEVEL_RANK. No diff needed.
 export function liveHazardsAggregated(countryNames) {
   const totals = _emptyHazardRollup();
   const LEVEL_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 };
@@ -501,12 +514,18 @@ export function visibleAlerts() { return state.ALERTS.filter(passesFilter); }
 // Bridge-cleanup batch B: TRAVELERS bare read → state.TRAVELERS.
 export function travelersAtOffice(id) { return state.TRAVELERS.filter(t => t.atOffice === id); }
 
+// Bridge-cleanup batch E (2026-07-13): STATE.customLocations bare read →
+// state.UI_STATE.customLocations. OFFICES already imported (pilot).
+// Only one state ref → no S-alias needed (house style: alias at 3+).
 export function allTargets() {
   // Offices + custom locations available for selection
   return [...OFFICES.map(o => ({ id:o.id, name:o.name, kind:'office', headcount:o.headcount })),
-          ...STATE.customLocations.map(c => ({ id:c.id, name:c.name, kind:'custom', headcount:0 }))];
+          ...state.UI_STATE.customLocations.map(c => ({ id:c.id, name:c.name, kind:'custom', headcount:0 }))];
 }
 
+// Sibling helpers — module-local calls only, no bare refs. Kept in this
+// cluster because they consume allTargets / allTemplates and are called
+// together by the Crisis Comms compose flow. No batch-E diff needed.
 export function targetById(id) { return allTargets().find(t => t.id === id); }
 
 export function recipientsForChannel(ch, ids) {
@@ -519,17 +538,21 @@ export function recipientsForChannel(ch, ids) {
   }).filter(Boolean);
 }
 
+// Bridge-cleanup batch E: TEMPLATES newly imported + STATE.userTemplates
+// bare read → state.UI_STATE.userTemplates.
 export function allTemplates() {
   return [
     ...Object.entries(TEMPLATES).map(([k,t]) => ({
       id:k, name:t.name, body:t.body, category:t.category, priority:t.priority||99, builtin:true,
     })),
-    ...STATE.userTemplates.map(t => ({
+    ...state.UI_STATE.userTemplates.map(t => ({
       id:t.id, name:t.name, body:t.body, category:'custom', priority:99, builtin:false,
     })),
   ];
 }
 
+// Bridge-cleanup batch E audit: no bare refs — only reads the `alert`
+// argument and applies regex heuristics. Pure function; no diff needed.
 export function suggestTemplate(alert) {
   if (!alert) return 'check';
   const title  = (alert.title || '').toLowerCase();
