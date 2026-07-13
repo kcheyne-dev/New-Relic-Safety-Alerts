@@ -50,12 +50,35 @@ import {
   SEV_RANK,
   SOURCES,
 } from './constants.js';
-// Bridge-cleanup persistence.js state sweep (2026-07-13): prerequisite for
-// the 45 state.UI_STATE.X → state.UI_state.UI_STATE.X substitutions and the 12
-// reassignable-state migrations (state.ALERTS, state.TRAVELERS, state.EMPLOYEES,
-// state.REMOTE_EMPLOYEES, state.lastSavedAt). Same pattern as render.js commits e81aa0e
-// + dcfb21e and modals.js commits 96f588e + 7b44846.
+// Bridge-cleanup persistence.js state sweep (2026-07-13, commit a2ba0e8):
+// 45 bare STATE.X reads converted to state.UI_STATE.X, plus 12
+// reassignable-state migrations (5 identifiers: ALERTS, TRAVELERS,
+// EMPLOYEES, REMOTE_EMPLOYEES, lastSavedAt). Same pattern as render.js
+// commits e81aa0e + dcfb21e and modals.js commits 96f588e + 7b44846.
+// (This comment was originally written before the sweep and got partially
+// re-substituted by the sweep itself — reconstructed here for clarity.)
 import { state } from './state.js';
+// Bridge-cleanup persistence.js hygiene (2026-07-13, no ESLint trim):
+// full explicit-imports posture for all bridged fns persistence.js calls.
+// Same pattern as render.js hygiene 1791c32 + modals.js hygiene 6453947.
+// Grep-audit found 17 bridged fns across 3 modules; all now imported.
+import {
+  allTemplates,
+  esc,
+  fileIcon,
+  fmtHeadcount,
+  fmtSize,
+  hasOfficeHeadcounts,
+  linkify,
+  relTime,
+  stripAtt,
+  stripIncident,
+  stripMessageAtts,
+  sumHeadcount,
+  travelersAtOffice,
+} from './helpers.js';
+import { closeModal, showModal, toast } from './modals.js';
+import { renderStatusStrip } from './render.js';
 
 export function showAlertDetails(id) {
   const a = state.ALERTS.find(x => x.id === id); if (!a) return;
