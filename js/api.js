@@ -21,7 +21,7 @@
  *      opens the SSE stream for new-event push.
  *
  * BRIDGE RELIANCE:
- *   - Mutates state.X via window setters (ALERTS = data.events.map(...) etc.)
+ *   - Mutates state.X via window setters (state.ALERTS = data.events.map(...) etc.)
  *   - Calls render functions defined in legacy-app.js (renderAll, renderIncidents)
  *     via window-fallthrough (function declarations on classic scripts ARE on window).
  *   - Calls helper functions defined in helpers.js (enrichEventWithImpact,
@@ -37,6 +37,32 @@ import {
   BACKEND_CATEGORY_TO_LABEL,
   SOURCE_ID_TO_CATEGORY,
 } from './constants.js';
+// Bridge-cleanup api.js full migration (2026-07-13, no ESLint trim):
+// last medium-size module to migrate. Same techniques as previous batches.
+// Introduces three new circular imports (api↔modals, api↔render,
+// api↔incidents) — safe because api.js's module top-level is only
+// TOKEN_KEY-etc. constants + an IIFE that parses location.hash for
+// API_BASE (no cross-module calls at load time).
+import { state } from './state.js';
+import {
+  enrichEventWithImpact,
+  esc,
+  stripIncident,
+} from './helpers.js';
+import {
+  closeModal,
+  showModal,
+  toast,
+} from './modals.js';
+import {
+  renderAll,
+  renderIncidents,
+  renderStatusStrip,
+} from './render.js';
+import {
+  buildResponseShells,
+  createIncident,
+} from './incidents.js';
 
 export const API_BASE = (() => {
   const hashMatch = location.hash.match(/[#&]api=([^&]+)/);
@@ -248,7 +274,7 @@ export function showLoginModal() {
       if (!resp.ok) throw new Error('Invalid credentials');
       const data = await resp.json();
       storeToken(data.token);
-      OPERATOR = { name: data.user.name, role: data.user.role, roleLabel: data.user.role.toUpperCase() };
+      state.OPERATOR = { name: data.user.name, role: data.user.role, roleLabel: data.user.role.toUpperCase() };
       closeModal();
       bootLiveMode();
     } catch (e) {
@@ -287,7 +313,7 @@ export async function backfillAlerts() {
   try {
     const data = await apiFetch('/api/events?limit=500');
     if (data?.events) {
-      ALERTS = data.events
+      state.ALERTS = data.events
         .filter(e => !isPrescribedFire(e))
         .map(e => enrichEventWithImpact({
           id: e.id, sev: e.sev, type: mapBackendCategory(e), source: e.source,
@@ -297,8 +323,8 @@ export async function backfillAlerts() {
           summary: e.summary, issued: e.issued, sourceUrl: e.sourceUrl,
         }));
       renderAll();
-      lastRefreshAt = new Date();
-      toast(`Loaded ${ALERTS.length} live alerts.`);
+      state.lastRefreshAt = new Date();
+      toast(`Loaded ${state.ALERTS.length} live alerts.`);
     }
   } catch (err) {
     console.error('backfill failed:', err);
@@ -324,18 +350,18 @@ export function subscribeLiveStream() {
       if (data.kind === 'new' && data.event) {
         if (isPrescribedFire(data.event)) return;     // ignore controlled burns
         const evt = mapEvt(data.event);
-        ALERTS = [evt, ...ALERTS.filter(a => a.id !== evt.id)];
+        state.ALERTS = [evt, ...state.ALERTS.filter(a => a.id !== evt.id)];
         renderAll();
         toast(`📡 New alert: ${evt.title.slice(0, 40)}…`);
       } else if (data.kind === 'updated' && data.event) {
         if (isPrescribedFire(data.event)) return;
         const evt = mapEvt(data.event);
-        ALERTS = ALERTS.map(a => a.id === evt.id ? evt : a);
+        state.ALERTS = state.ALERTS.map(a => a.id === evt.id ? evt : a);
         renderAll();
       }
       // Any successful SSE message means the backend is reachable, so refresh
       // the "Last fetch" chip's age clock too — not just /api/events backfills.
-      lastRefreshAt = new Date();
+      state.lastRefreshAt = new Date();
     } catch (e) { /* noop */ }
   });
   es.onerror = () => { /* EventSource auto-reconnects; no log spam */ };
@@ -343,12 +369,12 @@ export function subscribeLiveStream() {
 
 export async function backfillWhoOutbreaks() {
   // WHO Disease Outbreak News — populated separately from the alert pipeline.
-  // Schema mirrors WHO_OUTBREAKS_MOCK so the swap from mock → real is data-only.
+  // Schema mirrors state.WHO_OUTBREAKS_MOCK so the swap from mock → real is data-only.
   // Soft-fails: a missing or stale-error WHO endpoint shouldn't block the dashboard.
   try {
     const json = await apiFetch('/api/who-outbreaks');
     if (Array.isArray(json?.outbreaks)) {
-      WHO_OUTBREAKS = json.outbreaks;
+      state.WHO_OUTBREAKS = json.outbreaks;
       // If the Risk Profile modal is currently open, re-render it so the new data shows.
       const back = document.getElementById('modal-back');
       if (back && document.querySelector('.risk-country-chip')) {
@@ -371,7 +397,7 @@ export async function migrateLocalIncidents() {
   // _persistPending=true means createIncident's own .then is still in
   // flight for that incident. Skip those — re-attempting here would
   // double-create.
-  const local = (STATE.incidents || []).filter(
+  const local = (state.UI_STATE.incidents || []).filter(
     i => isLocalIncidentId(i.id) && !i._persistPending
   );
   if (!local.length) return;
@@ -401,12 +427,12 @@ export async function migrateLocalIncidents() {
     // backfillIncidents (which runs next) will line up perfectly with the
     // local STATE because the ids match.
     inc.id = newId;
-    if (STATE.responses[oldId]) {
-      STATE.responses[newId] = STATE.responses[oldId];
-      delete STATE.responses[oldId];
+    if (state.UI_STATE.responses[oldId]) {
+      state.UI_STATE.responses[newId] = state.UI_STATE.responses[oldId];
+      delete state.UI_STATE.responses[oldId];
     }
-    if (STATE.selectedIncidentId === oldId) STATE.selectedIncidentId = newId;
-    if (STATE.linkedIncidentId   === oldId) STATE.linkedIncidentId   = newId;
+    if (state.UI_STATE.selectedIncidentId === oldId) state.UI_STATE.selectedIncidentId = newId;
+    if (state.UI_STATE.linkedIncidentId   === oldId) state.UI_STATE.linkedIncidentId   = newId;
 
     // Sub-resources, sequential + best-effort. Order matters: messages
     // before notes is just convention; close goes last because it freezes
@@ -438,7 +464,7 @@ export async function migrateLocalIncidents() {
     }
     // Only persist non-default responses (status='no' is the implicit shell
     // built by buildResponseShells; no need to round-trip it).
-    const respMap = STATE.responses[newId] || {};
+    const respMap = state.UI_STATE.responses[newId] || {};
     for (const [eid, r] of Object.entries(respMap)) {
       if (!r || r.status === 'no') continue;
       const employeeId = eid.replace(/^T-/, '');   // strip traveler prefix
@@ -463,7 +489,7 @@ export async function migrateLocalIncidents() {
   } else if (failed > 0) {
     toast(`⚠ ${failed} localStorage incident${failed === 1 ? '' : 's'} could not migrate — kept local.`);
   }
-  // STATE.incidents now has the right ids; render so the panel reflects
+  // state.UI_STATE.incidents now has the right ids; render so the panel reflects
   // any selection/link changes that came along with the swap.
   renderIncidents();
 }
@@ -475,7 +501,7 @@ export async function backfillIncidents() {
   if (!API_BASE) return;
   // Pull incidents from the backend (Sprint 5). Soft-fail: if the call
   // errors, leave any localStorage-loaded incidents in place rather than
-  // wiping STATE.incidents — that's better UX than empty-state on a hiccup.
+  // wiping state.UI_STATE.incidents — that's better UX than empty-state on a hiccup.
   try {
     const incidents = await incidentsApi.list();
     // Hydrate full detail (responses + log + messages) for each incident
@@ -492,9 +518,9 @@ export async function backfillIncidents() {
         }
       })
     );
-    STATE.incidents = details;
-    // Build STATE.responses from per-incident response rows
-    STATE.responses = {};
+    state.UI_STATE.incidents = details;
+    // Build state.UI_STATE.responses from per-incident response rows
+    state.UI_STATE.responses = {};
     for (const inc of details) {
       const respMap = {};
       for (const r of (inc._backendResponses || [])) {
@@ -506,7 +532,7 @@ export async function backfillIncidents() {
           traveler: r.is_traveler || undefined,
         };
       }
-      STATE.responses[inc.id] = respMap;
+      state.UI_STATE.responses[inc.id] = respMap;
       delete inc._backendResponses;
     }
     renderIncidents();
@@ -519,7 +545,7 @@ export async function bootLiveMode() {
   try {
     const me = await apiFetch('/api/auth/me');
     if (me?.user) {
-      OPERATOR = { name: me.user.name, role: me.user.role, roleLabel: me.user.role.toUpperCase() };
+      state.OPERATOR = { name: me.user.name, role: me.user.role, roleLabel: me.user.role.toUpperCase() };
       renderStatusStrip();
     }
   } catch { /* token invalid → showLoginModal already handled it */ return; }
@@ -527,7 +553,7 @@ export async function bootLiveMode() {
   await backfillAlerts();
   await backfillWhoOutbreaks();
   // Migrate any localStorage-only incidents BEFORE backfillIncidents fetches
-  // the server list. backfillIncidents replaces STATE.incidents wholesale,
+  // the server list. backfillIncidents replaces state.UI_STATE.incidents wholesale,
   // so anything still local-only at that point would be lost on next save.
   // See migrateLocalIncidents for the full strategy.
   await migrateLocalIncidents();
