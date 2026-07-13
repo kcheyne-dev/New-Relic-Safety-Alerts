@@ -20,8 +20,8 @@
  *
  * BRIDGE RELIANCE (function bodies stay verbatim — bare-identifier reads
  * fall through to window via the main.js bridge):
- *   - State: STATE, ALERTS, TRAVELERS, EMPLOYEES, REMOTE_EMPLOYEES,
- *            WHO_OUTBREAKS, ACLED_RISK, OPERATOR (via state.js bridge)
+ *   - State: STATE, state.ALERTS, state.TRAVELERS, state.EMPLOYEES, state.REMOTE_EMPLOYEES,
+ *            state.WHO_OUTBREAKS, state.ACLED_RISK, state.OPERATOR (via state.js bridge)
  *   - Constants: SEV_NAME/RANK/COLOR, OFFICES, OFFICE_BY_ID, ALERT_TYPES,
  *                COUNTRY_PRESENCE, TEMPLATES, etc. (via constants.js bridge)
  *   - Helpers: esc, linkify, fmtSize, fmtHeadcount, sumHeadcount, relTime,
@@ -177,7 +177,7 @@ export function renderAlertDots() {
 export function renderEmployees() {
   layers.emp.clearLayers();
   if (!state.UI_STATE.showEmployees) return;
-  EMPLOYEES.forEach(e => {
+  state.EMPLOYEES.forEach(e => {
     const lat = state.UI_STATE.empMode === 'zip' ? e.lat : e.officeLat;
     const lng = state.UI_STATE.empMode === 'zip' ? e.lng : e.officeLng;
     const icon = L.divIcon({ html:'<div class="emp-mk"></div>', className:'', iconSize:[10,10] });
@@ -185,13 +185,13 @@ export function renderEmployees() {
     m.bindPopup(`<h4>${esc(e.name)}</h4><div class="addr">${esc(e.role)} · ${esc(OFFICE_BY_ID[e.office]?.name||'')}</div>`);
     layers.emp.addLayer(m);
   });
-  document.getElementById('emp-count').textContent = `${EMPLOYEES.length.toLocaleString()} employees loaded`;
+  document.getElementById('emp-count').textContent = `${state.EMPLOYEES.length.toLocaleString()} employees loaded`;
 }
 
 export function renderTravelers() {
   layers.trav.clearLayers();
   if (!state.UI_STATE.showTravelers) return;
-  TRAVELERS.forEach(t => {
+  state.TRAVELERS.forEach(t => {
     if (t.atOffice) return; // shown as office badge
     const symbol = t.type === 'flight' ? '✈️' : '🏨';
     const icon = L.divIcon({ html:`<div class="trav-mk">${symbol}</div>`, className:'', iconSize:[20,20] });
@@ -200,15 +200,15 @@ export function renderTravelers() {
       <div class="pop-row"><span>Booking</span><b>${t.type==='flight'?'✈ air':'🏨 hotel'}</b></div>`);
     layers.trav.addLayer(m);
   });
-  // When TRAVELERS is empty (live mode without Navan integration), show an em
+  // When state.TRAVELERS is empty (live mode without Navan integration), show an em
   // dash rather than "0" so operators can tell "no integration yet" apart from
-  // "the answer is zero". Mock-mode populates TRAVELERS via the demo IIFE.
-  const empty = TRAVELERS.length === 0;
+  // "the answer is zero". Mock-mode populates state.TRAVELERS via the demo IIFE.
+  const empty = state.TRAVELERS.length === 0;
   document.getElementById('trav-count').textContent = empty
     ? 'Travelers data unavailable — awaiting Navan connection'
-    : `${TRAVELERS.length} travelers loaded`;
+    : `${state.TRAVELERS.length} travelers loaded`;
   const badge = document.getElementById('trav-count-badge');
-  if (badge) badge.textContent = empty ? '—' : TRAVELERS.length;
+  if (badge) badge.textContent = empty ? '—' : state.TRAVELERS.length;
 }
 
 export function renderHazardZones() {
@@ -361,7 +361,7 @@ export function renderFeed() {
   }));
   body.querySelectorAll('.crisis-btn').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation();
-    const a = ALERTS.find(x => x.id === el.dataset.id);
+    const a = state.ALERTS.find(x => x.id === el.dataset.id);
     if (a && a.officeId) {
       state.UI_STATE.selectedOffices = [a.officeId];
       openPanel('crisis'); setCcTab('compose'); renderCC();
@@ -427,7 +427,7 @@ export function alertCardHTML(a) {
 
 export function selectAlert(id) {
   state.UI_STATE.selectedAlertId = id;
-  const a = ALERTS.find(x => x.id === id); if (!a) return;
+  const a = state.ALERTS.find(x => x.id === id); if (!a) return;
   map.setView([a.lat, a.lng], Math.max(map.getZoom(), 5));
   renderFeed();
   toast(`${SEV_NAME[a.sev]} · ${a.title}`);
@@ -485,7 +485,7 @@ export function renderComposeForm() {
   const reachEmps = state.UI_STATE.selectedOffices.reduce((s,id)=>{
     const t = targetById(id); return s + (t?.headcount || 0);
   },0);
-  const reachTrav = TRAVELERS.filter(t => state.UI_STATE.selectedOffices.includes(t.atOffice)).length;
+  const reachTrav = state.TRAVELERS.filter(t => state.UI_STATE.selectedOffices.includes(t.atOffice)).length;
   const activeChannels = Object.entries(state.UI_STATE.channels).filter(([k,v])=>v).map(([k])=>k);
   const message = state.UI_STATE.customMessage ||
     (state.UI_STATE.template ? (allTemplates().find(t=>t.id===state.UI_STATE.template)?.body || '') : '');
@@ -1027,13 +1027,13 @@ export function renderIncidentTab(inc, ok, help, no, total, pct) {
     const empRows = []; const travRows = []; const remoteRows = [];
     Object.entries(resp).forEach(([eid, r]) => {
       if (r.traveler) {
-        const t = TRAVELERS.find(x => 'T-'+x.id === eid);
+        const t = state.TRAVELERS.find(x => 'T-'+x.id === eid);
         if (t) travRows.push({ eid, name: t.name, who: `${OFFICE_BY_ID[t.home]?.name||t.home} · ${t.destCity}`, status: r.status });
       } else if (r.remote) {
-        const re = REMOTE_EMPLOYEES.find(x => 'R-'+x.id === eid);
+        const re = state.REMOTE_EMPLOYEES.find(x => 'R-'+x.id === eid);
         if (re) remoteRows.push({ eid, name: re.name, who: `${re.city} · ${re.country} (remote)`, status: r.status });
       } else {
-        const e = EMPLOYEES.find(x => x.id === eid);
+        const e = state.EMPLOYEES.find(x => x.id === eid);
         if (e) empRows.push({ eid, name: e.name, who: e.role, status: r.status });
       }
     });
@@ -1107,8 +1107,8 @@ export function bindIncidentDetailHandlers() {
       const isTraveler = eid.startsWith('T-');
       const subjectId  = isTraveler ? eid.slice(2) : eid;
       // Pull employee/traveler context for nicer audit trail server-side
-      const emp        = isTraveler ? null : EMPLOYEES.find(e => e.id === subjectId);
-      const trav       = isTraveler ? TRAVELERS.find(t => t.id === subjectId) : null;
+      const emp        = isTraveler ? null : state.EMPLOYEES.find(e => e.id === subjectId);
+      const trav       = isTraveler ? state.TRAVELERS.find(t => t.id === subjectId) : null;
       const subject    = emp || trav;
       incidentsApi.updateResponse(inc.id, subjectId, {
         status:       st,
@@ -1269,10 +1269,10 @@ export function buildLayerControls() {
   document.getElementById('toggle-travelers').addEventListener('change', e => { state.UI_STATE.showTravelers = e.target.checked; renderTravelers(); });
   document.querySelectorAll('input[name="emp-mode"]').forEach(r => r.addEventListener('change', e => { state.UI_STATE.empMode = e.target.value; renderEmployees(); }));
   document.getElementById('btn-load-emp').addEventListener('click', () => document.getElementById('emp-file').click());
-  document.getElementById('btn-clear-emp').addEventListener('click', () => { EMPLOYEES = []; renderEmployees(); toast('Employees cleared.'); });
+  document.getElementById('btn-clear-emp').addEventListener('click', () => { state.EMPLOYEES = []; renderEmployees(); toast('Employees cleared.'); });
   document.getElementById('emp-file').addEventListener('change', e => loadEmpCSV(e.target.files[0]));
   document.getElementById('btn-load-trav').addEventListener('click', () => document.getElementById('trav-file').click());
-  document.getElementById('btn-clear-trav').addEventListener('click', () => { TRAVELERS = []; renderTravelers(); renderOffices(); toast('Travelers cleared.'); });
+  document.getElementById('btn-clear-trav').addEventListener('click', () => { state.TRAVELERS = []; renderTravelers(); renderOffices(); toast('Travelers cleared.'); });
   document.getElementById('trav-file').addEventListener('change', e => loadTravCSV(e.target.files[0]));
 }
 
@@ -1360,7 +1360,7 @@ export function renderStatusStrip() {
   el.classList.toggle('crit', !!isCritical);
 
   // 3. Build chips.
-  const role = ROLE_TAG_STYLE[OPERATOR.role] || ROLE_TAG_STYLE.employee;
+  const role = ROLE_TAG_STYLE[state.OPERATOR.role] || ROLE_TAG_STYLE.employee;
   const incClass = openIncidents.some(i => i.severity === 'ext') ? 'crit'
                  : openIncidents.some(i => i.severity === 'high') ? 'high'
                  : openIncidents.length ? 'warn' : 'ok';
@@ -1373,7 +1373,7 @@ export function renderStatusStrip() {
       <span class="ss-icon" aria-hidden="true">👤</span>
       <div>
         <div class="ss-label">Logged in as</div>
-        <div><span class="ss-value">${esc(OPERATOR.name)}</span><span class="ss-role-tag" style="background:${role.bg};color:${role.fg}">${esc(role.label)}</span></div>
+        <div><span class="ss-value">${esc(state.OPERATOR.name)}</span><span class="ss-role-tag" style="background:${role.bg};color:${role.fg}">${esc(role.label)}</span></div>
       </div>
     </div>
     <button class="ss-chip clickable ${incClass}" data-ss-action="incidents" title="Open incidents — click to view">
@@ -1408,7 +1408,7 @@ export function renderStatusStrip() {
       // Live-mode-only — bare Pages and #api=mock don't have a backend to
       // age out, and an empty chip would be more confusing than absent.
       if (!API_BASE) return '';
-      if (!lastRefreshAt) {
+      if (!state.lastRefreshAt) {
         // First fetch hasn't completed yet (page just loaded, or login pending).
         return `
           <div class="ss-chip warn" title="No successful event fetch yet. If this persists, the backend may be unreachable — check the server is running and the JWT is valid.">
@@ -1419,7 +1419,7 @@ export function renderStatusStrip() {
             </div>
           </div>`;
       }
-      const ageSec = Math.max(0, Math.floor((Date.now() - lastRefreshAt.getTime()) / 1000));
+      const ageSec = Math.max(0, Math.floor((Date.now() - state.lastRefreshAt.getTime()) / 1000));
       const ageMin = Math.floor(ageSec / 60);
       // Threshold rationale: backend polls fastest (USGS) at 60s. Up to ~2min
       // is normal, 2-5min is worth flagging, >5min strongly suggests backend
@@ -1447,12 +1447,12 @@ export function renderStatusStrip() {
       <span class="ss-icon" aria-hidden="true">${state.UI_STATE.officeRelevantOnly ? '🎯' : '🌐'}</span>
       <div style="text-align:left">
         <div class="ss-label">View</div>
-        <div class="ss-value" style="font-size:0.78rem">${state.UI_STATE.officeRelevantOnly ? `Office-relevant (${visAlerts.length}/${ALERTS.length})` : `All global (${ALERTS.length})`}</div>
+        <div class="ss-value" style="font-size:0.78rem">${state.UI_STATE.officeRelevantOnly ? `Office-relevant (${visAlerts.length}/${state.ALERTS.length})` : `All global (${state.ALERTS.length})`}</div>
       </div>
     </button>
     <div class="ss-chip timestamp" title="Last save · last data refresh">
-      <span class="ss-saved-dot" aria-hidden="true" style="${lastSavedAt ? '' : 'background:var(--muted);box-shadow:none'}"></span>
-      <span>${lastSavedAt ? `💾 saved ${relTime(lastSavedAt.toISOString())} ago` : 'No saves yet'}</span>
+      <span class="ss-saved-dot" aria-hidden="true" style="${state.lastSavedAt ? '' : 'background:var(--muted);box-shadow:none'}"></span>
+      <span>${state.lastSavedAt ? `💾 saved ${relTime(state.lastSavedAt.toISOString())} ago` : 'No saves yet'}</span>
     </div>
   `;
 
@@ -1534,7 +1534,7 @@ export function renderFreshnessBanner() {
   let title = '';
   let detail = '';
 
-  if (!lastRefreshAt) {
+  if (!state.lastRefreshAt) {
     // No fetch ever succeeded. Wait 60s after page load before flagging
     // — the first fetch typically completes within a few seconds of
     // login, and we don't want a banner flashing on every page load.
@@ -1545,7 +1545,7 @@ export function renderFreshnessBanner() {
       detail = 'Start the backend with `npm run dev` in the backend/ directory, then hard-refresh this page.';
     }
   } else {
-    const ageSec = Math.max(0, Math.floor((now - lastRefreshAt.getTime()) / 1000));
+    const ageSec = Math.max(0, Math.floor((now - state.lastRefreshAt.getTime()) / 1000));
     const ageMin = Math.floor(ageSec / 60);
     ageLabel = ageSec < 60 ? `${ageSec}s`
              : ageMin < 60 ? `${ageMin}m`
