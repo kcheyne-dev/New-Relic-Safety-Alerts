@@ -16,9 +16,9 @@
  * time via window-fallthrough (main.js sets up the bridges before
  * legacy-app.js runs):
  *
- *   - State (state.js bridge):     ALERTS, TRAVELERS, EMPLOYEES,
- *                                  REMOTE_EMPLOYEES, ACLED_RISK,
- *                                  WHO_OUTBREAKS, BCP_FORM, STATE
+ *   - State (state.js bridge):     state.ALERTS, state.TRAVELERS, state.EMPLOYEES,
+ *                                  state.REMOTE_EMPLOYEES, state.ACLED_RISK,
+ *                                  state.WHO_OUTBREAKS, state.BCP_FORM, STATE
  *   - Pipeline (render.js bridge): renderAll, enrichEventWithImpact,
  *                                  buildEmployees, addAlert, removeAlert
  *   - Modals (modals.js bridge):   showModal, App.closeModal,
@@ -39,6 +39,22 @@ import {
   ACLED_RISK_MOCK,
   WHO_OUTBREAKS_MOCK,
 } from './mock-data.js';
+// Bridge-cleanup demo.js full migration (2026-07-13, no ESLint trim):
+// last non-legacy-app module. Zero STATE.X refs (checked); reassignable
+// state migration is the meat of this batch. No circular imports
+// introduced (no other module imports from demo.js).
+//
+// Substring-hazard note: demo.js is the ONLY module with _MOCK variant
+// identifiers (TRAVELERS_MOCK, REMOTE_EMPLOYEES_MOCK, WHO_OUTBREAKS_MOCK,
+// ACLED_RISK_MOCK) plus state.REMOTE_EMPLOYEES itself. Migration required
+// 5-phase protection: protect _MOCK variants, protect state.REMOTE_EMPLOYEES,
+// substitute the bare identifiers, restore state.REMOTE_EMPLOYEES with state
+// prefix, restore _MOCK variants unchanged.
+import { state } from './state.js';
+import { esc, uid } from './helpers.js';
+import { closeModal, showModal, toast } from './modals.js';
+import { renderAll } from './render.js';
+import { API_BASE } from './api.js';
 
 /* =========================================================================
    DEMO MODE — cycling alert + traveler simulator
@@ -47,7 +63,7 @@ import {
    • The bare GitHub Pages URL (auto-detected mock mode) does NOT run the
      demo — Pages stays clean for stakeholder viewing.
    • Use file://...index.html#api=mock or any URL with that hash to opt in.
-   • Enriches initial seed ALERTS so they pass the officeRelevantOnly filter.
+   • Enriches initial seed state.ALERTS so they pass the officeRelevantOnly filter.
    • Adds new alerts on a 25–70s cycle, with 4–9 min lifetime each.
    • Shifts a random traveler to their next leg every 45s, with toast.
    • Occasional Extreme injection so the status-strip wash + Crisis Comm
@@ -242,14 +258,14 @@ export function bootDemoMode() {
       function injectAlert() {
         if (DEMO.paused) { scheduleNext(); return; }
         const a = pickAlert();
-        ALERTS = [a, ...ALERTS];
+        state.ALERTS = [a, ...state.ALERTS];
         DEMO.demoIds.add(a.id);
         // Schedule its removal
         const lifeMs = (DEMO.alertLifetimeSec.min + Math.random() *
           (DEMO.alertLifetimeSec.max - DEMO.alertLifetimeSec.min)) * 1000;
         setTimeout(() => removeAlert(a.id), lifeMs);
         // Trim if we've exceeded the demo cap
-        const demoActive = ALERTS.filter(x => DEMO.demoIds.has(x.id));
+        const demoActive = state.ALERTS.filter(x => DEMO.demoIds.has(x.id));
         while (demoActive.length > DEMO.maxActiveDemo) {
           const oldest = demoActive[demoActive.length - 1];
           removeAlert(oldest.id);
@@ -262,7 +278,7 @@ export function bootDemoMode() {
 
       function removeAlert(id) {
         if (!DEMO.demoIds.has(id)) return;
-        ALERTS = ALERTS.filter(a => a.id !== id);
+        state.ALERTS = state.ALERTS.filter(a => a.id !== id);
         DEMO.demoIds.delete(id);
         renderAll();
       }
@@ -310,13 +326,13 @@ export function bootDemoMode() {
         const legs = TRAVELER_LEGS[tid];
         legCounters[tid] = ((legCounters[tid] || 0) + 1) % legs.length;
         const leg = legs[legCounters[tid]];
-        const idx = TRAVELERS.findIndex(t => t.id === tid);
+        const idx = state.TRAVELERS.findIndex(t => t.id === tid);
         if (idx >= 0) {
-          const before = TRAVELERS[idx];
-          TRAVELERS[idx] = { ...before,
+          const before = state.TRAVELERS[idx];
+          state.TRAVELERS[idx] = { ...before,
             destCity: leg.city, lat: leg.lat, lng: leg.lng, type: leg.type, atOffice: leg.atOffice };
           // Re-enrich active alerts so traveler-proximity badges refresh
-          ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
+          state.ALERTS = state.ALERTS.map(a => enrichEventWithImpact(a));
           renderAll();
           // Toast so the movement is visible to a watching operator
           try { toast(`✈ ${before.name} → ${leg.city}`); } catch (_) {}
@@ -356,13 +372,13 @@ export function bootDemoMode() {
       // buildEmployees() ran on initial parse with no headcounts (returned []).
       // Now that OFFICES.headcount is populated, rebuild the synthetic employee
       // scatter so map dots / By-Office plotting / Office Manager view all populate.
-      EMPLOYEES = buildEmployees();
-      TRAVELERS = TRAVELERS_MOCK.slice();
-      ACLED_RISK = { ...ACLED_RISK_MOCK };
-      WHO_OUTBREAKS = WHO_OUTBREAKS_MOCK.slice();
-      REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
-      // 1. Enrich existing seed ALERTS so they pass the officeRelevantOnly filter
-      ALERTS = ALERTS.map(a => enrichEventWithImpact(a));
+      state.EMPLOYEES = buildEmployees();
+      state.TRAVELERS = TRAVELERS_MOCK.slice();
+      state.ACLED_RISK = { ...ACLED_RISK_MOCK };
+      state.WHO_OUTBREAKS = WHO_OUTBREAKS_MOCK.slice();
+      state.REMOTE_EMPLOYEES = REMOTE_EMPLOYEES_MOCK.slice();
+      // 1. Enrich existing seed state.ALERTS so they pass the officeRelevantOnly filter
+      state.ALERTS = state.ALERTS.map(a => enrichEventWithImpact(a));
       renderAll();
       // 2. Inject the badge
       injectBadge();
@@ -389,14 +405,14 @@ export function bootDemoMode() {
    Synthetic alerts are tagged with id prefix `test-` so the Clear button
    can remove them in one shot without touching real or demo events
    (which use `demo-` prefix). They flow through the same
-   enrichEventWithImpact + ALERTS + renderAll pipeline as everything else,
+   enrichEventWithImpact + state.ALERTS + renderAll pipeline as everything else,
    so the dashboard treats them identically.
    ========================================================================= */
 export function bootTestScenarios() {
   if (!API_BASE && /[#&]api=mock/.test(location.hash)) {
     (function bootTestScenariosInner() {
       function syntheticCount() {
-        return ALERTS.filter(a => String(a.id).startsWith('test-')).length;
+        return state.ALERTS.filter(a => String(a.id).startsWith('test-')).length;
       }
 
       /* Single top-center container that holds all three mock-mode pills:
@@ -456,7 +472,7 @@ export function bootTestScenarios() {
 
       function injectAndRender(alert) {
         const enriched = enrichEventWithImpact(alert);
-        ALERTS = [enriched, ...ALERTS.filter(a => a.id !== alert.id)];
+        state.ALERTS = [enriched, ...state.ALERTS.filter(a => a.id !== alert.id)];
         renderAll();
         refreshClearPill();
         try { toast(`🧪 Injected: ${alert.title}`); } catch (_) {}
@@ -483,7 +499,7 @@ export function bootTestScenarios() {
 
       // Scenario 2 — Traveler threat: civil unrest at a current non-office traveler's city
       function fireTravelerThreat() {
-        const t = TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || TRAVELERS[0];
+        const t = state.TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || state.TRAVELERS[0];
         if (!t) {
           try { toast('No traveler available for synthetic threat.'); } catch (_) {}
           App.closeModal();
@@ -508,7 +524,7 @@ export function bootTestScenarios() {
       // Scenario 3 — BCI declaration: pre-fill the existing BCI modal for a Japan quake
       function fireBciScenario() {
         App.closeModal();
-        Object.assign(BCP_FORM, {
+        Object.assign(state.BCP_FORM, {
           eventTypeId: 'quake',
           title: 'M7.4 earthquake — Tohoku coast, Japan',
           countries: ['Japan'],
@@ -524,9 +540,9 @@ export function bootTestScenarios() {
       // Clear all synthetic events (does not touch demo or real events).
       // Callable from either the in-modal Clear button or the floating pill.
       function clearSynthetic() {
-        const before = ALERTS.length;
-        ALERTS = ALERTS.filter(a => !String(a.id).startsWith('test-'));
-        const removed = before - ALERTS.length;
+        const before = state.ALERTS.length;
+        state.ALERTS = state.ALERTS.filter(a => !String(a.id).startsWith('test-'));
+        const removed = before - state.ALERTS.length;
         renderAll();
         refreshClearPill();
         App.closeModal();   // idempotent — fine when called from the floating pill
@@ -534,7 +550,7 @@ export function bootTestScenarios() {
       }
 
       function openTestModal() {
-        const t = TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || TRAVELERS[0];
+        const t = state.TRAVELERS.find(tr => !tr.atOffice && tr.type !== 'flight') || state.TRAVELERS[0];
         const travelerLabel = t ? `${t.destCity} (${t.name})` : 'no traveler available';
         const html = `<div style="width:min(560px,92vw);">
           <div style="padding:14px 18px;border-bottom:1px solid var(--border);">
