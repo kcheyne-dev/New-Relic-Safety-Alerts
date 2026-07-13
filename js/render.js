@@ -46,6 +46,7 @@
  */
 
 import { PANEL_MIN_W, PANEL_MAX_W } from './constants.js';
+import { state } from './state.js';
 
 export function isModalOpen() { return !!document.getElementById('modal-back'); }
 
@@ -403,7 +404,9 @@ export function selectAlert(id) {
   toast(`${SEV_NAME[a.sev]} · ${a.title}`);
 }
 
-export function setCcTab(t) { STATE.ccTab = t;
+// Bridge-cleanup render.js pilot (2026-07-13): STATE.ccTab bare → state.UI_STATE.
+// renderCC is a sibling — module-local, unchanged.
+export function setCcTab(t) { state.UI_STATE.ccTab = t;
   document.querySelectorAll('[data-cc-tab]').forEach(el => el.classList.toggle('active', el.dataset.ccTab===t));
   renderCC();
 }
@@ -837,7 +840,8 @@ export function bindCCHandlers() {
   }
 }
 
-export function setIncidentTab(t) { STATE.incidentTab = t; renderIncidentDetail(); }
+// Bridge-cleanup render.js pilot: STATE.incidentTab bare → state.UI_STATE.
+export function setIncidentTab(t) { state.UI_STATE.incidentTab = t; renderIncidentDetail(); }
 
 export function renderIncidents() {
   const body = document.getElementById('incident-body');
@@ -1255,7 +1259,9 @@ export function closePanel(p) {
   document.getElementById('rail-'+p)?.setAttribute('aria-expanded', 'false');
 }
 
-export function togglePanel(p) { STATE.panels[p] ? closePanel(p) : openPanel(p); }
+// Bridge-cleanup render.js pilot: STATE.panels bare → state.UI_STATE.
+// closePanel/openPanel are siblings — module-local, unchanged.
+export function togglePanel(p) { state.UI_STATE.panels[p] ? closePanel(p) : openPanel(p); }
 
 export function positionToolsDropdown() {
   const dd = document.getElementById('tools-dropdown');
