@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NRSA backend launchd LaunchAgent.
+
+  Purpose: keeps `npm run dev` (tsx watch src/server.ts) alive across
+  crashes, terminal-window closes, and Mac restarts. Prevents the
+  recurring "backend down for 4 days unnoticed" incidents from
+  2026-06-10 and 2026-07-03.
+
+  This file is the REPO TEMPLATE. The installed copy lives at
+  ~/Library/LaunchAgents/com.newrelic.nrsa-backend.plist and is loaded
+  by launchd via `launchctl load`. See ops/README.md for install steps.
+
+  Machine-specific values baked in for kcheyne@V95P23HQF4 (M1/M2 Mac,
+  arm64, Homebrew at /opt/homebrew). If you deploy this on a different
+  machine, adjust:
+    - ProgramArguments[0]: absolute path to npm  (which npm)
+    - EnvironmentVariables.PATH: include the correct homebrew prefix
+    - WorkingDirectory: repo backend/ path
+    - StandardOutPath / StandardErrorPath: log file locations
+-->
+<plist version="1.0">
+<dict>
+    <!-- Unique identifier for this LaunchAgent. Convention: reverse-DNS. -->
+    <key>Label</key>
+    <string>com.newrelic.nrsa-backend</string>
+
+    <!-- What to run. `npm run start:launchd` invokes `tsx src/server.ts`
+         WITHOUT the `--watch` flag. Watch mode is fragile under supervision
+         — the tsx-watch controller can leave hung parents when the child
+         listener dies without respawning cleanly, defeating KeepAlive.
+         Watch mode is for interactive dev (manual `npm run dev`); under
+         launchd we want plain single-process supervision. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/npm</string>
+        <string>run</string>
+        <string>start:launchd</string>
+    </array>
+
+    <!-- Run in the backend/ directory so:
+         (a) `npm run dev` finds package.json
+         (b) dotenv loads backend/.env from cwd
+         (c) tsx watches src/*.ts under this cwd -->
+    <key>WorkingDirectory</key>
+    <string>/Users/kcheyne/Documents/Claude/Projects/New Relic Safety Alerts/backend</string>
+
+    <!-- launchd doesn't inherit shell PATH; set it explicitly so npm can
+         find node and node_modules/.bin scripts. Homebrew arm64 path
+         first, then legacy Intel path, then system defaults. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Start immediately when launchctl loads this file (also fires on
+         user login, since ~/Library/LaunchAgents/ loads at login time). -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically whenever the process exits. Combined with
+         ThrottleInterval below to avoid restart-storm if something is
+         genuinely broken. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Minimum seconds between restart attempts. Postgres.app may not
+         be ready when this fires at login (its own LaunchAgent runs in
+         parallel), so early crashes are expected — 10s throttling means
+         we retry every 10s, converging within a minute at most. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Capture stdout/stderr to log files so post-mortem is possible
+         after a crash. Pino writes pretty logs to stdout in dev mode. -->
+    <key>StandardOutPath</key>
+    <string>/Users/kcheyne/Library/Logs/nrsa-backend.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/kcheyne/Library/Logs/nrsa-backend.error.log</string>
+
+    <!-- Optional: process name shown in Activity Monitor / ps -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
