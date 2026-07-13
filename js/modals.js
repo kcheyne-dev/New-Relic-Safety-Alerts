@@ -69,6 +69,27 @@
  * that didn't fit cleanly elsewhere. Future cleanup can move those too.
  */
 
+// Bridge-cleanup modals.js first imports (2026-07-13): first module-scope
+// imports in modals.js — previously every constant/helper resolved through
+// the window bridge. This block covers the four identifiers that grep
+// confirmed are ONLY bare-referenced in modals.js:
+//   - TEST_PREFIX_SUBJECT (used at line ~141 in dispatchSend)
+//   - TEST_PREFIX_BODY    (used at line ~143 in dispatchSend)
+//   - BCP_EVENT_TYPES     (used at ~633, 722, 724, 786 in the BCI flow)
+//   - COUNTRY_PRESENCE    (used at ~539, 852 in BCI + Risk modals; also
+//                          imported by helpers.js already — this trims the
+//                          last remaining bare user)
+// The other identifiers this module reads (STATE, TEMPLATES, OFFICES, esc,
+// showModal, etc.) still resolve via window bridge and will be migrated in
+// future batches. Adding those requires more diff review because they
+// change many function bodies.
+import {
+  BCP_EVENT_TYPES,
+  COUNTRY_PRESENCE,
+  TEST_PREFIX_BODY,
+  TEST_PREFIX_SUBJECT,
+} from './constants.js';
+
 export function confirmSend() {
   const channels = Object.entries(STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
   if (!channels.length || !STATE.selectedOffices.length) return;

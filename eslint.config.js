@@ -75,7 +75,9 @@ export default [
         SOURCES: 'readonly',
         OFFICES: 'readonly',
         OFFICE_BY_ID: 'readonly',
-        COUNTRY_PRESENCE: 'readonly',
+        // COUNTRY_PRESENCE trimmed 2026-07-13 (modals.js first-imports):
+        // helpers.js already imported (batch C); modals.js added imports
+        // this batch. Grep confirms no other bare users.
         // WHO_COUNTRY_ALIASES trimmed 2026-07-03 (batch B): only used in
         // helpers.js which now imports it explicitly. Grep confirms no
         // other bare reference anywhere in js/. First trim of the bridge
@@ -85,7 +87,9 @@ export default [
         // by renderStatusStrip in render.js, which now imports it explicitly.
         TEMPLATE_CATEGORIES: 'readonly',
         TEMPLATES: 'readonly',
-        BCP_EVENT_TYPES: 'readonly',
+        // BCP_EVENT_TYPES trimmed 2026-07-13 (modals.js first-imports):
+        // only used by modals.js in the BCI declaration flow (4 sites),
+        // which now imports it explicitly.
         // HAZARD_ZONES trimmed 2026-07-13 (render.js batch B): only used by
         // render.js (renderHazardZones + buildLayerControls), which now
         // imports it explicitly.
@@ -111,8 +115,9 @@ export default [
         PANEL_MIN_W: 'readonly',
         PANEL_MAX_W: 'readonly',
         TEST_ROUTING: 'readonly',
-        TEST_PREFIX_SUBJECT: 'readonly',
-        TEST_PREFIX_BODY: 'readonly',
+        // TEST_PREFIX_SUBJECT / TEST_PREFIX_BODY trimmed 2026-07-13
+        // (modals.js first-imports): only used by dispatchSend in
+        // modals.js, which now imports both explicitly.
 
         // Bridged identifiers from js/state.js. Object-refs are readonly
         // from the module perspective (properties mutated, ref never
