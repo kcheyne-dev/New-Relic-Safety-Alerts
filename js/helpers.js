@@ -25,6 +25,7 @@ import {
   IMPACT_RADIUS_DEFAULT_KM,
   OFFICES,
   OFFICE_BY_ID,
+  SEVERITY,
   SEV_RANK,
   WHO_COUNTRY_ALIASES,
 } from './constants.js';
@@ -362,13 +363,16 @@ export function relevanceTierOf(alert) {
   return null;
 }
 
+// Bridge-cleanup batch D: ALERTS bare read → state.ALERTS. alertCountryFor
+// is a sibling (migrated in batch C) — module-local, unchanged. Local
+// consts SEV_TO_LEVEL and LEVEL_RANK stay function-scoped for clarity.
 export function liveHazardsForCountry(countryName) {
   const out = _emptyHazardRollup();
   if (!countryName) return out;
   const SEV_TO_LEVEL = { low: 'L1', mod: 'L2', high: 'L3', ext: 'L4' };
   const LEVEL_RANK = { L1: 1, L2: 2, L3: 3, L4: 4 };
 
-  for (const a of ALERTS) {
+  for (const a of state.ALERTS) {
     if (alertCountryFor(a) !== countryName) continue;
     const src = (a.source || '').toLowerCase();
     const ttl = (a.title  || '').toLowerCase();
@@ -426,14 +430,19 @@ export function liveHazardsAggregated(countryNames) {
   return totals;
 }
 
+// Bridge-cleanup batch D (2026-07-13): SEVERITY newly imported;
+// SEV_RANK already imported (batch B). activeAlertsForOffice is a
+// sibling — module-local, unchanged.
 export function maxSevForOffice(officeId) {
   const a = activeAlertsForOffice(officeId);
   if (!a.length) return null;
   return SEVERITY[Math.max(...a.map(x => SEV_RANK[x.sev]-1))];
 }
 
+// Bridge-cleanup batch D: ALERTS bare read → state.ALERTS.
+// passesFilter is a sibling — module-local (migrated in batch B), unchanged.
 export function activeAlertsForOffice(id) {
-  return ALERTS.filter(a => a.officeId === id && passesFilter(a));
+  return state.ALERTS.filter(a => a.officeId === id && passesFilter(a));
 }
 
 // Bridge-cleanup batch C: IMPACT_RADIUS_DEFAULT_KM and OFFICE_BY_ID bare
