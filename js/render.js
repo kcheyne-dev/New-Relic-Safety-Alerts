@@ -45,7 +45,13 @@
  * loop after the bridge is ready. Same rationale as bootLiveMode.
  */
 
-import { PANEL_MIN_W, PANEL_MAX_W } from './constants.js';
+import {
+  HAZARD_ZONES,
+  PANEL_MIN_W,
+  PANEL_MAX_W,
+  ROLE_TAG_STYLE,
+  TILE_OVERLAYS,
+} from './constants.js';
 import { state } from './state.js';
 
 export function isModalOpen() { return !!document.getElementById('modal-back'); }

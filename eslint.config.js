@@ -81,18 +81,26 @@ export default [
         // other bare reference anywhere in js/. First trim of the bridge
         // cleanup — enforceable evidence that helpers.js no longer needs
         // the bridge for this identifier.
-        ROLE_TAG_STYLE: 'readonly',
+        // ROLE_TAG_STYLE trimmed 2026-07-13 (render.js batch B): only used
+        // by renderStatusStrip in render.js, which now imports it explicitly.
         TEMPLATE_CATEGORIES: 'readonly',
         TEMPLATES: 'readonly',
         BCP_EVENT_TYPES: 'readonly',
-        HAZARD_ZONES: 'readonly',
-        TILE_OVERLAYS: 'readonly',
+        // HAZARD_ZONES trimmed 2026-07-13 (render.js batch B): only used by
+        // render.js (renderHazardZones + buildLayerControls), which now
+        // imports it explicitly.
+        // TILE_OVERLAYS trimmed 2026-07-13 (render.js batch B): only used by
+        // render.js (updateHazardLegend + buildLayerControls), which now
+        // imports it explicitly.
         // IMPACT_RADIUS_DEFAULT_KM trimmed 2026-07-03 (batch C): only used
         // in helpers.js enrichEventWithImpact, now imports explicitly. Grep
         // confirms no bare-code reference elsewhere in js/.
-        BACKEND_TYPE_TO_CATEGORY: 'readonly',
-        BACKEND_CATEGORY_TO_LABEL: 'readonly',
-        SOURCE_ID_TO_CATEGORY: 'readonly',
+        // BACKEND_TYPE_TO_CATEGORY, BACKEND_CATEGORY_TO_LABEL,
+        // SOURCE_ID_TO_CATEGORY trimmed 2026-07-13 (render.js batch B):
+        // used only by api.js, which was already importing them explicitly
+        // (see api.js:34-39). No code change was needed for these three —
+        // the trim just formalizes that reality. First "free" trims of the
+        // migration effort.
         TOKEN_KEY: 'readonly',
         PERSIST_KEY: 'readonly',
         PERSIST_DEBOUNCE_MS: 'readonly',
