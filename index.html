@@ -42,6 +42,13 @@
     </div>
   </header>
 
+  <!-- FRESHNESS BANNER — shown when backend is unreachable (live mode only).
+       Complements the small "Last fetch" chip in the status strip below;
+       twice the backend went down for 4 days unnoticed because the chip was
+       too easy to miss (2026-06-10, 2026-07-03). This banner is unmissable.
+       Populated by renderFreshnessBanner() in render.js. -->
+  <div class="freshness-banner" id="freshness-banner" role="alert" aria-live="polite" hidden></div>
+
   <!-- STATUS STRIP -->
   <div class="status-strip" id="status-strip" role="region" aria-label="Operational status"></div>
 

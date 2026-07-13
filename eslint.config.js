@@ -165,6 +165,7 @@ export default [
           'buildLayerControls', 'closePanel', 'hasDraftContent', 'isModalOpen',
           'msgRowHTML', 'officePopup', 'openPanel', 'positionToolsDropdown',
           'renderAlertDots', 'renderAll', 'renderCC', 'renderCCLog',
+          'renderFreshnessBanner',
           'renderComposeForm', 'renderEmployees', 'renderFeed', 'renderHazardZones',
           'renderHazards', 'renderIncidentDetail', 'renderIncidentDetailHTML',
           'renderIncidentFilter', 'renderIncidentList', 'renderIncidentTab',

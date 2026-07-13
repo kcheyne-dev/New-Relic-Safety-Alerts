@@ -58,6 +58,49 @@ button { cursor: pointer; }
 }
 .last-updated { font-size: 11px; color: var(--muted); }
 
+/* ============ FRESHNESS BANNER ====================================
+   Shouty top-of-viewport banner shown when the backend is unreachable
+   (last successful /api/events fetch is old). Complements the small
+   "Last fetch" chip in the status strip — that chip was missed twice
+   during 4-day silent outages (2026-06-10, 2026-07-03). This banner is
+   deliberately hard to miss.
+
+   States:
+     .crit  — 5+ minutes since last successful fetch → red, pulsing bar
+     .warn  — 2-5 minutes since last fetch → amber, static
+   Populated by renderFreshnessBanner() in js/render.js. `hidden` attr
+   collapses the element when nothing's wrong.
+   ================================================================= */
+.freshness-banner {
+  padding: 12px 20px;
+  font-size: 14px; font-weight: 600;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 2px solid transparent;
+  color: #fff;
+}
+.freshness-banner[hidden] { display: none; }
+.freshness-banner.crit {
+  background: linear-gradient(90deg, #b91c1c, #7f1d1d);
+  border-bottom-color: #ef4444;
+  animation: freshnessPulse 1.8s ease-in-out infinite;
+}
+.freshness-banner.warn {
+  background: linear-gradient(90deg, #b45309, #78350f);
+  border-bottom-color: #f59e0b;
+}
+.freshness-banner .fb-icon { font-size: 20px; flex-shrink: 0; }
+.freshness-banner .fb-body { flex: 1; line-height: 1.35; }
+.freshness-banner .fb-title { display: block; font-size: 15px; }
+.freshness-banner .fb-detail { display: block; font-size: 12px; opacity: 0.9; font-weight: 400; margin-top: 2px; }
+.freshness-banner code {
+  background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 3px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px;
+}
+@keyframes freshnessPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+  50%      { box-shadow: 0 0 12px 4px rgba(239,68,68,0.5); }
+}
+
 /* ============ STATUS STRIP ======================================= */
 .status-strip {
   height: 40px; background: var(--bg2); border-bottom: 1px solid var(--border);

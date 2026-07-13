@@ -1463,10 +1463,92 @@ export function renderStatusStrip() {
   }));
 }
 
+/**
+ * Freshness banner — shouty top-of-viewport red bar when the backend
+ * appears offline. Complements the small "Last fetch" chip in the status
+ * strip (see renderStatusStrip). That chip was missed by operators twice
+ * during 4-day silent outages (2026-06-10 and 2026-07-03) because it sits
+ * in a busy row of chips and is easy to overlook.
+ *
+ * TRIGGER (live mode only — bare Pages and #api=mock have no backend):
+ *   crit → 5+ minutes since last successful /api/events fetch, OR
+ *          page has been loaded > 60s and no fetch has ever succeeded
+ *   warn → 2-5 minutes since last successful fetch
+ *   ok   → hidden
+ *
+ * Thresholds match the "Last fetch" chip's tier boundaries so the two
+ * indicators stay in agreement. Renders on every renderStatusStrip call
+ * and every status-strip ticker tick (~60s), so operators see the state
+ * transition within a minute of it happening.
+ *
+ * Deliberately does NOT try to detect "backend up but not ingesting"
+ * (e.g., all adapters silently broken). That's a legitimate follow-up
+ * but harder to distinguish from a quiet news day. This banner catches
+ * the far more common case: backend process died.
+ */
+export function renderFreshnessBanner() {
+  const el = document.getElementById('freshness-banner');
+  if (!el) return;
+
+  // Non-live modes: no backend to worry about, hide the banner.
+  if (!API_BASE) { el.hidden = true; el.className = 'freshness-banner'; return; }
+
+  const now = Date.now();
+  let tier = 'ok';           // 'ok' | 'warn' | 'crit'
+  let ageLabel = '';
+  let title = '';
+  let detail = '';
+
+  if (!lastRefreshAt) {
+    // No fetch ever succeeded. Wait 60s after page load before flagging
+    // — the first fetch typically completes within a few seconds of
+    // login, and we don't want a banner flashing on every page load.
+    const bootAgeMs = now - (renderFreshnessBanner._bootTs || (renderFreshnessBanner._bootTs = now));
+    if (bootAgeMs > 60_000) {
+      tier = 'crit';
+      title = 'Backend not responding — no data fetched since page load.';
+      detail = 'Start the backend with `npm run dev` in the backend/ directory, then hard-refresh this page.';
+    }
+  } else {
+    const ageSec = Math.max(0, Math.floor((now - lastRefreshAt.getTime()) / 1000));
+    const ageMin = Math.floor(ageSec / 60);
+    ageLabel = ageSec < 60 ? `${ageSec}s`
+             : ageMin < 60 ? `${ageMin}m`
+             : `${Math.floor(ageMin / 60)}h ${ageMin % 60}m`;
+    if (ageMin >= 5) {
+      tier = 'crit';
+      title = `Backend not responding — last data fetch was ${ageLabel} ago.`;
+      detail = 'Check the backend terminal — the process may have died. Restart with `npm run dev`.';
+    } else if (ageMin >= 2) {
+      tier = 'warn';
+      title = `Data slightly stale — last fetch was ${ageLabel} ago.`;
+      detail = 'Watch for further drift. Fetches normally complete within a minute.';
+    }
+    // ok tier: banner stays hidden
+  }
+
+  if (tier === 'ok') {
+    el.hidden = true;
+    el.className = 'freshness-banner';
+    return;
+  }
+
+  el.className = `freshness-banner ${tier}`;
+  el.hidden = false;
+  el.innerHTML = `
+    <span class="fb-icon" aria-hidden="true">${tier === 'crit' ? '⚠' : '⏱'}</span>
+    <div class="fb-body">
+      <span class="fb-title">${esc(title)}</span>
+      <span class="fb-detail">${detail.replace(/`([^`]+)`/g, '<code>$1</code>')}</span>
+    </div>
+  `;
+}
+
 export function renderAll() {
   renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards();
   renderFeed(); renderCC(); renderIncidents();
   renderStatusStrip();
+  renderFreshnessBanner();
   saveState();   // debounced
 }
 
@@ -1476,6 +1558,10 @@ export function startStatusStripTicker() {
   if (_statusStripTicker) return;
   _statusStripTicker = setInterval(() => {
     if (document.getElementById('status-strip')) renderStatusStrip();
+    // Also re-check freshness — the banner needs its own tick because
+    // it can transition from ok → warn → crit as the last-fetch age
+    // advances without any other render triggering.
+    renderFreshnessBanner();
   }, 60000);
 }
 
