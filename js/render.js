@@ -54,6 +54,28 @@ import {
   TILE_OVERLAYS,
 } from './constants.js';
 import { state } from './state.js';
+// Bridge-cleanup render.js hygiene (2026-07-13): every helper from
+// helpers.js that render.js actually calls. No globals trim earned —
+// each helper is also called by legacy-app.js (bridge stays) — but
+// static analysis + IDE navigation both improve inside render.js.
+// Verified via grep for each name; only these 15 are in real use.
+import {
+  activeAlertsForOffice,
+  alertPriorityScore,
+  allTemplates,
+  attachmentChipHTML,
+  esc,
+  fmtHeadcount,
+  fmtSize,
+  linkify,
+  maxSevForOffice,
+  recipientsForChannel,
+  relTime,
+  targetById,
+  topScore,
+  travelersAtOffice,
+  visibleAlerts,
+} from './helpers.js';
 
 export function isModalOpen() { return !!document.getElementById('modal-back'); }
 
