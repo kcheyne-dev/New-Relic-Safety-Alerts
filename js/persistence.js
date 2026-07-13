@@ -35,7 +35,21 @@
  *   →  rehydrate incidents/responses/customLocations/etc.
  */
 
-import { PERSIST_KEY, PERSIST_DEBOUNCE_MS } from './constants.js';
+// Bridge-cleanup persistence.js hygiene (2026-07-13): expanded from the
+// original two imports (PERSIST_*) to include every constant the module
+// reads. No ESLint globals trim earned here — all of SEV_RANK / SEV_NAME /
+// SEV_COLOR / SOURCES / OFFICE_BY_ID have legacy-app.js bare users so they
+// stay in globals. Value: typo protection and dependency clarity — a typo
+// like `SEV_NAM` now fires no-undef inside persistence.js immediately.
+import {
+  OFFICE_BY_ID,
+  PERSIST_KEY,
+  PERSIST_DEBOUNCE_MS,
+  SEV_COLOR,
+  SEV_NAME,
+  SEV_RANK,
+  SOURCES,
+} from './constants.js';
 
 export function showAlertDetails(id) {
   const a = ALERTS.find(x => x.id === id); if (!a) return;
