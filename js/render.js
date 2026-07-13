@@ -76,6 +76,44 @@ import {
   travelersAtOffice,
   visibleAlerts,
 } from './helpers.js';
+// Bridge-cleanup render.js cross-module hygiene (2026-07-13, no ESLint trim):
+// full explicit-imports posture. Same pattern as modals.js + persistence.js
+// hygiene batches. Grep-audit found 18 bridged fns across 4 modules.
+//
+// Circular imports introduced (safe — all cross-refs are inside function
+// bodies, verified by the identical modals.js↔persistence.js circular in
+// commit e2c011a):
+//   - render.js → modals.js (already: modals.js → render.js for renderAll)
+//   - render.js → persistence.js (already: persistence.js → render.js for renderStatusStrip)
+// render.js's module top-level is just imports and a private variable
+// (_statusStripTicker) — no top-level function calls into these modules,
+// so ES module circular resolution is safe.
+import {
+  closeModal,
+  confirmSend,
+  dispatchSend,
+  showBCPModal,
+  showModal,
+  showRiskProfileModal,
+  showTravelersList,
+  toast,
+} from './modals.js';
+import {
+  exportData,
+  exportIncidentReport,
+  saveState,
+  showAlertDetails,
+} from './persistence.js';
+import {
+  API_BASE,
+  bootLiveMode,
+  commsApi,
+  incidentsApi,
+} from './api.js';
+import {
+  addIncidentLog,
+  reopenIncident,
+} from './incidents.js';
 
 export function isModalOpen() { return !!document.getElementById('modal-back'); }
 
