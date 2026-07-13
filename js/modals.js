@@ -69,33 +69,88 @@
  * that didn't fit cleanly elsewhere. Future cleanup can move those too.
  */
 
-// Bridge-cleanup modals.js first imports (2026-07-13): first module-scope
-// imports in modals.js — previously every constant/helper resolved through
-// the window bridge. This block covers the four identifiers that grep
-// confirmed are ONLY bare-referenced in modals.js:
-//   - TEST_PREFIX_SUBJECT (used at line ~141 in dispatchSend)
-//   - TEST_PREFIX_BODY    (used at line ~143 in dispatchSend)
-//   - BCP_EVENT_TYPES     (used at ~633, 722, 724, 786 in the BCI flow)
-//   - COUNTRY_PRESENCE    (used at ~539, 852 in BCI + Risk modals; also
-//                          imported by helpers.js already — this trims the
-//                          last remaining bare user)
-// The other identifiers this module reads (STATE, TEMPLATES, OFFICES, esc,
-// showModal, etc.) still resolve via window bridge and will be migrated in
-// future batches. Adding those requires more diff review because they
-// change many function bodies.
+// Bridge-cleanup imports for modals.js.
+//
+// Historical batches (kept for archaeology):
+//   - First-imports batch (commit 9d4de14, 2026-07-13): introduced module-
+//     scope imports to modals.js for the first time; 4 constants
+//     (BCP_EVENT_TYPES, COUNTRY_PRESENCE, TEST_PREFIX_SUBJECT/BODY) that
+//     were grep-confirmed as modals.js-only bare users, earning 4 ESLint
+//     globals trims.
+//   - STATE sweep (commit 96f588e): 52 bare STATE.X reads → state.UI_STATE.X.
+//     Added `import { state } from './state.js'`.
+//   - Reassignable-state migration (commit 7b44846): 100 bare reads of
+//     ALERTS/TRAVELERS/BCP_FORM/RISK_VIEW/TRAV_VIEW/ACLED_RISK/REMOTE_EMPLOYEES
+//     converted to state.X.
+//
+// This batch (2026-07-13, no ESLint trim): full hygiene sweep. Extends
+// imports to cover every bridged fn/const modals.js actually calls. Same
+// pattern as render.js hygiene batch (commit 1791c32). No function bodies
+// changed. Value: typo protection + IDE navigation inside modals.js.
+// A typo like `es(...)` for `esc(...)` now fires no-undef immediately.
+//
+// Grep-audit found 46 identifiers in use across 5 modules; all now imported.
 import {
   BCP_EVENT_TYPES,
   COUNTRY_PRESENCE,
+  OFFICES,
+  OFFICE_BY_ID,
+  SEV_RANK,
+  TEMPLATES,
+  TEMPLATE_CATEGORIES,
   TEST_PREFIX_BODY,
   TEST_PREFIX_SUBJECT,
+  TEST_ROUTING,
 } from './constants.js';
-// Bridge-cleanup modals.js STATE sweep (2026-07-13): 52 bare STATE.X reads
-// converted to state.UI_STATE.X. Adding state import is a prerequisite.
-// Same 3-phase-safe pattern as render.js STATE sweep (commit e81aa0e),
-// though here no protection was needed because modals.js had zero existing
-// state.UI_STATE. references before this batch — a naive single-phase
-// substring replace was safe.
 import { state } from './state.js';
+import {
+  aggregateAcledRisk,
+  alertCountryFor,
+  allTargets,
+  allTemplates,
+  enrichEventWithImpact,
+  esc,
+  fmtHeadcount,
+  fmtSize,
+  hasAcledRisk,
+  hasOfficeHeadcounts,
+  hasWhoOutbreaks,
+  linkify,
+  liveHazardsAggregated,
+  liveHazardsForCountry,
+  normalizeWhoCountry,
+  outbreaksAggregated,
+  passesFilter,
+  recipientsForChannel,
+  relevanceTierOf,
+  relTime,
+  suggestTemplate,
+  sumHeadcount,
+  targetById,
+  uid,
+} from './helpers.js';
+import {
+  closePanel,
+  openPanel,
+  renderAll,
+  renderCC,
+  renderIncidents,
+  renderStatusStrip,
+  setCcTab,
+} from './render.js';
+import { saveState } from './persistence.js';
+import {
+  API_BASE,
+  bootLiveMode,
+  commsApi,
+  incidentsApi,
+} from './api.js';
+import {
+  addIncidentLog,
+  buildResponseShells,
+  createIncident,
+  reopenIncident,
+} from './incidents.js';
 
 export function confirmSend() {
   const channels = Object.entries(state.UI_STATE.channels).filter(([k,v])=>v && k!=='sms').map(([k])=>k);
