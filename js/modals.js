@@ -39,12 +39,12 @@
  *      - Per-country risk dashboard: live hazards (NWS/MeteoAlarm/GDACS/USGS
  *        active), ACLED civil-unrest history (mock-only — license required
  *        for live), WHO disease outbreaks. Always-rendering chip picker
- *        across the union of COUNTRY_PRESENCE + ACLED_RISK keys.
+ *        across the union of COUNTRY_PRESENCE + state.ACLED_RISK keys.
  *
  * BRIDGE RELIANCE (function bodies stay verbatim, references resolve via
  * window-fallthrough at call time):
  *   - State: state.UI_STATE.X mutations propagate via state.js bridge.
- *     BCP_FORM / TRAV_VIEW / RISK_VIEW are bridged direct-assign (object
+ *     state.BCP_FORM / state.TRAV_VIEW / state.RISK_VIEW are bridged direct-assign (object
  *     refs) so .property mutations work without renames.
  *   - Constants: COUNTRY_PRESENCE, OFFICES, OFFICE_BY_ID, BCP_EVENT_TYPES,
  *     TEMPLATES, etc. via constants.js bridge.
@@ -194,7 +194,7 @@ export function dispatchSend(body, channels, reach) {
   } else if (state.UI_STATE.responseRequired) {
     // Create new incident on first response-required send.
     // Auto-link the highest-severity active alert in the affected offices, if any.
-    const candidateAlerts = ALERTS
+    const candidateAlerts = state.ALERTS
       .filter(a => a.officeId && state.UI_STATE.selectedOffices.includes(a.officeId) && passesFilter(a))
       .sort((a,b) => SEV_RANK[b.sev] - SEV_RANK[a.sev] || new Date(b.issued) - new Date(a.issued));
     const linkedAlert = candidateAlerts[0] || null;
@@ -309,15 +309,15 @@ export function showTravelersList() {
 }
 
 export function travListBodyHTML() {
-  const filt = (t, label) => `<button data-trav-filter="${t}" class="trav-filt" style="padding:6px 12px;background:${t===TRAV_VIEW.typeFilter?'var(--green)':'var(--bg3)'};color:${t===TRAV_VIEW.typeFilter?'#062c1f':'var(--text)'};border:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;font-weight:${t===TRAV_VIEW.typeFilter?'700':'400'};">${label}</button>`;
-  // In live + bare Pages mode TRAVELERS is empty (no Navan integration yet).
+  const filt = (t, label) => `<button data-trav-filter="${t}" class="trav-filt" style="padding:6px 12px;background:${t===state.TRAV_VIEW.typeFilter?'var(--green)':'var(--bg3)'};color:${t===state.TRAV_VIEW.typeFilter?'#062c1f':'var(--text)'};border:0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;font-weight:${t===state.TRAV_VIEW.typeFilter?'700':'400'};">${label}</button>`;
+  // In live + bare Pages mode state.TRAVELERS is empty (no Navan integration yet).
   // Show a placeholder header subtitle and hide the search/filter/CSV toolbar
   // since there's nothing to search, filter, or export.
-  const isMock   = TRAVELERS.length > 0;
+  const isMock   = state.TRAVELERS.length > 0;
   const subtitle = isMock
     ? 'Mock data — Navan integration pending. Displayed values are illustrative.'
     : 'Pending Navan integration. Traveler itineraries will populate once Navan is connected.';
-  const headerLabel = isMock ? `✈ Travelers (${TRAVELERS.length})` : '✈ Travelers';
+  const headerLabel = isMock ? `✈ Travelers (${state.TRAVELERS.length})` : '✈ Travelers';
   return `<div style="width:min(960px,92vw);max-height:85vh;display:flex;flex-direction:column;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);">
       <div>
@@ -327,7 +327,7 @@ export function travListBodyHTML() {
       <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
     </div>
     ${isMock ? `<div style="display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
-      <input id="trav-search" type="text" placeholder="Search name, city, country, hotel, airline..." value="${esc(TRAV_VIEW.search)}"
+      <input id="trav-search" type="text" placeholder="Search name, city, country, hotel, airline..." value="${esc(state.TRAV_VIEW.search)}"
         style="flex:1;min-width:220px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);" />
       <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">
         ${filt('all','All')}${filt('flight','✈ Flight')}${filt('hotel','🏨 Hotel')}${filt('office','🏢 Office')}
@@ -353,15 +353,15 @@ export function travSortValue(t, key) {
 export function travListRowsHTML() {
   // Distinguish "no data at all" (Navan not integrated yet — live + bare Pages)
   // from "user filtered the list to nothing" (mock mode with no matches).
-  if (TRAVELERS.length === 0) {
+  if (state.TRAVELERS.length === 0) {
     return `<div style="padding:60px 40px;text-align:center;color:var(--muted);">
       <div style="font-size:36px;margin-bottom:12px;opacity:0.5;">✈</div>
       <div style="font-size:14px;margin-bottom:6px;color:var(--text);">Traveler data unavailable</div>
       <div style="font-size:12px;line-height:1.5;max-width:420px;margin:0 auto;">Awaiting Navan connection. Traveler itineraries (flights, hotels, office visits) will populate here once Navan is connected to the dashboard.</div>
     </div>`;
   }
-  const { sortKey, sortDir, search, typeFilter } = TRAV_VIEW;
-  let rows = TRAVELERS.slice();
+  const { sortKey, sortDir, search, typeFilter } = state.TRAV_VIEW;
+  let rows = state.TRAVELERS.slice();
   if (typeFilter !== 'all') rows = rows.filter(t => t.type === typeFilter);
   if (search) {
     const s = search.toLowerCase();
@@ -423,17 +423,17 @@ export function refreshTravList() {
 }
 
 export function bindTravListHandlers() {
-  // Toolbar controls only exist when TRAVELERS has data — guard the lookups
+  // Toolbar controls only exist when state.TRAVELERS has data — guard the lookups
   // so an empty list (live mode without Navan) doesn't throw.
   const searchEl = document.getElementById('trav-search');
   if (searchEl) {
     searchEl.addEventListener('input', e => {
-      TRAV_VIEW.search = e.target.value;
+      state.TRAV_VIEW.search = e.target.value;
       refreshTravList();
     });
   }
   document.querySelectorAll('[data-trav-filter]').forEach(b => b.addEventListener('click', () => {
-    TRAV_VIEW.typeFilter = b.dataset.travFilter;
+    state.TRAV_VIEW.typeFilter = b.dataset.travFilter;
     // Re-render the whole modal so chip styling refreshes
     const back = document.getElementById('modal-back');
     if (back) back.querySelector('.modal').innerHTML = travListBodyHTML();
@@ -447,19 +447,19 @@ export function bindTravListHandlers() {
 export function bindTravListRowHandlers() {
   document.querySelectorAll('[data-trav-sort]').forEach(h => h.addEventListener('click', () => {
     const key = h.dataset.travSort;
-    if (TRAV_VIEW.sortKey === key) TRAV_VIEW.sortDir = TRAV_VIEW.sortDir === 'asc' ? 'desc' : 'asc';
-    else { TRAV_VIEW.sortKey = key; TRAV_VIEW.sortDir = 'asc'; }
+    if (state.TRAV_VIEW.sortKey === key) state.TRAV_VIEW.sortDir = state.TRAV_VIEW.sortDir === 'asc' ? 'desc' : 'asc';
+    else { state.TRAV_VIEW.sortKey = key; state.TRAV_VIEW.sortDir = 'asc'; }
     refreshTravList();
   }));
   document.querySelectorAll('.trav-zoom').forEach(b => b.addEventListener('click', () => {
-    const t = TRAVELERS.find(x => x.id === b.dataset.travId);
+    const t = state.TRAVELERS.find(x => x.id === b.dataset.travId);
     if (!t) return;
     closeModal();
     map.flyTo([t.lat, t.lng], 7, { duration: 0.8 });
     toast(`Zoomed to ${t.name} · ${t.destCity}`);
   }));
   document.querySelectorAll('.trav-msg').forEach(b => b.addEventListener('click', () => {
-    const t = TRAVELERS.find(x => x.id === b.dataset.travId);
+    const t = state.TRAVELERS.find(x => x.id === b.dataset.travId);
     if (!t) return;
     closeModal();
     const locLabel = `${t.name} · ${t.destCity}`;
@@ -475,7 +475,7 @@ export function bindTravListRowHandlers() {
 
 export function exportTravelersCSV() {
   const headers = ['id','name','home','destCity','country','type','airline','flightNumber','origin','dest','departure','arrival','hotelName','hotelAddress','checkIn','checkOut','confirmation','officeId','officeArrive','officeDepart','lastKnownTs','lat','lng'];
-  const rows = TRAVELERS.map(t => [
+  const rows = state.TRAVELERS.map(t => [
     t.id, t.name, t.home, t.destCity, t.country||'', t.type,
     t.flight?.airline||'', t.flight?.number||'', t.flight?.origin||'', t.flight?.dest||'',
     t.flight?.departure||'', t.flight?.arrival||'',
@@ -493,14 +493,14 @@ export function exportTravelersCSV() {
   a.href = url; a.download = `travelers-${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-  toast(`Exported ${TRAVELERS.length} travelers to CSV.`);
+  toast(`Exported ${state.TRAVELERS.length} travelers to CSV.`);
 }
 
 export function showBCPModal(preserve = false) {
   if (!preserve) {
-    Object.assign(BCP_FORM, { title:'', countries:[], useFence:false, customMessage:'', acknowledged:false, _waitingForFence:false });
+    Object.assign(state.BCP_FORM, { title:'', countries:[], useFence:false, customMessage:'', acknowledged:false, _waitingForFence:false });
   } else {
-    BCP_FORM._waitingForFence = false; // returning from fence-draw round trip
+    state.BCP_FORM._waitingForFence = false; // returning from fence-draw round trip
   }
   showModal(bcpModalHTML());
   bindBCPHandlers();
@@ -515,15 +515,15 @@ export function showBCIWaitingChip() {
   chip.title = 'Cancel fence draw and reopen the BCI form (state preserved)';
   chip.addEventListener('click', () => {
     clearBCIWaitingChip();
-    BCP_FORM._waitingForFence = false;
+    state.BCP_FORM._waitingForFence = false;
     document.getElementById('tools-dropdown')?.classList.remove('open');
     showBCPModal(true);
   });
   document.body.appendChild(chip);
-  BCP_FORM._waitingTimeoutId = setTimeout(() => {
-    if (BCP_FORM._waitingForFence) {
+  state.BCP_FORM._waitingTimeoutId = setTimeout(() => {
+    if (state.BCP_FORM._waitingForFence) {
       clearBCIWaitingChip();
-      BCP_FORM._waitingForFence = false;
+      state.BCP_FORM._waitingForFence = false;
       toast('Fence draw timed out. Click Declare BCI again to retry.');
     }
   }, 30000);
@@ -532,9 +532,9 @@ export function showBCIWaitingChip() {
 export function clearBCIWaitingChip() {
   const c = document.getElementById('bci-waiting-chip');
   if (c) c.remove();
-  if (BCP_FORM._waitingTimeoutId) {
-    clearTimeout(BCP_FORM._waitingTimeoutId);
-    BCP_FORM._waitingTimeoutId = null;
+  if (state.BCP_FORM._waitingTimeoutId) {
+    clearTimeout(state.BCP_FORM._waitingTimeoutId);
+    state.BCP_FORM._waitingTimeoutId = null;
   }
 }
 
@@ -566,23 +566,23 @@ export function bcpAvailableCountries() {
   const set = new Set();
   COUNTRY_PRESENCE.forEach(c => set.add(c.name));
   OFFICES.forEach(o => set.add(o.country));
-  TRAVELERS.forEach(t => t.country && set.add(t.country));
-  REMOTE_EMPLOYEES.forEach(r => set.add(r.country));
+  state.TRAVELERS.forEach(t => t.country && set.add(t.country));
+  state.REMOTE_EMPLOYEES.forEach(r => set.add(r.country));
   return Array.from(set).filter(c => c !== 'In transit').sort();
 }
 
 export function bcpExposureInScope() {
-  const useFence = BCP_FORM.useFence && state.UI_STATE.fence;
+  const useFence = state.BCP_FORM.useFence && state.UI_STATE.fence;
   let offices, travelers, remote;
   if (useFence) {
     offices = OFFICES.filter(o => pointInFence(o.lat, o.lng));
-    travelers = TRAVELERS.filter(t => pointInFence(t.lat, t.lng));
+    travelers = state.TRAVELERS.filter(t => pointInFence(t.lat, t.lng));
     // Remote employees have no lat/lng; geo-fence cannot include them.
     remote = [];
   } else {
-    offices = OFFICES.filter(o => BCP_FORM.countries.includes(o.country));
-    travelers = TRAVELERS.filter(t => BCP_FORM.countries.includes(t.country));
-    remote = REMOTE_EMPLOYEES.filter(r => BCP_FORM.countries.includes(r.country));
+    offices = OFFICES.filter(o => state.BCP_FORM.countries.includes(o.country));
+    travelers = state.TRAVELERS.filter(t => state.BCP_FORM.countries.includes(t.country));
+    remote = state.REMOTE_EMPLOYEES.filter(r => state.BCP_FORM.countries.includes(r.country));
   }
   const officeHeadcount = sumHeadcount(offices);   // safe with undefined headcounts
   return { offices, travelers, remote, officeHeadcount,
@@ -599,16 +599,16 @@ export function bcpAcledRiskHTML() {
   }
 
   // Mock mode + no country selected: empty-state hint with link to full modal
-  if (BCP_FORM.countries.length === 0) {
+  if (state.BCP_FORM.countries.length === 0) {
     return `${header}<div style="font-size:11px;color:var(--muted);">Pick one or more countries above for a quick read, or <a href="#" id="bcp-open-risk" style="color:var(--green);">browse the full Risk Profile →</a></div>`;
   }
 
-  const total = aggregateAcledRisk(BCP_FORM.countries);
+  const total = aggregateAcledRisk(state.BCP_FORM.countries);
   return `${header}
     <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;gap:14px;flex-wrap:wrap;">
       <span style="color:var(--text);">
         <b style="color:var(--text);font-size:16px;">${total.totalEvents.toLocaleString()}</b> violent events · <b style="color:#ef4444;font-size:16px;">${total.fatalities.toLocaleString()}</b> fatalities
-        <span style="color:var(--muted);font-size:11px;">(across ${BCP_FORM.countries.length} ${BCP_FORM.countries.length===1?'country':'countries'})</span>
+        <span style="color:var(--muted);font-size:11px;">(across ${state.BCP_FORM.countries.length} ${state.BCP_FORM.countries.length===1?'country':'countries'})</span>
       </span>
       <a href="#" id="bcp-open-risk" style="color:var(--green);font-size:12px;white-space:nowrap;">View full Risk Profile →</a>
     </div>`;
@@ -624,8 +624,8 @@ export function bcpExposureSummaryHTML(exp) {
   // rather than a fake-zero count, so operators can tell "no integration"
   // from "the answer is zero".
   const hasHeadcounts = hasOfficeHeadcounts();
-  const hasTravelers  = TRAVELERS.length > 0;
-  const hasRemote     = REMOTE_EMPLOYEES.length > 0;
+  const hasTravelers  = state.TRAVELERS.length > 0;
+  const hasRemote     = state.REMOTE_EMPLOYEES.length > 0;
   return `
     <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Exposure in Scope</div>
     <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;">
@@ -653,24 +653,24 @@ export function bcpFormBodyHTML() {
   const countries = bcpAvailableCountries();
   const exp = bcpExposureInScope();
   const fenceAvailable = !!state.UI_STATE.fence;
-  const useFenceNow = BCP_FORM.useFence && fenceAvailable;
+  const useFenceNow = state.BCP_FORM.useFence && fenceAvailable;
   return `
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Event Type</label>
       <select id="bcp-event-type" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);">
-        ${BCP_EVENT_TYPES.map(t => `<option value="${esc(t.id)}" ${t.id===BCP_FORM.eventTypeId?'selected':''}>${esc(t.label)}</option>`).join('')}
+        ${BCP_EVENT_TYPES.map(t => `<option value="${esc(t.id)}" ${t.id===state.BCP_FORM.eventTypeId?'selected':''}>${esc(t.label)}</option>`).join('')}
       </select>
     </div>
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Event Title</label>
-      <input id="bcp-title" type="text" placeholder="Concise headline operators will see" value="${esc(BCP_FORM.title)}"
+      <input id="bcp-title" type="text" placeholder="Concise headline operators will see" value="${esc(state.BCP_FORM.title)}"
         style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);" />
     </div>
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Geographic Scope</label>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         ${fenceAvailable ? `<label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;color:var(--text);">
-          <input id="bcp-use-fence" type="checkbox" ${BCP_FORM.useFence?'checked':''} />
+          <input id="bcp-use-fence" type="checkbox" ${state.BCP_FORM.useFence?'checked':''} />
           Use the currently drawn geo-fence (overrides country picks)
         </label>` : ''}
         <button id="bcp-draw-fence" class="btn-ghost" style="font-size:11px;padding:4px 10px;border:1px dashed var(--border);">✏ ${fenceAvailable?'Redraw fence':'Draw fence on map'}</button>
@@ -678,7 +678,7 @@ export function bcpFormBodyHTML() {
       </div>
       <div id="bcp-country-list" style="display:flex;flex-wrap:wrap;gap:5px;${useFenceNow?'opacity:0.4;pointer-events:none;':''}">
         ${countries.map(c => `<button class="bcp-country-chip" data-country="${esc(c)}"
-          style="padding:4px 10px;border:1px solid var(--border);border-radius:14px;background:${BCP_FORM.countries.includes(c)?'var(--green)':'var(--bg3)'};color:${BCP_FORM.countries.includes(c)?'#062c1f':'var(--text)'};font-size:11px;cursor:pointer;font-weight:${BCP_FORM.countries.includes(c)?'700':'400'};">${esc(c)}</button>`).join('')}
+          style="padding:4px 10px;border:1px solid var(--border);border-radius:14px;background:${state.BCP_FORM.countries.includes(c)?'var(--green)':'var(--bg3)'};color:${state.BCP_FORM.countries.includes(c)?'#062c1f':'var(--text)'};font-size:11px;cursor:pointer;font-weight:${state.BCP_FORM.countries.includes(c)?'700':'400'};">${esc(c)}</button>`).join('')}
       </div>
     </div>
     <div style="margin-bottom:14px;padding:10px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
@@ -704,7 +704,7 @@ export function bcpFormBodyHTML() {
                 .sort((a,b) => a.priority - b.priority);
               if (!list.length) return '';
               return `<optgroup label="${esc(cat.label)}">${
-                list.map(t => `<option value="${esc(t.id)}" ${t.id===BCP_FORM.templateId?'selected':''}>${esc(t.name)}</option>`).join('')
+                list.map(t => `<option value="${esc(t.id)}" ${t.id===state.BCP_FORM.templateId?'selected':''}>${esc(t.name)}</option>`).join('')
               }</optgroup>`;
             }).join('');
             return groups;
@@ -715,10 +715,10 @@ export function bcpFormBodyHTML() {
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Additional Context (Optional)</label>
       <textarea id="bcp-message" rows="3" placeholder="Anything the templated message doesn't cover. Will be appended to the message body when sent."
-        style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);font-family:inherit;resize:vertical;">${esc(BCP_FORM.customMessage)}</textarea>
+        style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);font-family:inherit;resize:vertical;">${esc(state.BCP_FORM.customMessage)}</textarea>
     </div>
     <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;cursor:pointer;padding:10px 12px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:4px;color:var(--text);">
-      <input id="bcp-ack" type="checkbox" style="margin-top:2px;" ${BCP_FORM.acknowledged?'checked':''} />
+      <input id="bcp-ack" type="checkbox" style="margin-top:2px;" ${state.BCP_FORM.acknowledged?'checked':''} />
       <span><b>I confirm this event meets BCI escalation threshold.</b> Declaring will create a Business Continuity Incident and pre-load Crisis Comms with the affected scope. No messages are sent until you click Send in the Crisis panel.</span>
     </label>`;
 }
@@ -732,8 +732,8 @@ export function refreshBCPExposure() {
 
 export function updateBCPDeclareButton() {
   const btn = document.getElementById('bcp-declare-btn'); if (!btn) return;
-  const ok = BCP_FORM.acknowledged && BCP_FORM.title.trim().length > 0 &&
-    (BCP_FORM.useFence ? !!state.UI_STATE.fence : BCP_FORM.countries.length > 0);
+  const ok = state.BCP_FORM.acknowledged && state.BCP_FORM.title.trim().length > 0 &&
+    (state.BCP_FORM.useFence ? !!state.UI_STATE.fence : state.BCP_FORM.countries.length > 0);
   btn.disabled = !ok;
   btn.style.opacity = ok ? '1' : '0.5';
   btn.style.cursor = ok ? 'pointer' : 'not-allowed';
@@ -746,28 +746,28 @@ export function bindBCPHandlers() {
 
 export function bindBCPFormHandlers() {
   document.getElementById('bcp-event-type').addEventListener('change', e => {
-    BCP_FORM.eventTypeId = e.target.value;
-    const t = BCP_EVENT_TYPES.find(x => x.id === BCP_FORM.eventTypeId);
+    state.BCP_FORM.eventTypeId = e.target.value;
+    const t = BCP_EVENT_TYPES.find(x => x.id === state.BCP_FORM.eventTypeId);
     const titleInput = document.getElementById('bcp-title');
-    if (t && t.titleHint && (!BCP_FORM.title || BCP_FORM.title.trim() === '' || BCP_EVENT_TYPES.some(x => x.titleHint && BCP_FORM.title === x.titleHint))) {
+    if (t && t.titleHint && (!state.BCP_FORM.title || state.BCP_FORM.title.trim() === '' || BCP_EVENT_TYPES.some(x => x.titleHint && state.BCP_FORM.title === x.titleHint))) {
       titleInput.value = t.titleHint;
-      BCP_FORM.title = t.titleHint;
+      state.BCP_FORM.title = t.titleHint;
     }
     updateBCPDeclareButton();
   });
   document.getElementById('bcp-title').addEventListener('input', e => {
-    BCP_FORM.title = e.target.value;
+    state.BCP_FORM.title = e.target.value;
     updateBCPDeclareButton();
   });
   const fenceChk = document.getElementById('bcp-use-fence');
   if (fenceChk) fenceChk.addEventListener('change', e => {
-    BCP_FORM.useFence = e.target.checked;
+    state.BCP_FORM.useFence = e.target.checked;
     refreshBCPExposure();
   });
   const drawBtn = document.getElementById('bcp-draw-fence');
   if (drawBtn) drawBtn.addEventListener('click', () => {
     // Mark that we're waiting for a fence so the draw handler can reopen us.
-    BCP_FORM._waitingForFence = true;
+    state.BCP_FORM._waitingForFence = true;
     closeModal();
     // Open Map Tools dropdown directly to the Geo-fence tab. Don't auto-pick
     // a shape — operator may want Circle, Rectangle, or Polygon.
@@ -780,19 +780,19 @@ export function bindBCPFormHandlers() {
   const clearBtn = document.getElementById('bcp-clear-fence');
   if (clearBtn) clearBtn.addEventListener('click', () => {
     clearFence();
-    BCP_FORM.useFence = false;
+    state.BCP_FORM.useFence = false;
     refreshBCPExposure();
   });
   document.querySelectorAll('.bcp-country-chip').forEach(b => b.addEventListener('click', () => {
     const c = b.dataset.country;
-    if (BCP_FORM.countries.includes(c)) BCP_FORM.countries = BCP_FORM.countries.filter(x => x !== c);
-    else BCP_FORM.countries.push(c);
+    if (state.BCP_FORM.countries.includes(c)) state.BCP_FORM.countries = state.BCP_FORM.countries.filter(x => x !== c);
+    else state.BCP_FORM.countries.push(c);
     refreshBCPExposure();
   }));
-  document.getElementById('bcp-template').addEventListener('change', e => { BCP_FORM.templateId = e.target.value; });
-  document.getElementById('bcp-message').addEventListener('input', e => { BCP_FORM.customMessage = e.target.value; });
+  document.getElementById('bcp-template').addEventListener('change', e => { state.BCP_FORM.templateId = e.target.value; });
+  document.getElementById('bcp-message').addEventListener('input', e => { state.BCP_FORM.customMessage = e.target.value; });
   document.getElementById('bcp-ack').addEventListener('change', e => {
-    BCP_FORM.acknowledged = e.target.checked;
+    state.BCP_FORM.acknowledged = e.target.checked;
     updateBCPDeclareButton();
   });
   // "View full Risk Profile →" link in the compact BCI risk panel — opens
@@ -804,28 +804,28 @@ export function bindBCPFormHandlers() {
   if (openRisk) {
     openRisk.addEventListener('click', e => {
       e.preventDefault();
-      showRiskProfileModal(BCP_FORM.countries);
+      showRiskProfileModal(state.BCP_FORM.countries);
     });
   }
 }
 
 export function declareBCP() {
   const exp = bcpExposureInScope();
-  const evt = BCP_EVENT_TYPES.find(x => x.id === BCP_FORM.eventTypeId);
+  const evt = BCP_EVENT_TYPES.find(x => x.id === state.BCP_FORM.eventTypeId);
   const officeIds = exp.offices.map(o => o.id);
-  const linkAlert = ALERTS.find(a =>
+  const linkAlert = state.ALERTS.find(a =>
     SEV_RANK[a.sev] >= SEV_RANK.high && a.officeId && officeIds.includes(a.officeId));
   const description = `Business Continuity Incident declared by operator. Type: ${evt.label}. ` +
-    `Scope: ${BCP_FORM.useFence ? 'drawn geo-fence' : BCP_FORM.countries.join(', ')}. ` +
+    `Scope: ${state.BCP_FORM.useFence ? 'drawn geo-fence' : state.BCP_FORM.countries.join(', ')}. ` +
     `Exposure at declaration: ${exp.officeHeadcount + exp.remoteCount} employees, ` +
     `${exp.travelerCount} travelers across ${exp.offices.length} office(s).`;
   const inc = createIncident({
-    title: BCP_FORM.title, offices: officeIds, severity: 'ext',
+    title: state.BCP_FORM.title, offices: officeIds, severity: 'ext',
     description, alertId: linkAlert?.id || null,
   });
   inc.bcp = true;
   inc.bcpEventType = evt.id;
-  inc.bcpScope = BCP_FORM.useFence ? { type:'fence' } : { type:'countries', countries: BCP_FORM.countries.slice() };
+  inc.bcpScope = state.BCP_FORM.useFence ? { type:'fence' } : { type:'countries', countries: state.BCP_FORM.countries.slice() };
   inc.bcpExposureSnapshot = {
     offices: exp.offices.length, officeHeadcount: exp.officeHeadcount,
     travelers: exp.travelerCount, remote: exp.remoteCount,
@@ -850,12 +850,12 @@ export function declareBCP() {
   addIncidentLog(inc.id, 'create',
     `🚨 <b>BCI</b> declared: ${esc(evt.label)}. Exposure: ${exp.officeHeadcount + exp.remoteCount} employees · ${exp.travelerCount} travelers · ${exp.offices.length} office(s).`);
   state.UI_STATE.selectedOffices = officeIds.slice();
-  state.UI_STATE.template = BCP_FORM.templateId;
-  state.UI_STATE.subject = `[EXTREME · BCI] ${BCP_FORM.title}`;
+  state.UI_STATE.template = state.BCP_FORM.templateId;
+  state.UI_STATE.subject = `[EXTREME · BCI] ${state.BCP_FORM.title}`;
   // Only overwrite the Crisis Comm draft if the BCI form contributed context.
   // If BCI message is empty, preserve whatever the operator was already drafting.
-  if (BCP_FORM.customMessage && BCP_FORM.customMessage.trim()) {
-    state.UI_STATE.customMessage = BCP_FORM.customMessage;
+  if (state.BCP_FORM.customMessage && state.BCP_FORM.customMessage.trim()) {
+    state.UI_STATE.customMessage = state.BCP_FORM.customMessage;
   }
   state.UI_STATE.linkedIncidentId = inc.id;
   closeModal();
@@ -863,13 +863,13 @@ export function declareBCP() {
   setCcTab('compose');
   renderCC();
   renderIncidents();
-  toast(`🚨 BCI declared: ${BCP_FORM.title}. ${exp.totalExposed.toLocaleString()} recipients staged.`);
+  toast(`🚨 BCI declared: ${state.BCP_FORM.title}. ${exp.totalExposed.toLocaleString()} recipients staged.`);
 }
 
 export function showRiskProfileModal(prefilledCountries) {
-  RISK_VIEW.selected = Array.isArray(prefilledCountries) ? prefilledCountries.slice() : [];
-  RISK_VIEW.search = '';
-  RISK_VIEW.regionFilter = 'all';
+  state.RISK_VIEW.selected = Array.isArray(prefilledCountries) ? prefilledCountries.slice() : [];
+  state.RISK_VIEW.search = '';
+  state.RISK_VIEW.regionFilter = 'all';
   showModal(riskModalHTML());
   bindRiskModalHandlers();
 }
@@ -881,7 +881,7 @@ export function riskCountryList() {
     byName.set(cp.name, { name: cp.name, region: cp.region, total: 0, fatalities: 0, hasAcled: false });
   }
   // Overlay ACLED data when available
-  for (const [name, r] of Object.entries(ACLED_RISK)) {
+  for (const [name, r] of Object.entries(state.ACLED_RISK)) {
     const total = (r.battles||0) + (r.vac||0) + (r.explosions||0) + (r.riots||0) + (r.strategicDev||0);
     const existing = byName.get(name);
     if (existing) {
@@ -897,8 +897,8 @@ export function riskCountryList() {
   }
   const all = Array.from(byName.values());
   const filtered = all.filter(c => {
-    if (RISK_VIEW.regionFilter !== 'all' && c.region !== RISK_VIEW.regionFilter) return false;
-    if (RISK_VIEW.search && !c.name.toLowerCase().includes(RISK_VIEW.search.toLowerCase())) return false;
+    if (state.RISK_VIEW.regionFilter !== 'all' && c.region !== state.RISK_VIEW.regionFilter) return false;
+    if (state.RISK_VIEW.search && !c.name.toLowerCase().includes(state.RISK_VIEW.search.toLowerCase())) return false;
     return true;
   });
   filtered.sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
@@ -906,16 +906,16 @@ export function riskCountryList() {
 }
 
 export function riskLiveHazardsHTML() {
-  if (RISK_VIEW.selected.length === 0) return '';
-  const h = liveHazardsAggregated(RISK_VIEW.selected);
-  const outbreaks = outbreaksAggregated(RISK_VIEW.selected);
+  if (state.RISK_VIEW.selected.length === 0) return '';
+  const h = liveHazardsAggregated(state.RISK_VIEW.selected);
+  const outbreaks = outbreaksAggregated(state.RISK_VIEW.selected);
   const header = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Live Hazards <span style="text-transform:none;letter-spacing:0;">· current · from active alert pipeline + WHO</span></div>`;
 
   // Quiet state — nothing active in the selected scope
   if (h.total === 0 && !h.travelAdvisoryLevel && outbreaks.length === 0) {
     return `<div style="margin:14px 18px 0 18px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;">
       ${header}
-      <div style="font-size:12px;color:var(--muted);font-style:italic;">No active hazards detected in the selected ${RISK_VIEW.selected.length===1?'country':'countries'}. The alert pipeline will refresh as new events come in.</div>
+      <div style="font-size:12px;color:var(--muted);font-style:italic;">No active hazards detected in the selected ${state.RISK_VIEW.selected.length===1?'country':'countries'}. The alert pipeline will refresh as new events come in.</div>
     </div>`;
   }
 
@@ -978,11 +978,11 @@ export function riskLiveHazardsHTML() {
 export function riskModalHTML() {
   const countries = riskCountryList();
   const totalAvailable = countries.length;   // total countries in the picker (presence ∪ ACLED)
-  const selectedCount = RISK_VIEW.selected.length;
+  const selectedCount = state.RISK_VIEW.selected.length;
   const aclLoaded = hasAcledRisk();
-  const aggregated = (selectedCount > 0 && aclLoaded) ? aggregateAcledRisk(RISK_VIEW.selected) : null;
+  const aggregated = (selectedCount > 0 && aclLoaded) ? aggregateAcledRisk(state.RISK_VIEW.selected) : null;
 
-  const regionChip = (id, label) => `<button data-risk-region="${id}" style="padding:5px 11px;background:${id===RISK_VIEW.regionFilter?'var(--green)':'var(--bg3)'};color:${id===RISK_VIEW.regionFilter?'#062c1f':'var(--text)'};border:0;border-radius:14px;font-size:11px;cursor:pointer;font-weight:${id===RISK_VIEW.regionFilter?'700':'400'};">${esc(label)}</button>`;
+  const regionChip = (id, label) => `<button data-risk-region="${id}" style="padding:5px 11px;background:${id===state.RISK_VIEW.regionFilter?'var(--green)':'var(--bg3)'};color:${id===state.RISK_VIEW.regionFilter?'#062c1f':'var(--text)'};border:0;border-radius:14px;font-size:11px;cursor:pointer;font-weight:${id===state.RISK_VIEW.regionFilter?'700':'400'};">${esc(label)}</button>`;
 
   // ACLED aggregated panel — three states:
   //   1. ACLED data present + countries selected: full counts + breakdown
@@ -1011,8 +1011,8 @@ export function riskModalHTML() {
         <span><b style="color:#ef4444;font-size:16px;">${aggregated.fatalities.toLocaleString()}</b> fatalities reported</span>
       </div>
       ${selectedCount > 1 ? `<div style="margin-top:8px;">${
-        RISK_VIEW.selected.map(c => {
-          const r = ACLED_RISK[c] || { battles:0, vac:0, explosions:0, riots:0, strategicDev:0, fatalities:0 };
+        state.RISK_VIEW.selected.map(c => {
+          const r = state.ACLED_RISK[c] || { battles:0, vac:0, explosions:0, riots:0, strategicDev:0, fatalities:0 };
           const events = r.battles + r.vac + r.explosions + r.riots + r.strategicDev;
           return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-top:1px solid var(--border);">
             <span style="color:var(--text);">${esc(c)}</span>
@@ -1031,7 +1031,7 @@ export function riskModalHTML() {
     ? `<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;font-style:italic;">No countries match the filter.</div>`
     : `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 18px;">${
         countries.map(c => {
-          const isSel = RISK_VIEW.selected.includes(c.name);
+          const isSel = state.RISK_VIEW.selected.includes(c.name);
           const heat = c.total >= 100 ? '#ef4444' : c.total >= 30 ? '#f59e0b' : c.total >= 5 ? '#a3a3a3' : '#525252';
           // Show ACLED count badge only when data is available — in live mode
           // c.hasAcled is false and a "0" badge would mislead the operator into
@@ -1055,7 +1055,7 @@ export function riskModalHTML() {
       <button class="btn-ghost" onclick="App.closeModal()" aria-label="Close">✕</button>
     </div>
     <div style="display:flex;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
-      <input id="risk-search" type="text" placeholder="Search country..." value="${esc(RISK_VIEW.search)}"
+      <input id="risk-search" type="text" placeholder="Search country..." value="${esc(state.RISK_VIEW.search)}"
         style="flex:1;min-width:180px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 10px;color:var(--text);font-size:12px;" />
       <div style="display:flex;gap:4px;">
         ${regionChip('all','All')}${regionChip('Americas','Americas')}${regionChip('EMEA','EMEA')}${regionChip('APAC','APAC')}
@@ -1077,7 +1077,7 @@ export function bindRiskModalHandlers() {
   const search = document.getElementById('risk-search');
   if (search) {
     search.addEventListener('input', e => {
-      RISK_VIEW.search = e.target.value;
+      state.RISK_VIEW.search = e.target.value;
       // Debounce the re-render — typing fast shouldn't rebuild the modal
       // on every keystroke. 150ms after the last keystroke avoids 3-4
       // unnecessary HTML regenerations while typing a normal word.
@@ -1094,15 +1094,15 @@ export function bindRiskModalHandlers() {
     });
   }
   document.querySelectorAll('[data-risk-region]').forEach(b => b.addEventListener('click', () => {
-    RISK_VIEW.regionFilter = b.dataset.riskRegion;
+    state.RISK_VIEW.regionFilter = b.dataset.riskRegion;
     const back = document.getElementById('modal-back');
     if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
     bindRiskModalHandlers();
   }));
   document.querySelectorAll('.risk-country-chip').forEach(b => b.addEventListener('click', () => {
     const c = b.dataset.country;
-    if (RISK_VIEW.selected.includes(c)) RISK_VIEW.selected = RISK_VIEW.selected.filter(x => x !== c);
-    else RISK_VIEW.selected.push(c);
+    if (state.RISK_VIEW.selected.includes(c)) state.RISK_VIEW.selected = state.RISK_VIEW.selected.filter(x => x !== c);
+    else state.RISK_VIEW.selected.push(c);
     const back = document.getElementById('modal-back');
     if (back) back.querySelector('.modal').innerHTML = riskModalHTML();
     bindRiskModalHandlers();
