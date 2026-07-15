@@ -8,10 +8,7 @@ import { meteoalarmAdapter } from '../adapters/meteoalarm.js';
 import { stateDeptAdapter } from '../adapters/state_dept.js';
 import { sfPoliceAdapter } from '../adapters/sf_police.js';
 import { atlApdAdapter } from '../adapters/atl_apd.js';
-import { pdxFlashalertAdapter } from '../adapters/pdx_flashalert.js';
 import { londonTflAdapter } from '../adapters/london_tfl.js';
-import { gdeltAdapter } from '../adapters/gdelt.js';
-import { acledAdapter } from '../adapters/acled.js';
 import { whoDonAdapter } from '../adapters/who_don.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
@@ -28,10 +25,9 @@ const ADAPTERS: { adapter: SourceAdapter; disabled: boolean }[] = [
   { adapter: stateDeptAdapter,  disabled: config.sources.stateDept.disabled  },
   { adapter: sfPoliceAdapter,      disabled: config.sources.sfPolice.disabled      },
   { adapter: atlApdAdapter,        disabled: config.sources.atlApd.disabled        },
-  { adapter: pdxFlashalertAdapter, disabled: config.sources.pdxFlashalert.disabled },
   { adapter: londonTflAdapter,     disabled: config.sources.londonTfl.disabled     },
-  { adapter: gdeltAdapter,         disabled: config.sources.gdelt.disabled         },
-  { adapter: acledAdapter,         disabled: config.sources.acled.disabled         },
+  // ACLED / GDELT / PDX FlashAlert removed 2026-07-13 — see
+  // docs/data-sources.md § Archived sources for rationale.
 ];
 
 async function runOnce(adapter: SourceAdapter): Promise<void> {

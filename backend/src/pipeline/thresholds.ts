@@ -43,7 +43,8 @@ export const PROXIMITY = {
   earthquakeShallow: 250,   // M4.5–4.9 shallow quakes need an office this close
   earthquakeMid:     500,   // M5.0–5.4 quakes need an office this close
   eonet:             250,   // wildfires / floods / severeStorms / earthquakes
-  acledZeroFat:      500,   // 0-fatality battles / explosions / VAC
+  // acledZeroFat removed 2026-07-13 with the ACLED adapter — see
+  // docs/data-sources.md § Archived sources.
 } as const;
 
 // ----------------------------------------------------------------------------
@@ -160,47 +161,12 @@ export function evaluateStateDept(opts: { level: number | null }): ThresholdOutc
 }
 
 // ----------------------------------------------------------------------------
-// ACLED
+// ACLED (removed 2026-07-13 with the adapter — see docs/data-sources.md
+// § Archived sources for the decision. Threshold function and ACLED_VIOLENT
+// set moved with it. If ACLED comes back under a commercial license, the
+// spec at docs/severity-thresholds.md#acled and the git history for this
+// file are the reference — commit before this cleanup had the full impl.)
 // ----------------------------------------------------------------------------
-
-const ACLED_VIOLENT = new Set([
-  'Battles',
-  'Explosions/Remote violence',
-  'Violence against civilians',
-]);
-
-/**
- * ACLED severity ladder by event type and fatalities. Zero-fatality
- * violent events get a proximity gate; zero-fatality riots/strategic
- * drop entirely.
- *
- * Spec: docs/severity-thresholds.md#acled--armed-conflict-location--event-data
- */
-export function evaluateAcled(opts: {
-  eventType: string;
-  fatalities: number;
-}): ThresholdOutcome {
-  const { eventType, fatalities: f } = opts;
-
-  if (ACLED_VIOLENT.has(eventType)) {
-    if (f >= 5) return KEEP('ext',  `${eventType} ≥5 fatalities`);
-    if (f >= 1) return KEEP('high', `${eventType} ${f} fatalities`);
-    return KEEP('mod', `${eventType} 0 fatalities near office`, PROXIMITY.acledZeroFat);
-  }
-
-  if (eventType === 'Riots') {
-    if (f >= 5) return KEEP('high', 'Riot ≥5 fatalities');
-    if (f >= 1) return KEEP('mod',  `Riot ${f} fatalities`);
-    return DROP('Riot 0 fatalities — below threshold');
-  }
-
-  if (eventType === 'Strategic developments') {
-    if (f > 0) return KEEP('high', `Strategic development with ${f} fatalities`);
-    return DROP('Strategic development 0 fatalities — below threshold');
-  }
-
-  return DROP(`ACLED event_type '${eventType}' not in whitelist`);
-}
 
 // ----------------------------------------------------------------------------
 // MeteoAlarm
@@ -321,9 +287,10 @@ export function evaluateLondonTfl(opts: {
  * SCOPE: applies to sf_police and atl_apd — both after-the-fact
  * police-records feeds using `fromPoliceCategory`.
  *
- * NOT applied to pdx_flashalert: structurally different (emergency
- * notifications from agencies, keyword-based severity inference, more
- * real-time than police records). Currently disabled on URL-404 anyway.
+ * (pdx_flashalert was structurally different — emergency notifications
+ * from agencies, keyword-based severity inference — but the adapter was
+ * removed 2026-07-13 as a dead source. See docs/data-sources.md
+ * § Archived sources.)
  * When/if revived, it needs its own evaluator (likely a keyword gate
  * similar to evaluateLondonTfl), not this demotion.
  */

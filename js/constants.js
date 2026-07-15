@@ -36,9 +36,7 @@ export const SOURCES = [
   { id:'EMSC',        name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok',    url:'https://www.emsc-csem.org/Earthquake/' },
   { id:'NASA EONET',  name:'Earth Observatory',              type:'Natural Disaster', status:'ok',    url:'https://eonet.gsfc.nasa.gov/' },
   { id:'GDACS',       name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok',    url:'https://www.gdacs.org/' },
-  { id:'ACLED',       name:'Armed Conflict Location Data',   type:'Civil Unrest',     status:'stale', url:'https://acleddata.com/dashboard/' },
-  { id:'GDELT',       name:'Global Database of Events',      type:'Civil Unrest',     status:'ok',    url:'https://www.gdeltproject.org/' },
-  { id:'Flashalert',  name:'PDX/OR Emergency Notifications', type:'Public Safety',    status:'ok',    url:'https://www.flashalert.net/' },
+  // ACLED / GDELT / Flashalert removed 2026-07-13 — see docs/data-sources.md § Archived sources.
   { id:'Socrata',     name:'SF Open Data — Police',          type:'Public Safety',    status:'ok',    url:'https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports/wg3w-h783' },
   { id:'ArcGIS APD',  name:'Atlanta Police Department',      type:'Public Safety',    status:'ok',    url:'https://opendata.atlantapd.org/' },
   { id:'FEMA IPAWS',  name:'FEMA Public Alert System',       type:'Public Safety',    status:'error', url:'https://www.fema.gov/emergency-managers/practitioners/integrated-public-alert-warning-system' },
@@ -418,10 +416,8 @@ export const SOURCE_ID_TO_CATEGORY = {
   state_dept:     'Travel Advisory',
   sf_police:      'Public Safety',
   atl_apd:        'Public Safety',
-  pdx_flashalert: 'Public Safety',
   london_tfl:     'Public Safety',
-  gdelt:          'Civil Unrest',
-  acled:          'Civil Unrest',
+  // pdx_flashalert / gdelt / acled removed 2026-07-13 — see docs/data-sources.md § Archived sources.
   who_don:        'Public Safety',
 };
 

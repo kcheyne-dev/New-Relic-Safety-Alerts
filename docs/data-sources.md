@@ -2,7 +2,9 @@
 
 **Document purpose.** Single reference for every external data source the New Relic Safety Alerts dashboard (S.T.A.R. view) connects to: what each provides, how the project connects, and the terms-of-use posture for each. Maintained alongside the codebase.
 
-**Last reviewed:** 2026-06-16. Verify ToS at each provider's site before any production rollout — ToS language drifts and this document captures only the project-relevant clauses.
+**Last reviewed:** 2026-07-13. Verify ToS at each provider's site before any production rollout — ToS language drifts and this document captures only the project-relevant clauses.
+
+**2026-07-13 cleanup:** ACLED, GDELT, PDX FlashAlert, and OSAC were removed from the active source list. Their history, why they were removed, and how each decision was made now lives in § 7 Archived sources at the bottom of this doc.
 
 ---
 
@@ -16,19 +18,17 @@
 | 4 | EMSC (seismicportal.eu) | Seismic | None | Open / attribution | Yes (attribution) |
 | 5 | GDACS | Multi-hazard | None | EU JRC public service | Yes (attribution) |
 | 6 | US State Dept Travel Advisories | Travel | None | US Gov public domain | Yes |
-| 7 | ACLED | Civil unrest | OAuth2 | **Commercial license required** | **No — license needed** |
-| 8 | MeteoAlarm | Weather (EU) | None | Free w/ attribution | Yes (currently disabled) |
-| 9 | Transport for London | Transit | App key (free) | TfL Open Data License | Yes (attribution) |
-| 10 | SF Open Data (Socrata) | Public safety | App token (free) | Public domain / open | Yes |
-| 11 | Atlanta APD ArcGIS | Public safety | None | US local gov, no formal terms | Likely yes |
-| 12 | WHO Disease Outbreak News | Health | None | **WHO Terms of Use — restricted** | Caution |
-| 13 | PDX FlashAlert | Press releases | None | Service ToS exists | Caution (currently disabled) |
-| 14 | GDELT 2.0 | News events | None | Free / academic | **Disabled by design** (article noise) |
-| 15 | OSAC | Travel security | Member portal | **Code of Conduct restricts redistribution** | **BLOCKED** — see note |
-| 16 | Nominatim / OSM | Geocoding | UA header | ODbL + Nominatim usage policy | Yes (rate-limited) |
-| 17 | CartoDB basemap tiles | Map tiles | None | CARTO free-tier ToS | Yes (attribution) |
-| 18 | RainViewer | Radar overlay | None | Free with attribution | Yes (attribution) |
-| 19 | NASA GIBS | Satellite overlay | None | NASA Open Data Policy | Yes (attribution) |
+| 7 | MeteoAlarm | Weather (EU) | Bearer / apikey | Free w/ attribution | Yes (live in prod) |
+| 8 | Transport for London | Transit | App key (free) | TfL Open Data License | Yes (attribution) |
+| 9 | SF Open Data (Socrata) | Public safety | App token (free) | Public domain / open | Yes |
+| 10 | Atlanta APD ArcGIS | Public safety | None | US local gov, no formal terms | Likely yes |
+| 11 | WHO Disease Outbreak News | Health | None | **WHO Terms of Use — restricted** | Caution |
+| 12 | Nominatim / OSM | Geocoding | UA header | ODbL + Nominatim usage policy | Yes (rate-limited) |
+| 13 | CartoDB basemap tiles | Map tiles | None | CARTO free-tier ToS | Yes (attribution) |
+| 14 | RainViewer | Radar overlay | None | Free with attribution | Yes (attribution) |
+| 15 | NASA GIBS | Satellite overlay | None | NASA Open Data Policy | Yes (attribution) |
+
+(ACLED, PDX FlashAlert, GDELT, OSAC removed 2026-07-13 — see § 7 Archived sources.)
 
 ---
 
@@ -102,31 +102,19 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 - **Terms of use:** US Government work, public domain. Travel.state.gov has a copyright/disclaimer page noting US Gov works are not copyrighted. No formal limit on automated retrieval. Daily polling is well within reasonable use.
 - **Project compliance:** Compliant.
 
-### 1.7 ACLED — Armed Conflict Location & Event Data ⚠️ LICENSE REQUIRED
+### 1.7 MeteoAlarm — European weather warnings
 
-- **What:** Vetted civil unrest incidents (battles, violence against civilians, explosions, riots, strategic developments) with lat/lng and fatalities.
-- **Endpoints:**
-  - Token: `https://acleddata.com/oauth/token` (OAuth2 password flow)
-  - Read: `https://acleddata.com/api/acled/read?…&limit=500`
-- **Format:** JSON
-- **Auth:** OAuth2 Bearer token. Credentials from env: `ACLED_EMAIL`, `ACLED_PASSWORD`.
-- **Cadence:** 900 s (15 min, `ACLED_FETCH_INTERVAL`)
-- **Adapter:** `backend/src/adapters/acled.ts` — currently inert (no creds in .env, ACLED_DISABLED).
-- **Terms of use:** ACLED operates a tiered license model. Free use is restricted to academic, journalist, and non-profit contexts and requires registration + attribution. **Any corporate / commercial / private-sector use requires a paid commercial license** (negotiated directly with ACLED; pricing is bespoke and not published). Republication requires written consent; redistribution to third parties is restricted. Attribution form: "Armed Conflict Location & Event Data Project (ACLED); www.acleddata.com".
-- **Project compliance:** **Not currently production-compliant.** Adapter is built but disabled pending license. License email is in progress (per project memory). Until ACLED commercial license is signed, the adapter must remain disabled in any deployment that any non-licensed user can see — including the public GitHub Pages preview.
-
-### 1.8 MeteoAlarm — European weather warnings
-
-- **What:** Pan-European severe weather warnings (color-coded Yellow/Orange/Red).
-- **Endpoint:** `https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-europe`
-- **Format:** Atom XML (legacy feed; v1 JSON API also exists but not used)
-- **Auth:** None
+- **What:** Pan-European severe weather warnings (color-coded Yellow/Orange/Red), aggregated by EUMETNET from 38 national meteorological services (DWD Germany, AEMET Spain, Met Éireann Ireland, Météo-France, etc.).
+- **Transport (config-flip):** two OGC EDR providers supported via `METEOALARM_PROVIDER` env var:
+  - **`meteogate`** (default) — `https://api.meteogate.eu/warnings/collections/warnings/locations/ALL`. Auth: `apikey: <TOKEN>` header. Token: `METEOGATE_API_KEY` (or legacy `METEOALARM_API_KEY`).
+  - **`meteoalarm-direct`** — `https://api.meteoalarm.org/edr/v1/collections/warnings/locations/ALL`. Auth: `Authorization: Bearer <TOKEN>`. Token: `METEOALARM_DIRECT_TOKEN`. Currently active in prod (flipped 2026-07-13 after 3 probe rounds + full OpenAPI review confirmed byte-for-byte response compatibility with MeteoGate).
+- **Format:** GeoJSON FeatureCollection (OGC EDR spec, both providers). CAP JSON payloads follow the `links[rel=json]` presigned DigitalOcean Spaces URL (same storage backend for both providers).
 - **Cadence:** 900 s (15 min, `METEOALARM_FETCH_INTERVAL`)
-- **Adapter:** `backend/src/adapters/meteoalarm.ts` — **currently disabled** (URL returning 404 across two URL guesses; deferred until URL is verifiable in a browser).
-- **Terms of use:** MeteoAlarm is a service of EUMETNET (a consortium of European national meteorological services). Free to use with attribution. The MeteoAlarm Terms of Use require: (a) crediting MeteoAlarm in any redistribution, (b) not modifying the warning information in a way that could mislead, (c) refreshing data at a reasonable cadence (their feeds are updated roughly every 10 min). Commercial use is permitted with attribution; some national member services have additional terms for their own data.
-- **Project compliance:** Will be compliant when re-enabled. UI already shows source attribution on alert cards.
+- **Adapter:** `backend/src/adapters/meteoalarm.ts`. Full architecture in `memory/meteogate_api.md` + comparison at `docs/meteoalarm-direct-vs-meteogate.md`.
+- **Terms of use:** EUMETNET service. Free to use with attribution. Requires: (a) crediting MeteoAlarm in redistribution, (b) not modifying warning info in a misleading way, (c) refreshing at reasonable cadence (~15 min matches their ~10-min upstream update). Commercial use permitted with attribution.
+- **Project compliance:** Compliant. UI shows source attribution on alert cards. Future capability: MQTT real-time push (task #56, sub-second latency vs current 15-min poll).
 
-### 1.9 Transport for London (TfL) — disruption feed
+### 1.8 Transport for London (TfL) — disruption feed
 
 - **What:** Tube / DLR / Overground / Elizabeth-line line-status disruptions for the London office.
 - **Endpoint:** `https://api.tfl.gov.uk/Line/Mode/{modes}/Status?detail=true`
@@ -137,7 +125,7 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 - **Terms of use:** TfL Open Data is licensed under the **TfL Open Data License** (a bespoke license, broadly Open Government Licence v3.0-style). Required: (a) attribution — "Powered by TfL Open Data", (b) display the line "Contains OS data © Crown copyright and database rights …" if mapping data is used, (c) data must not be presented in a misleading way. Commercial use is permitted.
 - **Project compliance:** **Action item:** add the "Powered by TfL Open Data" attribution string somewhere visible (alert detail view or footer) before any production rollout. Currently the source name "TfL" is shown but the prescribed attribution wording is not. Free TfL API key should be registered and added to `.env` for production cadence headroom.
 
-### 1.10 SF Open Data — Police incidents (Socrata)
+### 1.9 SF Open Data — Police incidents (Socrata)
 
 - **What:** SFPD incident reports, last 24 h, in a bounding box around the SFO office.
 - **Endpoint:** `https://data.sfgov.org/resource/wg3w-h783.json` (SoQL filtered, see adapter)
@@ -148,7 +136,7 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 - **Terms of use:** DataSF / SF Open Data publishes datasets under SF's Open Data policy. Most datasets, including `wg3w-h783` (Police Department Incident Reports 2018-Present), are explicitly placed in the public domain or under terms equivalent to no-rights-reserved. Tyler Technologies / Socrata's platform ToS apply to the API itself: standard fair-use, no attempt to disrupt service, register an App Token for serious use.
 - **Project compliance:** Compliant. **Recommended:** register an App Token before production for rate-limit headroom.
 
-### 1.11 Atlanta Police Department — COBRA daily ArcGIS feed
+### 1.10 Atlanta Police Department — COBRA daily ArcGIS feed
 
 - **What:** ATL APD daily reported incidents.
 - **Endpoint:** `https://services2.arcgis.com/4FcmTqzRN6XvUDA8/arcgis/rest/services/COBRA_Daily_Updated/FeatureServer/0/query?…`
@@ -158,7 +146,7 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 - **Adapter:** `backend/src/adapters/atl_apd.ts`
 - **Terms of use:** No formal published terms specific to this ArcGIS feed. The City of Atlanta publishes data via its open-data portal under permissive terms; ESRI's ArcGIS Online has standard fair-use terms. **Action item:** verify with the City of Atlanta (or the Atlanta Police Department public-information office) that scraping this feed at 15-min cadence for an internal corporate dashboard is acceptable use; if a more formal feed exists (Open Data Atlanta portal), prefer it.
 
-### 1.12 WHO — Disease Outbreak News (DON) ⚠️ TERMS WORTH REVIEWING
+### 1.11 WHO — Disease Outbreak News (DON) ⚠️ TERMS WORTH REVIEWING
 
 - **What:** WHO-published infectious-disease outbreak reports, country-scoped.
 - **Endpoint:** `https://www.who.int/api/news/diseaseoutbreaknews?…&$top=100&$orderby=PublicationDateAndTime%20desc`
@@ -169,40 +157,7 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 - **Terms of use:** The WHO website operates under the [WHO Terms of Use](https://www.who.int/about/policies/terms-of-use) and content is generally licensed under **CC BY-NC-SA 3.0 IGO** or its successors. Key clauses for our use: (a) **NC = non-commercial only** unless permission is granted, (b) attribution required, (c) share-alike. The "non-commercial" definition matters — internal corporate use (a CMT dashboard within New Relic) is generally considered non-commercial under most interpretations of CC-NC, but this is not unambiguous and WHO has been known to take a narrower view. Republication / public-facing display would more clearly require permission.
 - **Project compliance:** **Action item:** the GitHub Pages mirror is publicly accessible. While bare Pages mode currently shows seed alerts only (live mode requires backend creds), the moment WHO outbreaks are surfaced anywhere a non-NR user can see them, the CC-NC clause becomes load-bearing. Recommend (a) keep WHO data behind authenticated CMT access, (b) add explicit "Source: WHO Disease Outbreak News" attribution per CC-BY, (c) before any external sharing of the dashboard, contact WHO permissions desk (`permissions@who.int`).
 
-### 1.13 PDX FlashAlert Network — Portland press releases
-
-- **What:** Portland-area public-safety press releases (police, fire, transit) — relevant to the PDX office.
-- **Endpoint:** `https://www.flashalert.net/news.xml`
-- **Format:** RSS 2.0 XML
-- **Auth:** None
-- **Cadence:** 600 s (`PDX_FLASHALERT_FETCH_INTERVAL`)
-- **Adapter:** `backend/src/adapters/pdx_flashalert.ts` — **currently disabled** (URL 404 across guesses; deferred until verifiable).
-- **Terms of use:** FlashAlert Newswire is operated by FlashAlert.net LLC, a private press-release distribution service. Their site terms allow personal use of the content (the press releases themselves are typically issued by public agencies and are public-record). However, scraping the consolidated feed for a corporate redistribution use is a gray zone — preferable to either subscribe officially (FlashAlert offers a free email/API subscription tier) or pull press releases directly from the originating agency feeds (Portland Police, Portland Fire & Rescue, TriMet).
-- **Project compliance:** Will need a quick ToS check before re-enabling. Recommend registering a FlashAlert subscriber account before production rollout.
-
-### 1.14 GDELT 2.0 — Global Database of Events, Language and Tone
-
-- **What:** Worldwide news article database, geocoded and CAMEO-coded.
-- **Endpoint:** `https://api.gdeltproject.org/api/v2/doc/doc`
-- **Format:** JSON
-- **Auth:** None
-- **Cadence:** 900 s (15 min, `GDELT_FETCH_INTERVAL`)
-- **Adapter:** `backend/src/adapters/gdelt.ts` — **disabled by design** (`GDELT_DISABLED=true`). Per project audit (2026-05-31): GDELT produces article-level news noise, not events. 853 active rows post-ingest, 0 office-matched, dominated by celebrity gossip / state politics / single-incident traffic deaths. Country-level geocoding makes proximity matching useless.
-- **Terms of use:** GDELT is published by The GDELT Project under a free, open license — attribution required ("This research uses data from the GDELT Project"). Commercial use is permitted. The free tier of the API has fair-use rate limits (no published number, but heavy users have reported throttling at ~1 req/sec).
-- **Project compliance:** Disabled, so currently a non-issue. If re-enabled in the future, the adapter would be compliant with attribution requirements.
-
-### 1.15 OSAC — Overseas Security Advisory Council 🚫 BLOCKED
-
-- **What:** US Department of State / Bureau of Diplomatic Security service for US private-sector orgs operating abroad. Country security reports (CSRs), threat alerts, and analyst-by-email engagement.
-- **Endpoint:** None — OSAC has **no programmatic API**. Access is via OSAC.gov member portal, OSAC newsletters (email), and analyst email engagement.
-- **Auth:** OSAC member account (kcheyne@newrelic.com is approved for full member access).
-- **Adapter:** None built. Integration plan exists at `docs/osac-integration-plan.md`.
-- **Terms of use:** **OSAC Code of Conduct contains three clauses that block the planned integration:**
-  1. **Chatham House Rule** on OSAC communications.
-  2. **Prohibition on unauthorized capture/distribution** of OSAC content.
-  3. **Prohibition on sharing sensitive operational details** with non-members.
-  Penalty for misalignment: temporary or permanent termination of OSAC access.
-- **Project compliance:** **DO NOT BUILD** any OSAC integration until written guidance comes back from `OSACPrograms@state.gov` (sent 2026-06-11). Even a simple newsletter parser into the dashboard surfaces OSAC-derived content to non-OSAC-member CMT colleagues — exactly what the redistribution clauses are written for. Three plausible outcomes detailed in the integration-plan doc.
+(§ 1.13 PDX FlashAlert, § 1.14 GDELT, § 1.15 OSAC — removed 2026-07-13. See § 7 Archived sources.)
 
 ---
 
@@ -278,22 +233,19 @@ For any of the above, internal use of the corporate tenant is governed by New Re
 
 ## 5. Headline ToS risk register
 
-**Hard blockers — must resolve before production:**
-1. **ACLED commercial license** — adapter is built but currently inert. Cannot be enabled in any non-licensed deployment, including the public GitHub Pages preview. License email is in flight.
-2. **OSAC integration** — blocked entirely on `OSACPrograms@state.gov` written guidance about Code-of-Conduct compatibility. Do not build until guidance returns. Penalty for misuse is termination of OSAC access.
-
 **Soft items — verify or add attribution before rollout:**
-3. **WHO DON CC-BY-NC-SA** — internal corporate use is likely (but not unambiguously) allowed; gate behind authenticated CMT access; do not surface to public Pages mirror.
-4. **TfL** — add "Powered by TfL Open Data" attribution string. Register a free `TFL_APP_KEY`.
-5. **EMSC** — courtesy notice to EMSC for corporate / production cadence; verify attribution form on alert detail.
-6. **Atlanta APD ArcGIS** — confirm with City of Atlanta or APD PIO that the COBRA feed is appropriate for this use case.
-7. **Nominatim** — switch to self-hosted instance (Docker compose profile already scaffolded) for any production deployment; current public-instance use is fine for dev only.
-8. **CartoDB tiles** — verify production traffic stays inside CARTO's free-tier fair-use; if not, plan a paid provider.
-9. **PDX FlashAlert** — register a subscriber account if re-enabling; consider switching to direct agency feeds.
-10. **RainViewer** — ensure attribution string is shown when the layer is active.
+1. **WHO DON CC-BY-NC-SA** — internal corporate use is likely (but not unambiguously) allowed; gate behind authenticated CMT access; do not surface to public Pages mirror.
+2. **TfL** — add "Powered by TfL Open Data" attribution string. Register a free `TFL_APP_KEY`.
+3. **EMSC** — courtesy notice to EMSC for corporate / production cadence; verify attribution form on alert detail.
+4. **Atlanta APD ArcGIS** — confirm with City of Atlanta or APD PIO that the COBRA feed is appropriate for this use case.
+5. **Nominatim** — switch to self-hosted instance (Docker compose profile already scaffolded) for any production deployment; current public-instance use is fine for dev only.
+6. **CartoDB tiles** — verify production traffic stays inside CARTO's free-tier fair-use; if not, plan a paid provider.
+7. **RainViewer** — ensure attribution string is shown when the layer is active.
 
 **No-action / already compliant:**
-11. USGS, NWS, EONET, GDACS, US State Dept, SF Open Data, GIBS — public-domain or open-license sources currently meeting their attribution requirements. Continue current practice.
+8. USGS, NWS, EONET, GDACS, US State Dept, SF Open Data, GIBS, MeteoAlarm — public-domain, open-license, or (for MeteoAlarm) attribution-with-permission sources currently meeting their attribution requirements. Continue current practice.
+
+(Hard-blocker entries for ACLED / OSAC were removed 2026-07-13 when both were archived — see § 7. If either is ever revived, restore the entry.)
 
 ---
 
@@ -309,3 +261,52 @@ For any of the above, internal use of the corporate tenant is governed by New Re
 | Persist + office-match | `backend/src/pipeline/persist.ts` |
 | Frontend tile / overlay layers | `index.html` (Leaflet layer config near the map init block) |
 | Environment / API keys | `backend/.env` (gitignored), template at `backend/.env.example` |
+
+---
+
+## 7. Archived sources
+
+Sources previously listed here that have been removed from the active adapter roster. Kept for the historical record — what was tried, what didn't work, and why. Each entry documents the decision + how it was made so a future engineer doesn't rediscover the same dead ends. Git history (`git log --follow -- backend/src/adapters/<name>.ts`) preserves the actual adapter code from before removal.
+
+### 7.1 ACLED — Armed Conflict Location & Event Data
+
+Removed 2026-07-13. Never fed live production data; adapter was built but always disabled at runtime.
+
+- **What it was:** Vetted civil unrest incidents (battles, violence against civilians, explosions, riots, strategic developments) with lat/lng and fatalities. Adapter used OAuth2 password flow against `acleddata.com/oauth/token` + `acleddata.com/api/acled/read`.
+- **Why removed:** ACLED operates a tiered license model. Free use is limited to academic / journalist / non-profit contexts. **Any corporate / commercial / private-sector use requires a paid commercial license** — negotiated bespoke, pricing not published, redistribution to third parties restricted.
+- **How the decision was made:** Adapter was scaffolded pre-2026-06 with the assumption that a commercial license would be obtained through procurement / legal. As of 2026-07-13 the license conversation hadn't progressed and the adapter had been runtime-disabled the entire time (no `ACLED_EMAIL` / `ACLED_PASSWORD` in `.env`, plus `ACLED_DISABLED=true` when set). Sitting there indefinitely as inert code with no live signal made the source list misleading — new engineers had to be told "yes, it's listed, no it doesn't run, no there's no ETA." Cleaner to remove and add back only when a license is actually in hand.
+- **What was preserved:** Threshold logic (`evaluateAcled` + `ACLED_VIOLENT` set + `acledZeroFat` proximity constant in `backend/src/pipeline/thresholds.ts`) removed alongside; if license comes through, `git log --follow -- backend/src/adapters/acled.ts` recovers the OAuth flow + threshold rules. Mock data (`ACLED_RISK_MOCK` in `js/mock-data.js`) intentionally stayed — it powers the Risk Profile demo modal in `#api=mock` mode and doesn't touch production.
+- **Revival requires:** commercial license signed with ACLED → `ACLED_EMAIL` + `ACLED_PASSWORD` in prod `.env` → resurrect adapter from git history (or rewrite fresh) → re-register in scheduler + config → re-add threshold logic → attribution string on alert cards.
+
+### 7.2 PDX FlashAlert Network — Portland press releases
+
+Removed 2026-07-13. Was disabled since 2026-06-20 after the source itself pivoted.
+
+- **What it was:** RSS feed of Portland-area public-safety press releases (police, fire, transit) at `flashalert.net/news.xml`. Intended coverage for the PDX office.
+- **Why removed:** **Source itself no longer exists in the form we needed.** 2026-06-20 investigation confirmed FlashAlert pivoted to a paid B2B press-release SaaS. The free public RSS was retired, no replacement URL exists at their domain. Adapter was disabled with a docblock in `pdx_flashalert.ts` explaining the pivot; that docblock is now in git history.
+- **How the decision was made:** Adapter had been returning 404 across two URL guesses since ~2026-06 pipeline changes. A dedicated investigation in June confirmed the pivot was intentional (checked their new marketing site + support email) and that there was no free-tier successor URL. Sitting disabled indefinitely made the source list misleading. Recommended replacement (2026-06-20 review): **Factal** — a commercial event-detection service that covers Portland public-safety releases along with global event streams.
+- **Revival requires:** either (a) FlashAlert restore a free tier (unlikely — they explicitly pivoted for revenue), (b) NR signs up for the FlashAlert paid B2B tier, or (c) switch strategy to direct agency feeds (Portland Police + Portland Fire & Rescue + TriMet as separate adapters).
+
+### 7.3 GDELT 2.0 — Global Database of Events, Language and Tone
+
+Removed 2026-07-13. Was `DISABLED_BY_DESIGN` since 2026-05-31 after the initial-integration audit.
+
+- **What it was:** Worldwide news article database (`api.gdeltproject.org/api/v2/doc/doc`), geocoded and CAMEO event-coded. Attractive on paper for global civil-unrest / political-event coverage.
+- **Why removed:** **Article-level noise, not event-level signal.** Per the 2026-05-31 audit: 853 active rows post-ingest produced zero office matches. Dominated by celebrity gossip, state politics, and single-incident traffic-death articles. Country-level geocoding made proximity matching structurally useless — a story could be tagged "USA" and describe an event 3000 miles from any NR office.
+- **How the decision was made:** Adapter was built and enabled in early integration. First cycle populated hundreds of rows. First operator review identified the noise pattern within the same day. Threshold tuning was tried (`GDELT_MIN_MENTIONS`, tone thresholds) but couldn't recover useful signal — the underlying data is fundamentally not event-shaped for our use case. Set `GDELT_DISABLED=true`; adapter sat inert until this cleanup.
+- **What was preserved:** GDELT could be re-approached later with a very different pipeline (e.g., NLP re-classification, city-level geocoding, per-event clustering) but that's a substantial redesign — not a "flip it back on" job. Git history has the original adapter for reference. Not recommended without a fundamentally different data-shape hypothesis.
+- **Revival requires:** an integration design that solves the article-vs-event mismatch. Absent that, don't reintroduce.
+
+### 7.4 OSAC — Overseas Security Advisory Council
+
+Removed 2026-07-13. Adapter was never built. Compliance-blocked since inception.
+
+- **What it was:** US Department of State / Bureau of Diplomatic Security service for US private-sector orgs operating abroad. Country Security Reports (CSRs), threat alerts, and analyst-by-email engagement. Access via OSAC.gov member portal (kcheyne@newrelic.com is an approved full member).
+- **Why removed:** **Redistribution restrictions in OSAC's Code of Conduct make any integration a compliance risk.** Three specific clauses:
+  1. **Chatham House Rule** on OSAC communications.
+  2. **Prohibition on unauthorized capture / distribution** of OSAC content.
+  3. **Prohibition on sharing sensitive operational details** with non-members.
+  Penalty for misuse: temporary or permanent termination of OSAC access — losing the individual seat + potentially the corporate relationship.
+- **How the decision was made:** Integration was scoped in `docs/osac-integration-plan.md` with three plausible outcomes. A compliance-guidance email was sent to `OSACPrograms@state.gov` on 2026-06-11 asking specifically whether ingesting OSAC content into a corporate CMT dashboard (visible to non-OSAC-member colleagues) is acceptable. **~1 month with no response** — enough time to signal that OSAC compliance staff either (a) don't respond to hypotheticals about redistribution or (b) consider the answer obvious enough that no clarification is needed. Either way, building without explicit written permission is uncomfortable given the penalty regime.
+- **What was preserved:** `docs/osac-integration-plan.md` remains in the repo as an inventory of the three outcomes + code sketches. No adapter code was ever written, so nothing to recover from git.
+- **Revival requires:** written response from OSACPrograms@state.gov (or successor contact) explicitly permitting internal corporate redistribution. Absent that: don't build. If a green light does come, `docs/osac-integration-plan.md` has the design starting point.

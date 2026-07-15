@@ -51,16 +51,9 @@ export const config = {
     stateDept:  { disabled: flag(process.env.STATE_DEPT_DISABLED), intervalSeconds: num(process.env.STATE_DEPT_FETCH_INTERVAL, 86400) },
     sfPolice:       { disabled: flag(process.env.SF_POLICE_DISABLED),       intervalSeconds: num(process.env.SF_POLICE_FETCH_INTERVAL, 600) },
     atlApd:         { disabled: flag(process.env.ATL_APD_DISABLED),         intervalSeconds: num(process.env.ATL_APD_FETCH_INTERVAL, 900) },
-    pdxFlashalert:  { disabled: flag(process.env.PDX_FLASHALERT_DISABLED),  intervalSeconds: num(process.env.PDX_FLASHALERT_FETCH_INTERVAL, 600) },
     londonTfl:      { disabled: flag(process.env.LONDON_TFL_DISABLED),      intervalSeconds: num(process.env.LONDON_TFL_FETCH_INTERVAL, 600) },
-    gdelt:          { disabled: flag(process.env.GDELT_DISABLED),           intervalSeconds: num(process.env.GDELT_FETCH_INTERVAL, 900) },
-    acled:          {
-      disabled:        flag(process.env.ACLED_DISABLED) || !process.env.ACLED_EMAIL || !process.env.ACLED_PASSWORD,
-      intervalSeconds: num(process.env.ACLED_FETCH_INTERVAL, 900),
-      email:           process.env.ACLED_EMAIL    ?? '',
-      password:        process.env.ACLED_PASSWORD ?? '',
-      lookbackDays:    num(process.env.ACLED_LOOKBACK_DAYS, 7),
-    },
+    // ACLED / GDELT / PDX FlashAlert config entries removed 2026-07-13.
+    // See docs/data-sources.md § Archived sources for rationale.
     whoDon:         {
       disabled:        flag(process.env.WHO_DON_DISABLED),
       intervalSeconds: num(process.env.WHO_DON_FETCH_INTERVAL, 21600),  // 6 hours
