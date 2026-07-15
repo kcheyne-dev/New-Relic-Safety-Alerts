@@ -317,9 +317,41 @@ Ports that need adjustment beyond "path + auth header":
 3. **Location codes**: existing adapter uses `ALL` — fine. If any special-case logic references `NO` or `AD`, revisit.
 4. **Everything else** — path, auth, response parsing, supersede filtering, bbox math, JSON-variant fetch, geometry link — carries over 1:1.
 
+## MQTT probe results (2026-07-15, `probe-meteoalarm-mqtt.ts` output)
+
+Followed up on the OpenAPI's MQTT section with a 5-minute subscription probe. Definitive findings for architecting a future consumer:
+
+**Auth pattern confirmed:** MQTT CONNECT with `username="token"` (literal string) + `password=<API_TOKEN>`. The other four patterns tried (token-as-username, password-only, `apikey` username, MQTT v5 Bearer) all failed with `Bad username or password`. The fixed literal `"token"` username is a quirk but reliably works.
+
+**Message shape confirmed byte-for-byte compatible with REST /locations feature.** Each MQTT message is a single Feature (not a FeatureCollection). Same `properties`: OBJECTID, alertId, countryCode, featureType, geometryDescription, geometryType, hubLanguage, indexArea/Feature/Info. Same `links[rel=canonical|json|xml|geometry]` array. Same `meteo.fra1.digitaloceanspaces.com/api/archive/*` presigned URLs for CAP payloads. Two additional top-level fields on MQTT messages that REST doesn't have:
+- `properties.rights` — WMO Unified Data Policy attribution notice string.
+- `properties.pubtime` — broker-publish timestamp (distinct from `datetime` which is the event-issued time).
+
+Since the message body is a full index-ref Feature, the existing REST adapter's helpers (`unionBboxCentroidAndRadiusKm`, `pickInfo`, `evaluateMeteoAlarm`, JSON-variant fetch via `links[rel=json]`) all apply unchanged. Only the transport wrapper differs.
+
+**Live sample: 20 messages in 5 min.** First message arrived 157s after subscribe (broker sends no retained state; only live traffic from connect onward). Once activity started, delivery was bursty — 19 messages in the first 30s (likely one agency batch-reissuing), then 1 more, then quiet.
+
+**Payload size:** ~2.7 KB per message. Same magnitude as an individual REST Feature. No compression noted.
+
+**No retained messages** on connect. If a consumer disconnects and reconnects, any messages published during the gap are lost. **Implication:** MQTT alone cannot be the sole transport for a system that needs at-most-a-few-minutes staleness. REST poll must keep running as the reconciliation pass. This is the classic MQTT gotcha — QoS 0 + no retention = at-most-once with no recovery.
+
+## MQTT consumer architecture (Task #56)
+
+Based on the probe, the recommended shape is:
+
+**Both transports run in parallel, MQTT-primary + REST-secondary.**
+
+- **MQTT consumer:** new module `backend/src/consumers/meteoalarm-mqtt.ts`. Subscribes on backend boot; keeps a long-lived connection with reconnect-on-drop. On each message: fetch CAP JSON via `links[rel=json]`, run through the existing `pickInfo` + `evaluateMeteoAlarm` + `unionBboxCentroidAndRadiusKm` pipeline (imported from the current REST adapter — refactor those helpers into a shared module), emit a single-item batch to `persistBatch`. Idempotent on `(source_id, source_event_id)` so if the same alert also arrives via REST poll, the second write is a no-op.
+- **REST adapter:** keeps its current 15-min cadence. Serves as the reconciliation pass — catches anything MQTT missed during a disconnect / reconnect window, plus supersede-filter recovery.
+- **Gating:** new env var `METEOALARM_TRANSPORT=rest|mqtt|both`. Default `rest` (current behavior). Ops enables `both` to start dual-transport, monitors for a few days, then optionally switches to `mqtt` only if REST redundancy proves unnecessary (I recommend keeping `both` permanently — the reconciliation value is real).
+- **Idempotency:** relies on the existing `persist.ts` upsert on `(source_id, source_event_id)`. Same alert arriving via both transports → single row, last write wins on any field diffs.
+- **Consumer lifecycle:** starts in `server.ts` boot after DB connected. On SIGTERM cleanly disconnects. Reconnect loop uses exponential backoff on failures.
+
+Latency win vs REST-only: sub-second push instead of up-to-15-min poll. Cost: one long-lived TLS connection + a small `mqtt` library dep (already added devDep).
+
 ## Recommendation
 
-**FINAL after full OpenAPI review: SWAP the EDR path as a config flip (Round 2 recommendation stands). MQTT is a separate follow-up with meaningful latency-improvement upside.**
+**FINAL after MQTT probe: SWAP the EDR path (done — commit f670b7d + 0090773) and build the MQTT consumer as an ADDITIVE transport gated by METEOALARM_TRANSPORT.**
 
 The evidence:
 - Response shape is byte-for-byte MeteoGate-compatible.
