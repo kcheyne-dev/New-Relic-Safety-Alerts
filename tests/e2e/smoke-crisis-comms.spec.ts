@@ -1,4 +1,5 @@
 import { test, expect, Page, APIRequestContext } from '@playwright/test';
+import { cleanupRunId } from './lib/cleanup-run-id.js';
 
 /**
  * NRSA Crisis Comms smoke harness.
@@ -22,6 +23,18 @@ const USER_PASSWORD= process.env.NRSA_USER_PASSWORD|| 'YourChoice';
 const RUN_ID = `smoke-${Date.now()}`;
 
 test.describe('NRSA Crisis Comms smoke', () => {
+  // Purge this run's Postgres artifacts on exit (Task #58, 2026-07-15).
+  // Every full run creates ~3 real incidents (real send + test send + BCI
+  // declaration) — without this hook, incident count would accumulate across
+  // runs. 75 open incidents observed after ~8 runs on 2026-07-13; this hook
+  // keeps it flat. Failure is non-fatal: if psql is unreachable, the manual
+  // `npm run cleanup` script covers it. Runs even on test failure — Playwright
+  // guarantees afterAll fires regardless of result.
+  test.afterAll(async () => {
+    await cleanupRunId(RUN_ID);
+  });
+
+
   test('full round-trip: login → real send → unlink → test send → verify', async ({ page, request }) => {
     test.slow();   // 3x default timeout — login + 2 sends with API verification
 
