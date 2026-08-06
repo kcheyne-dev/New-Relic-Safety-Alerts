@@ -77,7 +77,7 @@ export interface RawAndNormalized {
     /**
      * If set, persist.ts will drop this event after PostGIS office match
      * if no office sits within this radius (km). Used by mid-sev rules
-     * (e.g. M5+ earthquakes, ACLED 0-fatality battles, EONET wildfires)
+     * (e.g. M5+ earthquakes, EONET wildfires, NWS mid-severity advisories)
      * that only clear the bar when geographically close to a hub.
      */
     requiresProximityKm?: number;

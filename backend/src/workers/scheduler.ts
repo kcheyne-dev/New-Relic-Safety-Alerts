@@ -65,7 +65,8 @@ export function startScheduler(): void {
       continue;
     }
     log.info({ source: adapter.id, intervalSeconds: adapter.intervalSeconds }, 'source.scheduled');
-    // Stagger initial fetches by 0-3s so we don't fire all 7 sources simultaneously on boot
+    // Stagger initial fetches by 0-3s so we don't fire all sources
+    // simultaneously on boot (currently ~10 REST adapters + WHO DON).
     const stagger = Math.floor(Math.random() * 3000);
     setTimeout(() => runOnce(adapter), stagger);
     setInterval(() => runOnce(adapter), adapter.intervalSeconds * 1000);

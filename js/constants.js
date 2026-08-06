@@ -310,10 +310,15 @@ export const HAZARD_ZONES = {
   unrest: {
     label: '⚠ Civil Unrest',
     color: '#facc15',
-    source: 'ACLED',
-    sourceName: 'Armed Conflict Location & Event Data Project',
-    sourceUrl: 'https://acleddata.com/dashboard/',
-    description: 'Recent civil unrest hotspots from ACLED, supplemented by GDELT event clustering.',
+    // Zones are hardcoded demo shapes — not fed from any live source.
+    // The ACLED + GDELT feeds were archived 2026-07-13 (see
+    // docs/data-sources.md § 7). If a real civil-unrest source is ever
+    // wired in, restore the attribution fields to point at it; for now,
+    // leave source metadata empty so the layer popup doesn't misattribute.
+    source: null,
+    sourceName: null,
+    sourceUrl: null,
+    description: 'Illustrative civil-unrest zones (hardcoded demo shapes). No live source is currently wired.',
     zones: [
       { lat: 12.97, lng: 77.6, radiusKm: 12, label: 'Bengaluru Whitefield' },
       { lat: 51.51, lng: -0.12, radiusKm: 6, label: 'Westminster' },

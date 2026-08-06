@@ -249,12 +249,14 @@ export function evaluateLondonTfl(opts: {
 // ----------------------------------------------------------------------------
 
 /**
- * SFPD (Socrata), ATL APD (ArcGIS COBRA), and PDX FlashAlert all publish
- * AFTER-THE-FACT incident records. By the time an event lands in any of
- * these feeds, the police call has been responded to, the scene has been
- * processed, reports have been written and reviewed. The data is
- * structurally historical, not real-time — typical lag is hours to a
- * full day.
+ * SFPD (Socrata) and ATL APD (ArcGIS COBRA) both publish AFTER-THE-FACT
+ * incident records. By the time an event lands in either feed, the police
+ * call has been responded to, the scene has been processed, reports have
+ * been written and reviewed. The data is structurally historical, not
+ * real-time — typical lag is hours to a full day.
+ *
+ * (PDX FlashAlert previously fell under this same rationale but the
+ * adapter was archived 2026-07-13 — see docs/data-sources.md § 7.2.)
  *
  * For CMT use (Q1: extreme likelihood to affect office; Q2: traveler
  * threat), an "aggravated assault 35 hours ago at an intersection 2 miles

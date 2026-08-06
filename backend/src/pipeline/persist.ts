@@ -106,8 +106,9 @@ export async function persistBatch(
       }
 
       // --- 2b. Threshold proximity gate ---
-      // Some adapter rules (e.g. M5+ earthquake, ACLED 0-fat battle, EONET
-      // wildfire) only clear the bar when an office is reasonably close.
+      // Some adapter rules (e.g. M5+ earthquake, EONET wildfire, NWS mid-
+      // severity advisory) only clear the bar when an office is reasonably
+      // close.
       // requiresProximityKm is set by pipeline/thresholds.ts when the
       // adapter's verdict was "keep, but only if near an office".
       const requiresProximityKm = item.thresholds?.requiresProximityKm;

@@ -157,7 +157,7 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 - **Terms of use:** The WHO website operates under the [WHO Terms of Use](https://www.who.int/about/policies/terms-of-use) and content is generally licensed under **CC BY-NC-SA 3.0 IGO** or its successors. Key clauses for our use: (a) **NC = non-commercial only** unless permission is granted, (b) attribution required, (c) share-alike. The "non-commercial" definition matters — internal corporate use (a CMT dashboard within New Relic) is generally considered non-commercial under most interpretations of CC-NC, but this is not unambiguous and WHO has been known to take a narrower view. Republication / public-facing display would more clearly require permission.
 - **Project compliance:** **Action item:** the GitHub Pages mirror is publicly accessible. While bare Pages mode currently shows seed alerts only (live mode requires backend creds), the moment WHO outbreaks are surfaced anywhere a non-NR user can see them, the CC-NC clause becomes load-bearing. Recommend (a) keep WHO data behind authenticated CMT access, (b) add explicit "Source: WHO Disease Outbreak News" attribution per CC-BY, (c) before any external sharing of the dashboard, contact WHO permissions desk (`permissions@who.int`).
 
-(§ 1.13 PDX FlashAlert, § 1.14 GDELT, § 1.15 OSAC — removed 2026-07-13. See § 7 Archived sources.)
+(PDX FlashAlert, GDELT, OSAC — removed 2026-07-13. See § 7 Archived sources.)
 
 ---
 

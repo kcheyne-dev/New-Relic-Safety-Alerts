@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { cleanupRunId } from './lib/cleanup-run-id.js';
 
 /**
  * NRSA failed-send outbox smoke.
@@ -34,6 +35,18 @@ const USER_PASSWORD = process.env.NRSA_USER_PASSWORD || 'YourChoice';
 const RUN_ID = `outbox-${Date.now()}`;
 
 test.describe('NRSA failed-outbox smoke', () => {
+  // Purge this run's Postgres artifacts on exit. SCENARIO 2's successful
+  // retry POSTs to /api/comms with responseRequired=false — that persists a
+  // standalone crisis_messages row (incident_id IS NULL) which the manual
+  // cleanup script's title-match doesn't catch, and doesn't cascade from
+  // any incident delete. cleanup-run-id.ts includes a standalone-message
+  // sweep specifically for this case. Best-effort; if psql is unreachable
+  // the smoke still passes and manual `npm run cleanup` covers the gap.
+  test.afterAll(async () => {
+    await cleanupRunId(RUN_ID);
+  });
+
+
   test('failed comms enqueue → badge + inline chip → retry recovers → dismiss clears', async ({ page }) => {
     test.slow();   // login + multiple send cycles
 

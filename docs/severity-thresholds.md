@@ -20,7 +20,7 @@ The CMT use case ([memory: project_nr_safety_alerts](../README.md)) is to answer
 
 - High-severity events (M6+, GDACS Red, NWS Extreme, State Dept L4, ACLED 5+ fatalities) pass globally. Zero proximity gating, zero category filtering. We accept all noise at the top end because false negatives are unacceptable.
 - Mid-severity events (M5–6, GDACS Orange, NWS Severe, State Dept L3, ACLED 1–4 fatalities) pass globally as well — these are the meat of the use case.
-- Low-severity events (M4.5–5, GDACS Green, NWS Watches/Advisories, State Dept L1–2, ACLED 0-fatality riots) get aggressive filtering: most drop at ingest; a few survive only if they're geographically close to an office.
+- Low-severity events (M4.5–5, GDACS Green, NWS Watches/Advisories, State Dept L1–2) get aggressive filtering: most drop at ingest; a few survive only if they're geographically close to an office.
 
 This asymmetry is deliberate. CMT culture errs on over-alerting, but operator attention is the scarcest resource on the team. Anything that doesn't clear "could plausibly affect an office or traveler" gets dropped before it ever reaches the dashboard.
 

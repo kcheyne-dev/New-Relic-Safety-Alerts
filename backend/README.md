@@ -13,13 +13,14 @@ Real-time alert ingestion + REST API for the CMT Dashboard.
 | NASA EONET | 10m | JSON | Wildfires, storms, volcanoes, floods globally |
 | GDACS | 10m | GeoJSON | UN multi-hazard with Green/Orange/Red severity |
 | EMSC | 5m | GeoJSON | European seismic; faster than USGS for EU |
-| MeteoAlarm | 15m | Atom XML | EU weather warnings color-coded; geocoded by area |
+| MeteoAlarm | 15m | GeoJSON (OGC EDR) | EU weather warnings via config-flip provider (meteogate default / meteoalarm-direct opt-in) |
 | US State Dept | 24h | RSS XML | Travel advisories L1–L4 by country |
 | **SF Police (Socrata)** | 10m | JSON | Local incidents within 10km of SFO |
 | **Atlanta APD (ArcGIS)** | 15m | JSON | Local incidents within 8km of ATL |
-| **Portland FlashAlert** | 10m | RSS XML | Public-safety announcements PDX area |
 | **London TfL** | 10m | JSON | Transit disruptions for LON |
-| **GDELT 2.0** | 15m | JSON | Global news with theme + tone filtering (civil unrest, terror, evac) |
+| **WHO Disease Outbreak News** | 6h | JSON | Global outbreak reports, persisted to who_outbreaks table |
+
+(ACLED, GDELT, PDX FlashAlert removed 2026-07-13. See docs/data-sources.md § 7 for the archived rationale.)
 
 - **Cross-source clustering**: USGS + EMSC + GDACS publishing the same Tokyo quake within 30 min and 25 km gets folded into ONE event. The cluster keeps the highest-severity primary source; all contributing sources are listed in `contributing_sources`.
 - **Centralized severity normalization** (`pipeline/severity.ts`): one place where every source's scale is mapped to canonical Low/Mod/High/Ext.

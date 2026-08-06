@@ -124,17 +124,20 @@ cp "ops/com.newrelic.nrsa-backend.plist" ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.newrelic.nrsa-backend.plist
 ```
 
-**Pick up backend code changes** (without a plist change):
+**Pick up backend code changes OR `.env` changes** (without a plist change):
 
-`start:launchd` doesn't watch files, so a `.ts` edit in `backend/src/`
-requires a supervised restart:
+`start:launchd` doesn't watch files, and `dotenv/config` reads `backend/.env`
+once at process startup. Either kind of change (`.ts` edit or new/edited
+`.env` var like `METEOALARM_PROVIDER=meteoalarm-direct`) requires a
+supervised restart:
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.newrelic.nrsa-backend
 ```
 
 The `-k` flag kills the running process first, then relaunches. Log
-tail should show a fresh `db.connected` within ~15s.
+tail should show a fresh `db.connected` within ~15s, then look for
+`meteoalarm.cycle.start` to confirm any provider flip took effect.
 
 If you're actively iterating on backend code, temporarily unload the
 LaunchAgent and use `npm run dev` in a terminal (with `tsx watch`) —

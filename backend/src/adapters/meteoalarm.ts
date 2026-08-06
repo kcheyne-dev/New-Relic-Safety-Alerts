@@ -80,9 +80,11 @@ import { log } from '../log.js';
  *     We use a rolling 23h window. With 15-min cycle interval (default)
  *     the idempotent `(source_id, source_event_id)` upsert in persist.ts
  *     handles overlap for free.
- *   - 100 features per page. In live sampling only ~19/100 are
- *     non-superseded, so first page is normally enough. Pagination is a
- *     TODO if a busy weather day pushes us past 100 active references.
+ *   - 100 features per page. Pagination is implemented (see the batchLoop
+ *     block in fetch() — MAX_PAGES=25, CONCURRENCY=5, stop-signals for
+ *     empty/partial/cap/error). Live during Swiss thunderstorm peak
+ *     2026-06-29 pulled all 25 pages; `max_pages_hit` warn fires when
+ *     the cap is reached with a full last page.
  *   - No explicit `Accept` header — server 406s `application/json`. The
  *     `?f=json` query param does content negotiation.
  *
