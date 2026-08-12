@@ -1,7 +1,7 @@
 # NRSA ops artifacts
 
 Machine-specific deployment files that live outside the runtime code.
-Currently: launchd LaunchAgent for keeping the backend alive.
+Currently: launchd LaunchAgents keeping the backend and frontend alive.
 
 ## Backend uptime — launchd LaunchAgent
 
@@ -153,3 +153,96 @@ another machine:
 3. Edit the plist's `ProgramArguments`, `WorkingDirectory`,
    `EnvironmentVariables.PATH`, and log paths to match
 4. Then follow the install steps above
+
+---
+
+## Frontend uptime — launchd LaunchAgent
+
+**Problem this solves:** the frontend runs via `python3 -m http.server 8000`
+in an interactive terminal. Terminal close, Ctrl-C, or Mac restart drops
+the server and `http://localhost:8000/` returns nothing. Recurring
+friction in the 2026-07 and 2026-08 sessions — the backend recovered
+via its own LaunchAgent but the frontend didn't, so the dashboard was
+half-broken after every reboot.
+
+**Solution:** register the frontend as a launchd LaunchAgent with
+`KeepAlive=true`, same pattern as the backend. On any process exit,
+launchd waits 10 seconds then restarts. On user login, `RunAtLoad`
+starts it fresh.
+
+**Note on trade-offs:** unlike the backend, the frontend has no
+build-step or dependencies (python3 http.server is stdlib), so there's
+no "watch mode" analog. If you're editing HTML/JS/CSS, just refresh the
+browser — the LaunchAgent's copy serves the same on-disk files. No
+kickstart needed for frontend code changes.
+
+### Install
+
+One-time setup on this Mac:
+
+```bash
+# Copy the plist into the LaunchAgents directory
+cp "ops/com.newrelic.nrsa-frontend.plist" ~/Library/LaunchAgents/
+
+# Stop any manually-running http.server first
+kill $(lsof -i :8000 -sTCP:LISTEN -t) 2>/dev/null
+
+# Load the agent — starts http.server immediately due to RunAtLoad
+launchctl load ~/Library/LaunchAgents/com.newrelic.nrsa-frontend.plist
+
+# Verify it's listening
+lsof -i :8000 -sTCP:LISTEN
+```
+
+Expected output: one `Python` process bound to `:8000`.
+
+### Verify recovery works
+
+Kill the python3 process and confirm launchd restarts it within ~10s:
+
+```bash
+kill $(lsof -i :8000 -sTCP:LISTEN -t)
+sleep 12
+lsof -i :8000 -sTCP:LISTEN    # should still show a process (different PID)
+```
+
+### Watch logs
+
+Every browser request lands in the error log (python3 http.server logs
+to stderr by design — quirky, but it's not real errors). Useful for
+confirming a fresh boot actually serves traffic:
+
+```bash
+tail -f ~/Library/Logs/nrsa-frontend.error.log
+```
+
+The `.log` (stdout) file will mostly be empty — python3 http.server
+doesn't print to stdout.
+
+### Uninstall / disable
+
+If you want to go back to manual `python3 -m http.server`:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.newrelic.nrsa-frontend.plist
+rm ~/Library/LaunchAgents/com.newrelic.nrsa-frontend.plist
+```
+
+Then start it manually from the repo root when needed.
+
+### Troubleshooting
+
+**Port 8000 already in use:** if you had a manual `python3 -m http.server`
+running when you loaded the LaunchAgent, `launchctl` won't kill the
+existing process — it'll just fail silently. Check with
+`lsof -i :8000 -sTCP:LISTEN`, kill any lingering process, then reload.
+
+**Not picking up file changes:** the LaunchAgent serves whatever is on
+disk at request time. No caching, no build step. If a hard refresh
+(Cmd-Shift-R) doesn't show your changes, verify you edited the right
+file (repo root, not a nested copy).
+
+**Python version issues:** the plist uses `/usr/bin/python3` (the
+macOS Command Line Tools' python3, always present). If your machine's
+`/usr/bin/python3` is missing, install Xcode Command Line Tools:
+`xcode-select --install`.

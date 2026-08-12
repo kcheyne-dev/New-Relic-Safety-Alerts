@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  NRSA frontend launchd LaunchAgent.
+
+  Purpose: keeps `python3 -m http.server 8000` alive across terminal-window
+  closes, Ctrl-C, and Mac restarts. Companion to com.newrelic.nrsa-backend.plist;
+  same supervision pattern, same recovery guarantees.
+
+  Before this LaunchAgent, the frontend was a manual `python3 -m http.server`
+  in a terminal — killing that terminal dropped :8000 and the dashboard went
+  blank. Recurring friction in the 2026-07 through 2026-08 sessions,
+  especially after Mac restarts (backend recovered via its own LaunchAgent
+  but the frontend didn't). Task #65 closes the loop.
+
+  This file is the REPO TEMPLATE. The installed copy lives at
+  ~/Library/LaunchAgents/com.newrelic.nrsa-frontend.plist and is loaded by
+  launchd via `launchctl load`. See ops/README.md § Frontend uptime for
+  install steps.
+
+  Machine-specific values baked in for kcheyne@V95P23HQF4 (M1/M2 Mac,
+  arm64, Homebrew at /opt/homebrew). If you deploy this on a different
+  machine, adjust:
+    - ProgramArguments[0]: absolute path to python3 (which python3)
+    - WorkingDirectory: repo root path
+    - StandardOutPath / StandardErrorPath: log file locations
+-->
+<plist version="1.0">
+<dict>
+    <!-- Unique identifier for this LaunchAgent. Convention: reverse-DNS,
+         matches the backend plist's naming scheme. -->
+    <key>Label</key>
+    <string>com.newrelic.nrsa-frontend</string>
+
+    <!-- What to run. Plain `python3 -m http.server 8000` serves static
+         files from cwd. No dependencies on npm, node, or virtualenvs —
+         the system python3 that ships with macOS Command Line Tools is
+         enough. Uses the same port 8000 the dashboard's frontend code
+         and the Playwright smokes both hardcode. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>-m</string>
+        <string>http.server</string>
+        <string>8000</string>
+    </array>
+
+    <!-- Run in the repo root so http.server exposes:
+         - index.html at /
+         - js/*.js modules
+         - assets, docs (if referenced)
+         Frontend code references relative paths (./js/main.js etc.) so
+         the cwd MUST be the repo root, not backend/ or tests/. -->
+    <key>WorkingDirectory</key>
+    <string>/Users/kcheyne/Documents/Claude/Projects/New Relic Safety Alerts</string>
+
+    <!-- launchd doesn't inherit shell PATH. python3 is invoked by
+         absolute path above; PATH here is a defensive fallback for any
+         subprocess python3 might spawn (rare for http.server, but safe). -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Start immediately when launchctl loads this file (also fires on
+         user login, since ~/Library/LaunchAgents/ loads at login time). -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically whenever the process exits. python3 -m
+         http.server is single-purpose and doesn't gracefully daemonize;
+         KeepAlive is the recovery mechanism if it crashes or someone
+         Ctrl-C's it via an accidentally-attached terminal. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Minimum seconds between restart attempts. Same 10s cadence as
+         backend for consistency. Rarely relevant for the frontend since
+         it has no dependencies to wait on (unlike the backend which
+         waits for Postgres.app). -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Capture stdout/stderr for post-mortem. python3 http.server logs
+         every request to stderr, so the .error.log will show request
+         traffic. Useful for confirming the browser is actually hitting
+         the server after a fresh boot. -->
+    <key>StandardOutPath</key>
+    <string>/Users/kcheyne/Library/Logs/nrsa-frontend.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/kcheyne/Library/Logs/nrsa-frontend.error.log</string>
+
+    <!-- Optional: process type shown in Activity Monitor / ps -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
