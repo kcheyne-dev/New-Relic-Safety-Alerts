@@ -49,7 +49,18 @@ import { renderScoped, RENDER_CRISIS, RENDER_CHROME } from './render.js';
 // and the status strip (outbox badge count). Scoped renders here save the
 // map + feed + incidents panels from re-rendering on every enqueue / retry
 // / dismiss. See health-review batch B (task #70).
-const OUTBOX_SCOPE = [RENDER_CRISIS, RENDER_CHROME];
+//
+// Lazily built: outbox.js and render.js form a circular import graph
+// (render.js imports outboxChipHTML from us). Referencing RENDER_CRISIS /
+// RENDER_CHROME at module top level triggers a ReferenceError ("Cannot
+// access 'RENDER_CRISIS' before initialization") because render.js hasn't
+// finished evaluating its `const` declarations when outbox.js's top level
+// runs. Wrapping the array in a function defers the read until first call,
+// by which time all modules have fully initialized. Diagnosed via a
+// fresh-context repro (incognito Chrome + Playwright) after batch B landed.
+function outboxScope() {
+  return [RENDER_CRISIS, RENDER_CHROME];
+}
 
 /* Per-session guard: entries we've already auto-retried this page load,
    so we don't hammer the backend across multiple dispatchSend calls or
@@ -84,7 +95,7 @@ export function enqueueFailure(entry, err) {
   };
   state.UI_STATE.outbox.push(record);
   saveState(SECTION_CRISIS);
-  renderScoped(OUTBOX_SCOPE);
+  renderScoped(outboxScope());
   return record;
 }
 
@@ -98,7 +109,7 @@ export function dismissEntry(id) {
   state.UI_STATE.outbox = state.UI_STATE.outbox.filter(e => e.id !== id);
   if (state.UI_STATE.outbox.length !== before) {
     saveState(SECTION_CRISIS);
-    renderScoped(OUTBOX_SCOPE);
+    renderScoped(outboxScope());
   }
 }
 
@@ -122,7 +133,7 @@ export async function retryEntry(id) {
   if (entry.status === 'retrying') return;
 
   entry.status = 'retrying';
-  renderScoped(OUTBOX_SCOPE);
+  renderScoped(outboxScope());
 
   try {
     if (entry.kind === 'comms') {
@@ -141,7 +152,7 @@ export async function retryEntry(id) {
     entry.lastError = err.message || String(err);
     entry.status = 'failed';
     saveState(SECTION_CRISIS);
-    renderScoped(OUTBOX_SCOPE);
+    renderScoped(outboxScope());
   }
 }
 
