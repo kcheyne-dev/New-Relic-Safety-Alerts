@@ -30,13 +30,25 @@ export interface IngestStats {
   skipped:      number;
 }
 
-const DEFAULT_PROXIMITY_KM = {
+/** Category-keyed proximity radii used when an event doesn't carry an
+ *  explicit radiusKm. Every value of the `Category` union must have an
+ *  entry here — the TypeScript `Record<Category, number>` type enforces
+ *  exhaustiveness so the `n.radiusKm ?? DEFAULT_PROXIMITY_KM[n.category]`
+ *  lookup below can't ever fall through to a runtime default.
+ *
+ *  Tuning notes (2026-08-06 health review): natural=100 is the loose
+ *  default for earthquakes / weather without adapter-supplied radii;
+ *  travel=500 keeps country-wide advisories broad enough for office
+ *  matching; public_safety=10 is intentionally tight (city-block events);
+ *  health=200 mirrors WHO DON's regional posture. Adjust here if a
+ *  category persistently over- or under-matches offices in production. */
+const DEFAULT_PROXIMITY_KM: Record<import('../types.js').Category, number> = {
   natural:       100,
   civil:          25,
   public_safety:  10,
-  travel:        500,    // travel advisories are country-wide; office matching looser
+  travel:        500,
   health:        200,
-} as const;
+};
 
 export async function persistBatch(
   sourceId: string,
@@ -105,7 +117,9 @@ export async function persistBatch(
       const rawId = rawRes.rows[0]?.id ?? null;
 
       // --- 2. Office proximity match ---
-      const radiusForCategory = n.radiusKm ?? DEFAULT_PROXIMITY_KM[n.category] ?? 100;
+      // DEFAULT_PROXIMITY_KM is typed as Record<Category, number>, so the
+      // second fallback is guaranteed to resolve — no runtime default needed.
+      const radiusForCategory = n.radiusKm ?? DEFAULT_PROXIMITY_KM[n.category];
       let officeIds: string[] = [];
       if (radiusForCategory > 0 && Number.isFinite(n.lat) && Number.isFinite(n.lng)) {
         const officeRes = await client.query<{ id: string }>(
@@ -203,7 +217,18 @@ export async function persistBatch(
     bus.publish('event', msg);
   }
 
-  log.info(stats, `${sourceId}.persisted`);
+  // Only log at info when the cycle did something interesting. A quiet
+  // cycle (0 inserted / updated / merged / skipped) still logs at debug
+  // so LOG_LEVEL=debug operators can confirm the poll fired — but at
+  // default info level the tail is quieter (10 sources × 4 cycles/hour
+  // was ~40 lines/hr of "X.persisted" noise). See 2026-08-06 health
+  // review MEDIUM/LOW batch for the pattern.
+  const changed = stats.inserted + stats.updated + stats.merged + stats.skipped;
+  if (changed > 0) {
+    log.info(stats, `${sourceId}.persisted`);
+  } else {
+    log.debug(stats, `${sourceId}.persisted`);
+  }
   return stats;
 }
 

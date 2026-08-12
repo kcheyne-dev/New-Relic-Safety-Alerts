@@ -30,20 +30,48 @@ export const SEV_COLOR = { low:'#4ade80', mod:'#facc15', high:'#fb923c', ext:'#f
 
 export const ALERT_TYPES = ['Natural Disaster','Civil Unrest','Public Safety','Travel Advisory'];
 
+/* SOURCES — the frontend registry, aligned with backend adapter ids.
+ *
+ * Layout (2026-08-12, health-review MEDIUM/LOW batch):
+ *   - `id`      matches the backend's `primarySourceId` (snake_case) so
+ *               SOURCES.find(s => s.id === a.source) actually resolves in
+ *               live mode. Before this alignment the frontend used display
+ *               labels like 'USGS' / 'Socrata' as ids, so every `find` in
+ *               live mode returned undefined and fell back to showing the
+ *               raw backend id (e.g. "usgs") in the UI.
+ *   - `label`   short display id shown in feed cards + source table.
+ *   - `name`    full descriptive name shown in the source table subtitle.
+ *   - `type`    frontend category (matches ALERT_TYPES).
+ *   - `status`  one of 'ok' | 'stale' | 'error' | 'archived'. The status
+ *               strip's "N/M healthy" ratio counts N as `ok` and M as any
+ *               non-archived source. Archived rows still render in the
+ *               source table so historical alerts still resolve their
+ *               display name, but they don't inflate the denominator.
+ *
+ * When adding a new source: mirror the backend adapter's primarySourceId
+ * exactly. When retiring: switch status to 'archived' (don't delete —
+ * historical alerts in localStorage may still reference the id).
+ */
 export const SOURCES = [
-  { id:'NWS',         name:'National Weather Service',       type:'Natural Disaster', status:'ok',    url:'https://www.weather.gov/' },
-  { id:'USGS',        name:'US Geological Survey',           type:'Natural Disaster', status:'ok',    url:'https://earthquake.usgs.gov/earthquakes/map/' },
-  { id:'EMSC',        name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok',    url:'https://www.emsc-csem.org/Earthquake/' },
-  { id:'NASA EONET',  name:'Earth Observatory',              type:'Natural Disaster', status:'ok',    url:'https://eonet.gsfc.nasa.gov/' },
-  { id:'GDACS',       name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok',    url:'https://www.gdacs.org/' },
-  // ACLED / GDELT / Flashalert removed 2026-07-13 — see docs/data-sources.md § Archived sources.
-  { id:'Socrata',     name:'SF Open Data — Police',          type:'Public Safety',    status:'ok',    url:'https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports/wg3w-h783' },
-  { id:'ArcGIS APD',  name:'Atlanta Police Department',      type:'Public Safety',    status:'ok',    url:'https://opendata.atlantapd.org/' },
-  { id:'FEMA IPAWS',  name:'FEMA Public Alert System',       type:'Public Safety',    status:'error', url:'https://www.fema.gov/emergency-managers/practitioners/integrated-public-alert-warning-system' },
-  { id:'State Dept',  name:'US Travel Advisory',             type:'Travel Advisory',  status:'ok',    url:'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html' },
-  { id:'MeteoAlarm',  name:'European Weather Warnings',      type:'Natural Disaster', status:'ok',    url:'https://www.meteoalarm.org/' },
-  { id:'OpenWeatherMap', name:'Live Weather',                type:'Natural Disaster', status:'ok',    url:'https://openweathermap.org/' },
-  { id:'OpenAQ',      name:'Air Quality',                    type:'Natural Disaster', status:'stale', url:'https://openaq.org/' },
+  // Live sources — align 1:1 with backend/src/workers/scheduler.ts ADAPTERS.
+  { id:'usgs',           label:'USGS',       name:'US Geological Survey',           type:'Natural Disaster', status:'ok', url:'https://earthquake.usgs.gov/earthquakes/map/' },
+  { id:'nws',            label:'NWS',        name:'National Weather Service',       type:'Natural Disaster', status:'ok', url:'https://www.weather.gov/' },
+  { id:'emsc',           label:'EMSC',       name:'European Med Seismological Ctr', type:'Natural Disaster', status:'ok', url:'https://www.emsc-csem.org/Earthquake/' },
+  { id:'eonet',          label:'NASA EONET', name:'Earth Observatory',              type:'Natural Disaster', status:'ok', url:'https://eonet.gsfc.nasa.gov/' },
+  { id:'gdacs',          label:'GDACS',      name:'Global Disaster Alert',          type:'Natural Disaster', status:'ok', url:'https://www.gdacs.org/' },
+  { id:'meteoalarm',     label:'MeteoAlarm', name:'European Weather Warnings',      type:'Natural Disaster', status:'ok', url:'https://www.meteoalarm.org/' },
+  { id:'sf_police',      label:'SFPD',       name:'SF Open Data — Police',          type:'Public Safety',    status:'ok', url:'https://data.sfgov.org/Public-Safety/Police-Department-Incident-Reports/wg3w-h783' },
+  { id:'atl_apd',        label:'APD',        name:'Atlanta Police Department',      type:'Public Safety',    status:'ok', url:'https://opendata.atlantapd.org/' },
+  { id:'london_tfl',     label:'TfL',        name:'Transport for London',           type:'Public Safety',    status:'ok', url:'https://api.tfl.gov.uk/' },
+  { id:'state_dept',     label:'State Dept', name:'US Travel Advisory',             type:'Travel Advisory',  status:'ok', url:'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html' },
+  { id:'who_don',        label:'WHO DON',    name:'WHO Disease Outbreak News',      type:'Public Safety',    status:'ok', url:'https://www.who.int/emergencies/disease-outbreak-news' },
+
+  // Archived — see docs/data-sources.md § Archived sources for rationale.
+  // Kept in the registry so historical alerts + demo scenarios can still
+  // resolve their display name. Excluded from health ratio.
+  { id:'acled',          label:'ACLED',          name:'Armed Conflict Location & Event Data', type:'Civil Unrest',  status:'archived', url:'https://acleddata.com/' },
+  { id:'gdelt',          label:'GDELT',          name:'Global Database of Events',            type:'Civil Unrest',  status:'archived', url:'https://www.gdeltproject.org/' },
+  { id:'pdx_flashalert', label:'PDX FlashAlert', name:'Portland Public Safety Alerts',        type:'Public Safety', status:'archived', url:'https://flashalert.net/' },
 ];
 
 /* ============ Offices ================================================= */

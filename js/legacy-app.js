@@ -921,7 +921,7 @@ document.getElementById('btn-help').onclick = () => {
       ${SEVERITY.map(s=>`<span class="sev-pill ${s}">${SEV_NAME[s]}</span>`).join('')}
     </div>
     <h4 style="margin-top:12px">Sources active</h4>
-    <p style="font-size:11px;color:var(--muted)">${SOURCES.map(s=>s.id).join(' · ')}</p>
+    <p style="font-size:11px;color:var(--muted)">${SOURCES.filter(s=>s.status!=='archived').map(s=>s.label).join(' · ')}</p>
     <h4 style="margin-top:14px">Local Data</h4>
     <p style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px">
       All your incidents, drafts, sent messages, and notes are saved to this browser. Use these tools to back up or wipe.

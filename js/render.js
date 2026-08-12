@@ -1410,12 +1410,16 @@ export function applyTheme(theme) {
 }
 
 export function showFreshness() {
+  // 'archived' status excluded from the health ratio (see constants.js SOURCES
+  // docblock) — those are retired sources kept for historical alert display.
+  const liveSources = SOURCES.filter(s => s.status !== 'archived');
+  const okCount = liveSources.filter(s => s.status === 'ok').length;
   showModal(`<h3>Data Sources Freshness</h3>
-    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">${SOURCES.filter(s=>s.status==='ok').length}/${SOURCES.length} sources healthy. 15-min refresh cycle, 24-hour TTL.</p>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:8px">${okCount}/${liveSources.length} sources healthy. 15-min refresh cycle, 24-hour TTL.</p>
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr><th align="left">Source</th><th align="left">Type</th><th>Status</th></tr></thead>
-      <tbody>${SOURCES.map(s=>`<tr style="border-top:1px solid var(--border)"><td><b>${esc(s.id)}</b><div style="font-size:10px;color:var(--muted)">${esc(s.name)}</div></td><td>${esc(s.type)}</td><td align="center">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.status==='ok'?'var(--green)':s.status==='stale'?'var(--yellow)':'var(--red)'}"></span>
+      <tbody>${SOURCES.map(s=>`<tr style="border-top:1px solid var(--border)"><td><b>${esc(s.label)}</b><div style="font-size:10px;color:var(--muted)">${esc(s.name)}</div></td><td>${esc(s.type)}</td><td align="center">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.status==='ok'?'var(--green)':s.status==='stale'?'var(--yellow)':s.status==='archived'?'var(--muted)':'var(--red)'}"></span>
         <span style="font-size:10px;margin-left:4px">${s.status}</span>
       </td></tr>`).join('')}</tbody>
     </table>
@@ -1435,9 +1439,12 @@ export function renderStatusStrip() {
     const r = state.UI_STATE.responses[inc.id] || {};
     return sum + Object.values(r).filter(x => x.status === 'help').length;
   }, 0);
-  const okSources    = SOURCES.filter(s => s.status === 'ok').length;
-  const staleSources = SOURCES.filter(s => s.status === 'stale').length;
-  const errSources   = SOURCES.filter(s => s.status === 'error').length;
+  // Live sources only — archived entries are kept in SOURCES for historical
+  // alert display resolution, but shouldn't inflate the health denominator.
+  const liveSources  = SOURCES.filter(s => s.status !== 'archived');
+  const okSources    = liveSources.filter(s => s.status === 'ok').length;
+  const staleSources = liveSources.filter(s => s.status === 'stale').length;
+  const errSources   = liveSources.filter(s => s.status === 'error').length;
   const sourcesState = errSources ? 'crit' : staleSources ? 'warn' : 'ok';
 
   // 2. Severity-based whole-strip styling.
@@ -1486,7 +1493,7 @@ export function renderStatusStrip() {
       <span class="ss-icon" aria-hidden="true">📡</span>
       <div style="text-align:left">
         <div class="ss-label">Sources</div>
-        <div class="ss-value">${okSources}/${SOURCES.length}</div>
+        <div class="ss-value">${okSources}/${liveSources.length}</div>
       </div>
     </button>
     ${state.UI_STATE.outbox.length ? `
