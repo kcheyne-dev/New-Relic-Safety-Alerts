@@ -11,23 +11,23 @@ import { log } from '../log.js';
  *
  * TRANSPORT (this adapter, TWO PROVIDERS supported):
  *
- *   1. **meteogate** (default) — `api.meteogate.eu` OGC API-EDR gateway.
+ *   1. **meteoalarm-direct** (default) — `api.meteoalarm.org/edr/v1`
+ *      OGC EDR API. Direct upstream, no intermediary. Auth via
+ *      `Authorization: Bearer <TOKEN>` header. Token: METEOALARM_DIRECT_TOKEN.
+ *      Ratcheted to default on 2026-08-06 after 24+ days of clean prod
+ *      cycles. See docs/meteoalarm-direct-vs-meteogate.md.
+ *
+ *   2. **meteogate** — `api.meteogate.eu` OGC API-EDR gateway. Legacy
+ *      intermediary; byte-for-byte response-compatible with direct.
  *      Auth via `apikey: <TOKEN>` header. Token: METEOGATE_API_KEY
- *      (preferred) or METEOALARM_API_KEY (legacy alias). Proven in prod
- *      since 2026-06-29. See memory/meteogate_api.md.
+ *      (preferred) or METEOALARM_API_KEY (legacy alias). Kept as a
+ *      fallback in case api.meteoalarm.org has an outage or policy
+ *      change. See memory/meteogate_api.md.
  *
- *   2. **meteoalarm-direct** — `api.meteoalarm.org/edr/v1` OGC EDR API
- *      (direct upstream, no intermediary). Auth via `Authorization: Bearer
- *      <TOKEN>` header. Token: METEOALARM_DIRECT_TOKEN. Investigated
- *      2026-07-13; response shape confirmed byte-for-byte compatible with
- *      MeteoGate (same DigitalOcean Spaces backend for CAP payloads). See
- *      docs/meteoalarm-direct-vs-meteogate.md.
- *
- * PROVIDER SELECTION: `METEOALARM_PROVIDER` env var accepts `meteogate` or
- * `meteoalarm-direct` (or `direct` as shorthand). Defaults to `meteogate`
- * for a first-deploy safety margin — flip to `meteoalarm-direct` explicitly
- * to opt in. Once the direct provider is proven for 24h in prod, the
- * default can ratchet in a follow-up commit.
+ * PROVIDER SELECTION: `METEOALARM_PROVIDER` env var accepts `meteogate`,
+ * `meteoalarm-direct`, or `direct` (shorthand). Defaults to
+ * `meteoalarm-direct`. Rollback: set `METEOALARM_PROVIDER=meteogate` in
+ * `.env` + `launchctl kickstart -k gui/$(id -u)/com.newrelic.nrsa-backend`.
  *
  * BASE URL OVERRIDE: `METEOALARM_BASE_URL_OVERRIDE` optional. Only useful
  * for the direct provider's test / staging environments:
@@ -153,19 +153,20 @@ const PROVIDERS: Record<MeteoProvider, ProviderConfig> = {
 };
 
 /**
- * Pick the active provider from env. Defaults to `meteogate` for a
- * first-deploy safety margin — the direct provider is byte-for-byte
- * response-compatible in probe testing but hasn't run in prod yet. Ops
- * must set METEOALARM_PROVIDER=meteoalarm-direct (or =direct) to flip.
- * Once proven for 24h, the default can ratchet in a follow-up commit.
+ * Pick the active provider from env. Defaults to `meteoalarm-direct` —
+ * ratcheted from `meteogate` on 2026-08-06 after 24+ days of clean prod
+ * cycles (see task #60 / #61 in the sanity-tracker). Direct is the
+ * upstream source, needs no intermediary, and has cleaner auth (Bearer
+ * vs custom apikey header). Set METEOALARM_PROVIDER=meteogate to fall
+ * back to the legacy intermediary if the direct API misbehaves.
  */
 function getProvider(): ProviderConfig {
   const raw = process.env.METEOALARM_PROVIDER?.trim().toLowerCase();
-  if (raw === 'meteoalarm-direct' || raw === 'direct') return PROVIDERS['meteoalarm-direct'];
-  if (raw && raw !== 'meteogate') {
+  if (raw === 'meteogate') return PROVIDERS.meteogate;
+  if (raw && raw !== 'meteoalarm-direct' && raw !== 'direct') {
     log.warn({ provided: raw }, 'meteoalarm.unknown_provider');
   }
-  return PROVIDERS.meteogate;
+  return PROVIDERS['meteoalarm-direct'];
 }
 
 /**

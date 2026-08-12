@@ -106,8 +106,8 @@ These are the polled data feeds that populate the Postgres `events` table via `b
 
 - **What:** Pan-European severe weather warnings (color-coded Yellow/Orange/Red), aggregated by EUMETNET from 38 national meteorological services (DWD Germany, AEMET Spain, Met Éireann Ireland, Météo-France, etc.).
 - **Transport (config-flip):** two OGC EDR providers supported via `METEOALARM_PROVIDER` env var:
-  - **`meteogate`** (default) — `https://api.meteogate.eu/warnings/collections/warnings/locations/ALL`. Auth: `apikey: <TOKEN>` header. Token: `METEOGATE_API_KEY` (or legacy `METEOALARM_API_KEY`).
-  - **`meteoalarm-direct`** — `https://api.meteoalarm.org/edr/v1/collections/warnings/locations/ALL`. Auth: `Authorization: Bearer <TOKEN>`. Token: `METEOALARM_DIRECT_TOKEN`. Currently active in prod (flipped 2026-07-13 after 3 probe rounds + full OpenAPI review confirmed byte-for-byte response compatibility with MeteoGate).
+  - **`meteoalarm-direct`** (default, ratcheted 2026-08-06) — `https://api.meteoalarm.org/edr/v1/collections/warnings/locations/ALL`. Auth: `Authorization: Bearer <TOKEN>`. Token: `METEOALARM_DIRECT_TOKEN`. Direct upstream, no intermediary. Response shape byte-for-byte compatible with MeteoGate; same DigitalOcean Spaces backend for CAP payloads.
+  - **`meteogate`** (fallback) — `https://api.meteogate.eu/warnings/collections/warnings/locations/ALL`. Auth: `apikey: <TOKEN>` header. Token: `METEOGATE_API_KEY` (or legacy `METEOALARM_API_KEY`). Retained as a rollback path in case api.meteoalarm.org has an outage or policy change.
 - **Format:** GeoJSON FeatureCollection (OGC EDR spec, both providers). CAP JSON payloads follow the `links[rel=json]` presigned DigitalOcean Spaces URL (same storage backend for both providers).
 - **Cadence:** 900 s (15 min, `METEOALARM_FETCH_INTERVAL`)
 - **Adapter:** `backend/src/adapters/meteoalarm.ts`. Full architecture in `memory/meteogate_api.md` + comparison at `docs/meteoalarm-direct-vs-meteogate.md`.
