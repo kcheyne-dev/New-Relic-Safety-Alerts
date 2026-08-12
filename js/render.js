@@ -122,6 +122,7 @@ import {
   exportData,
   exportIncidentReport,
   saveState,
+  SECTION_DRAFT,
   showAlertDetails,
 } from './persistence.js';
 import {
@@ -884,8 +885,11 @@ export function bindCCHandlers() {
   });
 
   // Subject + message + response + reminder
-  document.getElementById('cc-subject')?.addEventListener('input', e => { state.UI_STATE.subject = e.target.value; saveState(); });
-  document.getElementById('msg-body')?.addEventListener('input', e => { state.UI_STATE.customMessage = e.target.value; saveState(); });
+  // Per-keystroke saves scoped to SECTION_DRAFT so typing doesn't re-serialize
+  // the full state tree (incidents/responses/crisisLog/outbox all skip). See
+  // persistence.js SECTION_* constants and the 2026-08-06 health review item #3.
+  document.getElementById('cc-subject')?.addEventListener('input', e => { state.UI_STATE.subject = e.target.value; saveState(SECTION_DRAFT); });
+  document.getElementById('msg-body')?.addEventListener('input', e => { state.UI_STATE.customMessage = e.target.value; saveState(SECTION_DRAFT); });
   document.getElementById('cc-clear-msg')?.addEventListener('click', e => {
     e.preventDefault();
     state.UI_STATE.customMessage = ''; state.UI_STATE.template = ''; state.UI_STATE.subject = '';
@@ -1670,12 +1674,46 @@ export function renderFreshnessBanner() {
   `;
 }
 
+/**
+ * Section names for renderScoped(). Introduced 2026-08-06 (health review
+ * item #4) so mutations that only touch one panel don't fire the full
+ * ~10-function render pass. Callers pass an array of these to render
+ * only the affected sections.
+ *
+ * renderAll() = renderScoped(RENDER_SECTIONS) — kept for callers that
+ * really do want everything (boot, drastic state changes).
+ */
+export const RENDER_MAP       = 'map';       // offices + alert dots + employees + travelers + hazards
+export const RENDER_FEED      = 'feed';      // alert feed
+export const RENDER_CRISIS    = 'crisis';    // crisis comms panel
+export const RENDER_INCIDENTS = 'incidents'; // incidents panel
+export const RENDER_CHROME    = 'chrome';    // status strip + freshness banner
+
+const RENDER_SECTIONS = [RENDER_MAP, RENDER_FEED, RENDER_CRISIS, RENDER_INCIDENTS, RENDER_CHROME];
+
+/** Fire only the render functions for the listed sections, then save state.
+ *  Pass a single string or an array. Unknown section names are silently
+ *  skipped (defensive against typos). */
+export function renderScoped(sections) {
+  const list = Array.isArray(sections) ? sections : [sections];
+  const set  = new Set(list);
+  if (set.has(RENDER_MAP)) {
+    renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards();
+  }
+  if (set.has(RENDER_FEED))      renderFeed();
+  if (set.has(RENDER_CRISIS))    renderCC();
+  if (set.has(RENDER_INCIDENTS)) renderIncidents();
+  if (set.has(RENDER_CHROME))    { renderStatusStrip(); renderFreshnessBanner(); }
+  saveState();   // debounced; no-arg mark-all-dirty is safe here
+}
+
+/**
+ * Fire every render function. Use sparingly — boot, first-load, or drastic
+ * state resets. For anything narrower, prefer renderScoped(['crisis',
+ * 'chrome']) etc. so unrelated panels don't do busywork.
+ */
 export function renderAll() {
-  renderOffices(); renderAlertDots(); renderEmployees(); renderTravelers(); renderHazards();
-  renderFeed(); renderCC(); renderIncidents();
-  renderStatusStrip();
-  renderFreshnessBanner();
-  saveState();   // debounced
+  renderScoped(RENDER_SECTIONS);
 }
 
 /* private */ let _statusStripTicker = null;

@@ -42,8 +42,14 @@ import { state } from './state.js';
 import { esc, uid } from './helpers.js';
 import { API_BASE, commsApi, incidentsApi } from './api.js';
 import { closeModal, showModal, toast } from './modals.js';
-import { saveState } from './persistence.js';
-import { renderAll } from './render.js';
+import { saveState, SECTION_CRISIS } from './persistence.js';
+import { renderScoped, RENDER_CRISIS, RENDER_CHROME } from './render.js';
+
+// Outbox mutations only affect the Crisis Comms Log tab (inline retry chip)
+// and the status strip (outbox badge count). Scoped renders here save the
+// map + feed + incidents panels from re-rendering on every enqueue / retry
+// / dismiss. See health-review batch B (task #70).
+const OUTBOX_SCOPE = [RENDER_CRISIS, RENDER_CHROME];
 
 /* Per-session guard: entries we've already auto-retried this page load,
    so we don't hammer the backend across multiple dispatchSend calls or
@@ -77,8 +83,8 @@ export function enqueueFailure(entry, err) {
     ...entry,
   };
   state.UI_STATE.outbox.push(record);
-  saveState();
-  renderAll();
+  saveState(SECTION_CRISIS);
+  renderScoped(OUTBOX_SCOPE);
   return record;
 }
 
@@ -91,8 +97,8 @@ export function dismissEntry(id) {
   const before = state.UI_STATE.outbox.length;
   state.UI_STATE.outbox = state.UI_STATE.outbox.filter(e => e.id !== id);
   if (state.UI_STATE.outbox.length !== before) {
-    saveState();
-    renderAll();
+    saveState(SECTION_CRISIS);
+    renderScoped(OUTBOX_SCOPE);
   }
 }
 
@@ -116,7 +122,7 @@ export async function retryEntry(id) {
   if (entry.status === 'retrying') return;
 
   entry.status = 'retrying';
-  renderAll();
+  renderScoped(OUTBOX_SCOPE);
 
   try {
     if (entry.kind === 'comms') {
@@ -134,8 +140,8 @@ export async function retryEntry(id) {
     entry.attempts += 1;
     entry.lastError = err.message || String(err);
     entry.status = 'failed';
-    saveState();
-    renderAll();
+    saveState(SECTION_CRISIS);
+    renderScoped(OUTBOX_SCOPE);
   }
 }
 

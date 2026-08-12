@@ -505,40 +505,93 @@ export function exportIncidentReport(incidentId) {
 
 /* private */ let _saveTimer = null;
 
+/**
+ * Persistence sections — each stored under its own localStorage key so
+ * mutations in one section don't force a re-serialize of the whole state
+ * tree. Callers pass a section name to saveState() to signal what changed;
+ * no-arg saveState() falls back to marking ALL sections dirty (safe but
+ * inefficient — same behavior as before the 2026-08-06 split).
+ *
+ * Introduced task #70 (health-review item #3). state.UI_STATE.responses
+ * grows to {incidentId: {employeeId: {...}}} per drill; before this split,
+ * every input keystroke or response click re-serialized the entire tree
+ * including all incidents, responses, crisisLog, outbox, etc.
+ */
+export const SECTION_INCIDENTS = 'incidents';   // incidents + responses
+export const SECTION_CRISIS    = 'crisis';      // crisisLog + noteAttachments + outbox
+export const SECTION_CONFIG    = 'config';      // roomMessages + userTemplates + customLocations + expandedOffices + incidentListFilter + panelWidths
+export const SECTION_DRAFT     = 'draft';       // draft (mutates per-keystroke)
+
+const ALL_SECTIONS = [SECTION_INCIDENTS, SECTION_CRISIS, SECTION_CONFIG, SECTION_DRAFT];
+
+/* Sections marked for the next flush. saveState(section) adds; saveState()
+   with no arg marks all. Cleared after each flush. */
+const _dirty = new Set();
+
+/** Per-section snapshot builders — one per SECTION_*. Each returns the
+ *  data-only payload for that section (no schema wrapper). Wrapper +
+ *  savedAt are added by the writer below. */
+function _sectionPayload(section) {
+  switch (section) {
+    case SECTION_INCIDENTS:
+      return {
+        incidents: state.UI_STATE.incidents.map(stripIncident),
+        responses: state.UI_STATE.responses,
+      };
+    case SECTION_CRISIS:
+      return {
+        crisisLog:       state.UI_STATE.crisisLog.map(stripMessageAtts),
+        noteAttachments: (state.UI_STATE.noteAttachments || []).map(stripAtt),
+        // Failed-send outbox — persist so entries survive reloads and the
+        // boot-time autoRetryPending() sweep has something to retry.
+        // Attachments inside apiPayload go through stripAtt to avoid
+        // blowing the localStorage quota.
+        outbox:          (state.UI_STATE.outbox || []).map(_stripOutboxAtts),
+      };
+    case SECTION_CONFIG:
+      return {
+        roomMessages:       state.UI_STATE.roomMessages,
+        userTemplates:      state.UI_STATE.userTemplates,
+        customLocations:    state.UI_STATE.customLocations,
+        expandedOffices:    Array.from(state.UI_STATE.expandedOffices || []),
+        incidentListFilter: state.UI_STATE.incidentListFilter,
+        panelWidths:        state.UI_STATE.panelWidths,
+      };
+    case SECTION_DRAFT:
+      return {
+        selectedOffices:  state.UI_STATE.selectedOffices,
+        channels:         state.UI_STATE.channels,
+        template:         state.UI_STATE.template,
+        customMessage:    state.UI_STATE.customMessage,
+        subject:          state.UI_STATE.subject,
+        responseRequired: state.UI_STATE.responseRequired,
+        reminderInterval: state.UI_STATE.reminderInterval,
+        attachments:      (state.UI_STATE.attachments || []).map(stripAtt),
+        linkedIncidentId: state.UI_STATE.linkedIncidentId,
+        composeAdvanced:  state.UI_STATE.composeAdvanced,
+        isTest:           state.UI_STATE.isTest,
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Assemble the full payload (all sections). Used by exportData / resetData
+ * for the operator's manual export button, and for backward-compat: on
+ * first boot after this split lands, the flush writes all sections plus
+ * this monolithic legacy key so an accidental downgrade still has data
+ * to load.
+ */
 export function buildPersistPayload() {
-  return {
-    schema: 1,
-    savedAt: new Date().toISOString(),
-    incidents:        state.UI_STATE.incidents.map(stripIncident),
-    responses:        state.UI_STATE.responses,
-    crisisLog:        state.UI_STATE.crisisLog.map(stripMessageAtts),
-    roomMessages:     state.UI_STATE.roomMessages,
-    userTemplates:    state.UI_STATE.userTemplates,
-    customLocations:  state.UI_STATE.customLocations,
-    expandedOffices:  Array.from(state.UI_STATE.expandedOffices || []),
-    incidentListFilter: state.UI_STATE.incidentListFilter,
-    panelWidths:      state.UI_STATE.panelWidths,
-    draft: {
-      selectedOffices:  state.UI_STATE.selectedOffices,
-      channels:         state.UI_STATE.channels,
-      template:         state.UI_STATE.template,
-      customMessage:    state.UI_STATE.customMessage,
-      subject:          state.UI_STATE.subject,
-      responseRequired: state.UI_STATE.responseRequired,
-      reminderInterval: state.UI_STATE.reminderInterval,
-      attachments:      (state.UI_STATE.attachments || []).map(stripAtt),
-      linkedIncidentId: state.UI_STATE.linkedIncidentId,
-      composeAdvanced:  state.UI_STATE.composeAdvanced,
-      isTest:           state.UI_STATE.isTest,
-    },
-    noteAttachments:  (state.UI_STATE.noteAttachments || []).map(stripAtt),
-    // Failed-send outbox — persist so entries survive reloads and the
-    // boot-time autoRetryPending() sweep has something to retry.
-    // Attachments inside apiPayload go through stripAtt to avoid blowing
-    // the localStorage quota (attachments can be up to ATT_EMBED_LIMIT
-    // each and outbox entries can accumulate without auto-purge).
-    outbox: (state.UI_STATE.outbox || []).map(_stripOutboxAtts),
-  };
+  const payload = { schema: 1, savedAt: new Date().toISOString() };
+  Object.assign(payload,
+    _sectionPayload(SECTION_INCIDENTS),
+    _sectionPayload(SECTION_CRISIS),
+    _sectionPayload(SECTION_CONFIG),
+    { draft: _sectionPayload(SECTION_DRAFT) },
+  );
+  return payload;
 }
 
 /** Strip base64-heavy attachment payloads inside an outbox entry before
@@ -568,66 +621,140 @@ function _stripOutboxAtts(entry) {
   return out;
 }
 
-export function saveState() {
+/**
+ * Debounce a persist write. Pass a section name (SECTION_*) to indicate
+ * which section changed — only that section's key gets re-serialized on
+ * the next flush. Call with no argument to mark ALL sections dirty (safe
+ * fallback for legacy call sites that predate the section split).
+ *
+ * Timer is coalesced across calls — 5 rapid saveState('draft') during
+ * typing debounces to a single flush that writes only the draft key.
+ */
+export function saveState(section) {
+  if (section && ALL_SECTIONS.includes(section)) {
+    _dirty.add(section);
+  } else {
+    // No arg (or unknown section) — mark all sections dirty.
+    for (const s of ALL_SECTIONS) _dirty.add(s);
+  }
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => {
-    try {
-      const json = JSON.stringify(buildPersistPayload());
-      localStorage.setItem(PERSIST_KEY, json);
-      state.lastSavedAt = new Date();
-      // refresh just the saved indicator in the strip
-      const strip = document.getElementById('status-strip');
-      if (strip) renderStatusStrip();
-    } catch (err) {
-      console.error('Persist save failed:', err);
-      if (err && (err.name === 'QuotaExceededError' || err.code === 22)) {
-        toast('Local storage full. Use Manual → Export Data, then Reset to free space.');
-      }
-    }
-  }, PERSIST_DEBOUNCE_MS);
+  _saveTimer = setTimeout(_flush, PERSIST_DEBOUNCE_MS);
 }
 
-export function loadState() {
+function _flush() {
   try {
-    const json = localStorage.getItem(PERSIST_KEY);
-    if (!json) return false;
-    const data = JSON.parse(json);
-    if (data.schema !== 1) {
-      console.warn('Saved data has unknown schema version:', data.schema, '— ignoring.');
-      return false;
+    const savedAt = new Date().toISOString();
+    for (const section of _dirty) {
+      const payload = _sectionPayload(section);
+      if (!payload) continue;
+      const wrapped = { schema: 1, savedAt, ...payload };
+      // Per-section key: nrsa-state-v1:incidents etc. Namespaced under
+      // the legacy PERSIST_KEY so the manual-cleanup / export flows
+      // don't need to know about individual sections.
+      localStorage.setItem(`${PERSIST_KEY}:${section}`, JSON.stringify(wrapped));
     }
-    if (Array.isArray(data.incidents))      state.UI_STATE.incidents = data.incidents;
-    if (data.responses)                     state.UI_STATE.responses = data.responses;
-    if (Array.isArray(data.crisisLog))      state.UI_STATE.crisisLog = data.crisisLog;
-    if (Array.isArray(data.roomMessages))   state.UI_STATE.roomMessages = data.roomMessages;
-    if (Array.isArray(data.userTemplates))  state.UI_STATE.userTemplates = data.userTemplates;
-    if (Array.isArray(data.customLocations))state.UI_STATE.customLocations = data.customLocations;
-    if (Array.isArray(data.expandedOffices))state.UI_STATE.expandedOffices = new Set(data.expandedOffices);
-    if (data.incidentListFilter)            state.UI_STATE.incidentListFilter = data.incidentListFilter;
-    if (data.panelWidths)                   state.UI_STATE.panelWidths = { ...state.UI_STATE.panelWidths, ...data.panelWidths };
-    if (data.draft) {
-      state.UI_STATE.selectedOffices  = data.draft.selectedOffices  || [];
-      state.UI_STATE.channels         = data.draft.channels         || state.UI_STATE.channels;
-      state.UI_STATE.template         = data.draft.template         || '';
-      state.UI_STATE.customMessage    = data.draft.customMessage    || '';
-      state.UI_STATE.subject          = data.draft.subject          || '';
-      if (typeof data.draft.responseRequired === 'boolean') state.UI_STATE.responseRequired = data.draft.responseRequired;
-      state.UI_STATE.reminderInterval = data.draft.reminderInterval || '15m';
-      state.UI_STATE.attachments      = data.draft.attachments      || [];
-      state.UI_STATE.linkedIncidentId = data.draft.linkedIncidentId || null;
-      if (typeof data.draft.composeAdvanced === 'boolean') state.UI_STATE.composeAdvanced = data.draft.composeAdvanced;
-    }
-    if (Array.isArray(data.noteAttachments)) state.UI_STATE.noteAttachments = data.noteAttachments;
-    // Restore failed-send outbox. autoRetryPending() runs after loadState
-    // completes (legacy-app.js:1063) and will attempt one retry per entry
-    // per session. Backward-compat: old saves without `outbox` field leave
-    // state.UI_STATE.outbox at its state.js initial [], not undefined.
-    if (Array.isArray(data.outbox)) state.UI_STATE.outbox = data.outbox;
-    if (data.savedAt) state.lastSavedAt = new Date(data.savedAt);
-    return true;
+    _dirty.clear();
+    state.lastSavedAt = new Date(savedAt);
+    // refresh just the saved indicator in the strip
+    const strip = document.getElementById('status-strip');
+    if (strip) renderStatusStrip();
   } catch (err) {
-    console.error('Persist load failed:', err);
-    return false;
+    console.error('Persist save failed:', err);
+    if (err && (err.name === 'QuotaExceededError' || err.code === 22)) {
+      toast('Local storage full. Use Manual → Export Data, then Reset to free space.');
+    }
+  }
+}
+
+/**
+ * Read state back from localStorage on boot. Reads per-section keys first
+ * (post-2026-08-06 layout) and falls back to the legacy monolithic key if
+ * the split-out keys aren't present yet (first boot after upgrade OR after
+ * a fresh `resetData`). Any section that fails to load is silently
+ * skipped — a corrupt per-section blob doesn't take down the whole boot.
+ *
+ * Returns true if ANY section restored data.
+ */
+export function loadState() {
+  let loadedAny = false;
+
+  // First: try per-section keys.
+  for (const section of ALL_SECTIONS) {
+    try {
+      const json = localStorage.getItem(`${PERSIST_KEY}:${section}`);
+      if (!json) continue;
+      const data = JSON.parse(json);
+      if (data.schema !== 1) continue;
+      _applySection(section, data);
+      loadedAny = true;
+      if (data.savedAt) state.lastSavedAt = new Date(data.savedAt);
+    } catch (err) {
+      console.warn(`Persist load failed for section ${section}:`, err);
+    }
+  }
+
+  // Fallback: legacy monolithic key. First boot after upgrade OR anyone
+  // still on the pre-split state. Loading this way primes the sections
+  // into state.UI_STATE; the next saveState() (post-boot autoRetry or
+  // any user action) flushes them as per-section keys.
+  if (!loadedAny) {
+    try {
+      const json = localStorage.getItem(PERSIST_KEY);
+      if (!json) return false;
+      const data = JSON.parse(json);
+      if (data.schema !== 1) {
+        console.warn('Saved data has unknown schema version:', data.schema, '— ignoring.');
+        return false;
+      }
+      _applySection(SECTION_INCIDENTS, data);
+      _applySection(SECTION_CRISIS,    data);
+      _applySection(SECTION_CONFIG,    data);
+      if (data.draft) _applySection(SECTION_DRAFT, data.draft);
+      if (data.savedAt) state.lastSavedAt = new Date(data.savedAt);
+      loadedAny = true;
+    } catch (err) {
+      console.error('Legacy persist load failed:', err);
+    }
+  }
+
+  return loadedAny;
+}
+
+/** Apply one section's payload to state.UI_STATE. */
+function _applySection(section, data) {
+  switch (section) {
+    case SECTION_INCIDENTS:
+      if (Array.isArray(data.incidents)) state.UI_STATE.incidents = data.incidents;
+      if (data.responses)                state.UI_STATE.responses = data.responses;
+      return;
+    case SECTION_CRISIS:
+      if (Array.isArray(data.crisisLog))       state.UI_STATE.crisisLog       = data.crisisLog;
+      if (Array.isArray(data.noteAttachments)) state.UI_STATE.noteAttachments = data.noteAttachments;
+      // Restore failed-send outbox. autoRetryPending() runs after loadState
+      // completes and attempts one retry per entry per session. Backward-
+      // compat: old saves without `outbox` field leave state at initial [].
+      if (Array.isArray(data.outbox))          state.UI_STATE.outbox          = data.outbox;
+      return;
+    case SECTION_CONFIG:
+      if (Array.isArray(data.roomMessages))    state.UI_STATE.roomMessages    = data.roomMessages;
+      if (Array.isArray(data.userTemplates))   state.UI_STATE.userTemplates   = data.userTemplates;
+      if (Array.isArray(data.customLocations)) state.UI_STATE.customLocations = data.customLocations;
+      if (Array.isArray(data.expandedOffices)) state.UI_STATE.expandedOffices = new Set(data.expandedOffices);
+      if (data.incidentListFilter)             state.UI_STATE.incidentListFilter = data.incidentListFilter;
+      if (data.panelWidths)                    state.UI_STATE.panelWidths     = { ...state.UI_STATE.panelWidths, ...data.panelWidths };
+      return;
+    case SECTION_DRAFT:
+      state.UI_STATE.selectedOffices  = data.selectedOffices  || [];
+      state.UI_STATE.channels         = data.channels         || state.UI_STATE.channels;
+      state.UI_STATE.template         = data.template         || '';
+      state.UI_STATE.customMessage    = data.customMessage    || '';
+      state.UI_STATE.subject          = data.subject          || '';
+      if (typeof data.responseRequired === 'boolean') state.UI_STATE.responseRequired = data.responseRequired;
+      state.UI_STATE.reminderInterval = data.reminderInterval || '15m';
+      state.UI_STATE.attachments      = data.attachments      || [];
+      state.UI_STATE.linkedIncidentId = data.linkedIncidentId || null;
+      if (typeof data.composeAdvanced === 'boolean') state.UI_STATE.composeAdvanced = data.composeAdvanced;
+      return;
   }
 }
 
