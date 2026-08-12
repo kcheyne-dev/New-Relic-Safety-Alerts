@@ -1,6 +1,12 @@
-import type { SourceAdapter, RawAndNormalized, NormalizedEvent } from '../types.js';
-import { evaluateMeteoAlarm } from '../pipeline/thresholds.js';
+import type { SourceAdapter, RawAndNormalized } from '../types.js';
 import { log } from '../log.js';
+import {
+  type CapJson,
+  type IndexFeature,
+  type IndexResponse,
+  fetchJsonVariant,
+  normalizeOneAlert,
+} from './meteoalarm-shared.js';
 
 /**
  * MeteoAlarm — European weather warnings via an OGC EDR API.
@@ -98,10 +104,6 @@ import { log } from '../log.js';
  * redistribution.
  */
 
-/** Radius bounds applied to the bbox-derived warning radius. */
-const MIN_RADIUS_KM = 30;
-const MAX_RADIUS_KM = 300;
-
 /**
  * Provider config. Selected at fetch time from METEOALARM_PROVIDER env var.
  * The two providers serve the same data (both are OGC EDR views over
@@ -190,167 +192,12 @@ function getApiKey(provider: ProviderConfig): string | null {
   return null;
 }
 
-// ---- types -----------------------------------------------------------------
-
-interface IndexFeatureProps {
-  alertId: string;
-  countryCode: string;
-  hubLink: string;
-  hubTime: string;
-  supersededByAlertId: string | null;
-  supersededAt: string | null;
-  supersedeType: string | null;
-  hubLanguage: string;
-  geometryType?: string;
-  [k: string]: unknown;
-}
-interface IndexFeature {
-  id?: string;
-  type: 'Feature';
-  geometry: { type: string; coordinates: number[][][] } | null;
-  properties: IndexFeatureProps;
-  links: Array<{ rel: string; type: string; href: string }>;
-}
-interface IndexResponse {
-  type: 'FeatureCollection';
-  features?: IndexFeature[];
-}
-
-/** CAP 1.2 info block, as flattened to JSON by MeteoGate. */
-interface CapJsonInfo {
-  language: string;
-  category?: string[];
-  event?: string;
-  description?: string;
-  severity?: string;   // 'Minor' | 'Moderate' | 'Severe' | 'Extreme' | 'Unknown'
-  certainty?: string;
-  urgency?: string;
-  responseType?: string;
-  effective?: string;
-  onset?: string;
-  expires?: string;
-  contact?: string;
-  web?: string;
-  area?: Array<{
-    areaDesc?: string;
-    altitude?: number;
-    ceiling?: number;
-    geocode?: Array<{ value: string; valueName: string }>;
-  }>;
-  eventCode?: Array<{ value: string; valueName: string }>;
-}
-
-/** CAP 1.2 envelope, as flattened to JSON by MeteoGate. */
-interface CapJson {
-  identifier: string;
-  sender?: string;
-  sent?: string;
-  status?: string;
-  msgType?: string;
-  scope?: string;
-  source?: string;
-  references?: string;
-  info?: CapJsonInfo[];
-  code?: string[];
-}
-
-// ---- helpers ---------------------------------------------------------------
-
-/**
- * Accumulate bbox extents from a polygon's outer ring. Returns null on
- * malformed input.
- */
-function accumulateBbox(
-  coords: number[][][],
-  acc: { minLat: number; maxLat: number; minLng: number; maxLng: number },
-): boolean {
-  const ring = coords?.[0];
-  if (!ring || ring.length < 3) return false;
-  for (const pt of ring) {
-    if (!pt || pt.length < 2) return false;
-    const lng = pt[0];
-    const lat = pt[1];
-    if (lat === undefined || lng === undefined) return false;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-    if (lat < acc.minLat) acc.minLat = lat;
-    if (lat > acc.maxLat) acc.maxLat = lat;
-    if (lng < acc.minLng) acc.minLng = lng;
-    if (lng > acc.maxLng) acc.maxLng = lng;
-  }
-  return true;
-}
-
-/**
- * Centroid + radius from one OR MORE bbox polygons (their union).
- *
- * MeteoGate's index returns ONE Feature per (alertId × area × info_lang)
- * combination, so a multi-region warning shows up as multiple Features
- * with the same alertId, each carrying the bbox of ONE area. Taking the
- * union of those bboxes recovers the full geographic extent of the
- * warning before computing centroid + radius.
- *
- * Radius is clamped to [MIN_RADIUS_KM, MAX_RADIUS_KM] — tiny warnings get
- * a generous floor so they still trigger office matches; continental
- * warnings (e.g. a Spain-wide heatwave) get a cap so they don't shadow
- * everything.
- *
- * LIMITATIONS — REUSE WITH CARE:
- *   - Anti-meridian (180°/-180°) wrap is NOT handled. A polygon that
- *     crosses the date line will produce a garbage centroid because the
- *     bbox spans most of the globe in longitude. MeteoAlarm/MeteoGate
- *     warnings are European so this is a non-issue today; if you reuse
- *     this for Pacific or global data, add a wrap check: if
- *     `maxLng - minLng > 180`, normalize one side to ±360 before averaging.
- */
-export function unionBboxCentroidAndRadiusKm(
-  polygons: number[][][][],
-): { lat: number; lng: number; radiusKm: number } | null {
-  const acc = { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity };
-  let any = false;
-  for (const coords of polygons) {
-    if (accumulateBbox(coords, acc)) any = true;
-  }
-  if (!any || !Number.isFinite(acc.minLat) || !Number.isFinite(acc.minLng)) return null;
-  const lat = (acc.minLat + acc.maxLat) / 2;
-  const lng = (acc.minLng + acc.maxLng) / 2;
-  // ~111 km per degree of latitude; longitude scaled by cos(centroid lat).
-  const latSpanKm = (acc.maxLat - acc.minLat) * 111;
-  const lngSpanKm = (acc.maxLng - acc.minLng) * 111 * Math.cos(lat * Math.PI / 180);
-  const halfDiagKm = Math.sqrt(latSpanKm * latSpanKm + lngSpanKm * lngSpanKm) / 2;
-  const radiusKm = Math.max(MIN_RADIUS_KM, Math.min(MAX_RADIUS_KM, halfDiagKm));
-  return { lat, lng, radiusKm };
-}
-
-/** Pick the English info block if present; else the first available. */
-function pickInfo(infos: CapJsonInfo[] | undefined): CapJsonInfo | null {
-  if (!infos || infos.length === 0) return null;
-  const english = infos.find(i => i.language?.toLowerCase().startsWith('en'));
-  return english ?? infos[0] ?? null;
-}
-
-async function fetchJsonVariant(feature: IndexFeature): Promise<CapJson | null> {
-  const link = feature.links.find(l => l.rel === 'json');
-  if (!link) return null;
-  try {
-    const resp = await globalThis.fetch(link.href, {
-      headers: { 'User-Agent': 'nr-safety-alerts/0.1' },
-    });
-    if (!resp.ok) {
-      log.warn(
-        { alertId: feature.properties.alertId, status: resp.status },
-        'meteoalarm.json_variant.failed',
-      );
-      return null;
-    }
-    return (await resp.json()) as CapJson;
-  } catch (err) {
-    log.warn(
-      { alertId: feature.properties.alertId, err: (err as Error).message },
-      'meteoalarm.json_variant.error',
-    );
-    return null;
-  }
-}
+// Types (IndexFeature, IndexResponse, CapJson, CapJsonInfo), geometry math
+// (unionBboxCentroidAndRadiusKm), pickInfo, fetchJsonVariant, and the
+// per-alert normalization pipeline (normalizeOneAlert) all extracted to
+// backend/src/adapters/meteoalarm-shared.ts on 2026-08-06 (task #63) so
+// the MQTT consumer at backend/src/consumers/meteoalarm-mqtt.ts can reuse
+// them without duplication.
 
 // ---- adapter ---------------------------------------------------------------
 
@@ -525,7 +372,9 @@ export const meteoalarmAdapter: SourceAdapter = {
       }
     }
 
-    // 6. Build NormalizedEvents — one per unique alertId.
+    // 6. Build NormalizedEvents — one per unique alertId. All the
+    //    threshold/geometry/normalize logic is in meteoalarm-shared.ts
+    //    (task #63) so the MQTT consumer can reuse it.
     const items: RawAndNormalized[] = [];
     let droppedThreshold    = 0;
     let droppedNoCap        = 0;   // CAP JSON fetch failed (transport)
@@ -536,93 +385,26 @@ export const meteoalarmAdapter: SourceAdapter = {
       const cap   = jsonResults[i];
       if (!entry) continue;
       const [alertId, fList] = entry;
-      const head = fList[0];
-      if (!head) continue;
       if (!cap) {
         droppedNoCap++;
         log.debug({ alertId }, 'meteoalarm.dropped.no_cap');
         continue;
       }
 
-      const info = pickInfo(cap.info);
-      if (!info) {
-        droppedNoInfoBlock++;
-        log.debug({ alertId }, 'meteoalarm.dropped.no_info_block');
+      const result = normalizeOneAlert(fList, cap);
+      if (result.kind === 'drop') {
+        if (result.reason === 'no_info_block') {
+          droppedNoInfoBlock++;
+          log.debug({ alertId }, 'meteoalarm.dropped.no_info_block');
+        } else if (result.reason === 'threshold') {
+          droppedThreshold++;
+        } else /* no_geometry */ {
+          droppedNoGeometry++;
+          log.debug({ alertId, reason: result.detail }, 'meteoalarm.dropped.geometry');
+        }
         continue;
       }
-
-      // Threshold gate — Severe (orange) and Extreme (red) only.
-      // `titleColor` field unused now; severity is authoritative in JSON.
-      const verdict = evaluateMeteoAlarm({
-        capSeverity: info.severity,
-        titleColor:  '',
-      });
-      if (!verdict.pass) { droppedThreshold++; continue; }
-
-      // Union of all index features' bboxes for this alertId. Recovers the
-      // full geographic extent of multi-region warnings instead of pinning
-      // to one sub-region's bbox.
-      const polygons = fList
-        .map(f => f.geometry?.coordinates)
-        .filter((c): c is number[][][] => !!c);
-      if (polygons.length === 0) {
-        droppedNoGeometry++;
-        log.debug({ alertId, reason: 'no polygons in any feature' }, 'meteoalarm.dropped.geometry');
-        continue;
-      }
-      const geom = unionBboxCentroidAndRadiusKm(polygons);
-      if (!geom) {
-        droppedNoGeometry++;
-        log.debug({ alertId, reason: 'union bbox computation failed', polygonCount: polygons.length }, 'meteoalarm.dropped.geometry');
-        continue;
-      }
-
-      // Title + location from the CAP info's area[] (which has the complete
-      // list of all affected sub-regions in canonical form, not the per-
-      // index-feature splits).
-      const eventName = info.event || 'Weather warning';
-      const areas = (info.area ?? [])
-        .map(a => a.areaDesc)
-        .filter((s): s is string => !!s);
-      const primaryArea = areas[0] ?? head.properties.countryCode;
-      const compositeArea = areas.length > 1
-        ? `${primaryArea} (+${areas.length - 1} more)`
-        : primaryArea;
-      const location = `${compositeArea}, ${head.properties.countryCode}`;
-
-      // Time fields — prefer onset, fall back through effective, then sent,
-      // then now. Expires is optional.
-      const issuedIso = info.onset || info.effective || cap.sent;
-      const issuedAt  = issuedIso ? new Date(issuedIso) : new Date();
-      const expiresAt = info.expires ? new Date(info.expires) : null;
-
-      const normalized: NormalizedEvent = {
-        sourceEventId:    cap.identifier,
-        primarySourceId:  'meteoalarm',
-        title:            `${eventName} — ${compositeArea}`,
-        summary:          (info.description || `${eventName} active for ${compositeArea}`).slice(0, 1000),
-        severity:         verdict.severity!,
-        category:         'natural',
-        type:             eventName.toLowerCase().replace(/\s+/g, '_'),
-        location,
-        lat:              geom.lat,
-        lng:              geom.lng,
-        radiusKm:         geom.radiusKm,
-        issuedAt,
-        expiresAt,
-        // Stable public reference. We can't use links[rel=canonical] because
-        // it's a presigned DO Spaces URL that expires; use the producer's
-        // public site, country-scoped.
-        sourceUrl:        `https://meteoalarm.org/en/live/?country=${head.properties.countryCode.toLowerCase()}`,
-      };
-      items.push({
-        sourceEventId: cap.identifier,
-        // Persist all contributing index features + the CAP so raw_events
-        // has full audit context. The persist.ts upsert is on (source_id,
-        // source_event_id) so successive cycles overwrite cleanly.
-        payload: { indexFeatures: fList, cap },
-        normalized,
-      });
+      items.push(result.item);
     }
 
     log.info(

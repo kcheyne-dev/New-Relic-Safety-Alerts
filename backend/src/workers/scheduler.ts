@@ -14,14 +14,23 @@ import { config } from '../config.js';
 import { log } from '../log.js';
 import { persistBatch, markSourceOk, markSourceError } from '../pipeline/persist.js';
 
-/** All adapters this build supports. Add new sources by importing + registering here. */
+/** All adapters this build supports. Add new sources by importing + registering here.
+ *
+ *  meteoalarm's `disabled` combines the plain kill-switch AND transport
+ *  gating (task #63): when METEOALARM_TRANSPORT=mqtt, REST-poll is skipped
+ *  entirely and the MQTT consumer (backend/src/consumers/meteoalarm-mqtt.ts)
+ *  is the sole transport. See its docblock for the full comparison. */
 const ADAPTERS: { adapter: SourceAdapter; disabled: boolean }[] = [
   { adapter: usgsAdapter,       disabled: config.sources.usgs.disabled       },
   { adapter: nwsAdapter,        disabled: config.sources.nws.disabled        },
   { adapter: eonetAdapter,      disabled: config.sources.eonet.disabled      },
   { adapter: gdacsAdapter,      disabled: config.sources.gdacs.disabled      },
   { adapter: emscAdapter,       disabled: config.sources.emsc.disabled       },
-  { adapter: meteoalarmAdapter, disabled: config.sources.meteoalarm.disabled },
+  {
+    adapter: meteoalarmAdapter,
+    disabled: config.sources.meteoalarm.disabled
+              || config.sources.meteoalarm.transport === 'mqtt',
+  },
   { adapter: stateDeptAdapter,  disabled: config.sources.stateDept.disabled  },
   { adapter: sfPoliceAdapter,      disabled: config.sources.sfPolice.disabled      },
   { adapter: atlApdAdapter,        disabled: config.sources.atlApd.disabled        },

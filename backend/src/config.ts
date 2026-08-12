@@ -47,7 +47,20 @@ export const config = {
     eonet:      { disabled: flag(process.env.EONET_DISABLED),      intervalSeconds: num(process.env.EONET_FETCH_INTERVAL, 600) },
     gdacs:      { disabled: flag(process.env.GDACS_DISABLED),      intervalSeconds: num(process.env.GDACS_FETCH_INTERVAL, 600) },
     emsc:       { disabled: flag(process.env.EMSC_DISABLED),       intervalSeconds: num(process.env.EMSC_FETCH_INTERVAL, 300) },
-    meteoalarm: { disabled: flag(process.env.METEOALARM_DISABLED), intervalSeconds: num(process.env.METEOALARM_FETCH_INTERVAL, 900) },
+    meteoalarm: {
+      disabled:        flag(process.env.METEOALARM_DISABLED),
+      intervalSeconds: num(process.env.METEOALARM_FETCH_INTERVAL, 900),
+      // Transport: 'rest' | 'mqtt' | 'both'. Default 'rest' keeps existing
+      // behavior — MQTT consumer only starts on explicit opt-in. 'both'
+      // runs REST + MQTT in parallel; REST acts as reconciliation pass
+      // to catch MQTT-disconnect gaps. See backend/src/consumers/
+      // meteoalarm-mqtt.ts docblock for the full architecture.
+      transport:       (() => {
+        const raw = process.env.METEOALARM_TRANSPORT?.trim().toLowerCase();
+        if (raw === 'mqtt' || raw === 'both') return raw;
+        return 'rest' as const;
+      })(),
+    },
     stateDept:  { disabled: flag(process.env.STATE_DEPT_DISABLED), intervalSeconds: num(process.env.STATE_DEPT_FETCH_INTERVAL, 86400) },
     sfPolice:       { disabled: flag(process.env.SF_POLICE_DISABLED),       intervalSeconds: num(process.env.SF_POLICE_FETCH_INTERVAL, 600) },
     atlApd:         { disabled: flag(process.env.ATL_APD_DISABLED),         intervalSeconds: num(process.env.ATL_APD_FETCH_INTERVAL, 900) },

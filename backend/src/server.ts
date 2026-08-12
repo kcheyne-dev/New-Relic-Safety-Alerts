@@ -12,6 +12,7 @@ import { whoOutbreaksRoutes } from './routes/who_outbreaks.js';
 import { startScheduler } from './workers/scheduler.js';
 import { startSweeper } from './workers/sweeper.js';
 import { startHealthCheck } from './workers/health_check.js';
+import { startMeteoalarmMqttConsumer, shouldStartMqtt, type MqttConsumerHandle } from './consumers/meteoalarm-mqtt.js';
 import { pool } from './db.js';
 
 async function main() {
@@ -45,8 +46,18 @@ async function main() {
   startSweeper();
   startHealthCheck();
 
+  // MQTT real-time consumer for MeteoAlarm — gated by METEOALARM_TRANSPORT
+  // env var (rest|mqtt|both). Defaults to REST-only; MQTT starts only on
+  // explicit opt-in. See backend/src/consumers/meteoalarm-mqtt.ts docblock
+  // for the full transport/reconciliation architecture.
+  let mqttHandle: MqttConsumerHandle | null = null;
+  if (shouldStartMqtt()) {
+    mqttHandle = startMeteoalarmMqttConsumer();
+  }
+
   process.on('SIGINT', async () => {
     log.info('shutdown.start');
+    if (mqttHandle) await mqttHandle.stop();
     await app.close();
     await pool.end();
     process.exit(0);
