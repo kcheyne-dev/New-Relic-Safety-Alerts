@@ -1014,12 +1014,19 @@ window.App = {
       ? `Pre-loaded Crisis Comms for "${titleSnippet}" · template: ${suggestedTplName}`
       : `Pre-loaded Crisis Comms for "${titleSnippet}"`);
   },
+  // App.<fn> methods are ONLY the ones inline HTML in this file's template
+  // literals actually invokes (grep for `App.` in index.html + this file's
+  // `onclick=` etc.). Non-inline call sites go through the direct exports
+  // instead — cleaner + one fewer place to keep in sync.
+  //
+  // Pruned 2026-08-06 (health review item #9): App.selectAlert and
+  // App.openMapToolsTab were dead — no inline handler references them.
+  // Restore them here if a future inline handler needs the App-namespaced
+  // form.
   exportFenceCSV, fenceToCrisis, closeModal,
   showAlertDetails,
-  selectAlert,
   showFreshness,
   exportData, resetData,
-  openMapToolsTab,
 };
 
 /* ---------- 17b. Alert Details — opens in a new tab ---------- */

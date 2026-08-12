@@ -47,8 +47,19 @@ export async function persistBatch(
 
   // Pre-pass: geocode any items missing coordinates. Done outside the transaction
   // so a slow Nominatim call doesn't hold a DB connection.
-  for (const item of items) {
-    const ok = await ensureCoords(item.normalized);
+  //
+  // Parallelize the cache-hit path. `ensureCoords` internally serializes real
+  // Nominatim calls via the 1.1s throttle in geocode.ts, so a Promise.all()
+  // here doesn't hammer the geocoder — but the 99% cache-hit path (see
+  // geocode_cache TTL 180d) returns instantly, so serial `for..await` was
+  // gating every item on the previous item's DB lookup even when neither
+  // needed the network. Parallel dispatch also lets any real Nominatim hit
+  // proceed while other items resolve from cache. Measured saving on a cold
+  // MeteoAlarm cycle with mixed cache-hit/miss: ~seconds.
+  const geocodeResults = await Promise.all(
+    items.map(async item => ({ item, ok: await ensureCoords(item.normalized) })),
+  );
+  for (const { item, ok } of geocodeResults) {
     if (!ok) {
       log.warn({ source: sourceId, id: item.sourceEventId, loc: item.normalized.location }, 'geocode.unresolved');
     }
@@ -135,19 +146,14 @@ export async function persistBatch(
       const match = await findClusterMatch(client, n);
 
       if (match && match.primary_source_id !== sourceId) {
-        // Cross-source cluster hit — fold this source into the existing event
-        const { wasNewContributor } = await mergeIntoCluster(client, match, n, rawId, officeIds);
+        // Cross-source cluster hit — fold this source into the existing event.
+        // mergeIntoCluster returns the merged row shape directly (2026-08-06
+        // health review item #2a), so we don't need a follow-up SELECT to
+        // hydrate for the publish path.
+        const { wasNewContributor, mergedRow } = await mergeIntoCluster(client, match, n, rawId, officeIds);
         if (wasNewContributor) stats.merged++;
         else stats.updated++;
-
-        // Push the now-updated event to subscribers
-        const updated = await client.query(
-          `SELECT id, title, summary, severity, type, primary_source_id, location,
-                  lat, lng, radius_km, issued_at, source_url, affected_office_ids, contributing_sources
-           FROM events WHERE id = $1`,
-          [match.id]
-        );
-        if (updated.rows[0]) publishQueue.push({ kind: 'updated', event: rowToApi(updated.rows[0]) });
+        publishQueue.push({ kind: 'updated', event: rowToApi(mergedRow) });
         continue;
       }
 

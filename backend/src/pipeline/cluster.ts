@@ -31,7 +31,34 @@ export interface ClusterMatch {
   primary_source_id: string;
   severity: Severity;
   contributing_sources: string[];
+  affected_office_ids: string[];
+  location: string | null;
+  radius_km: number | null;
+  issued_at: Date;
+  source_url: string | null;
   raw_event_ids?: number[] | null;
+}
+
+/**
+ * Merged-event row shape suitable for feeding directly to rowToApi / the SSE
+ * publish path. mergeIntoCluster returns this so persist.ts doesn't need a
+ * follow-up SELECT to hydrate the updated row.
+ */
+export interface MergedRow {
+  id: string;
+  title: string;
+  summary: string | null;
+  severity: Severity;
+  type: string | null;
+  primary_source_id: string;
+  location: string | null;
+  lat: number;
+  lng: number;
+  radius_km: number | null;
+  issued_at: Date;
+  source_url: string | null;
+  affected_office_ids: string[];
+  contributing_sources: string[];
 }
 
 /**
@@ -46,7 +73,8 @@ export async function findClusterMatch(
 
   const result = await client.query<ClusterMatch>(
     `
-    SELECT id, cluster_id, primary_source_id, severity, contributing_sources
+    SELECT id, cluster_id, primary_source_id, severity, contributing_sources,
+           affected_office_ids, location, radius_km, issued_at, source_url
     FROM events
     WHERE type = $1
       AND NOT is_stale
@@ -86,6 +114,17 @@ export function chooseMergedPrimary(
  * - Adds the new source_id to `contributing_sources` (if not present).
  * - May bump severity / change primary_source_id if this source is more severe.
  * - Always extends `affected_office_ids` if new offices match.
+ *
+ * Returns { wasNewContributor, mergedRow }. The mergedRow lets callers publish
+ * the updated event to SSE subscribers without a follow-up SELECT.
+ *
+ * Dedup for contributing_sources + affected_office_ids happens in JS via Sets
+ * (2026-08-06, health review item #8). The prior implementation used
+ * `ARRAY(SELECT DISTINCT unnest(a || $b::text[]))` twice per UPDATE, which
+ * ran two subquery-based set operations on every merge — noise for the
+ * planner on hot cross-source clusters (e.g. a Tokyo quake landing via USGS
+ * + EMSC + GDACS in the same window). Both source arrays are already in
+ * memory, so JS Set-based dedup is O(n) with no query overhead.
  */
 export async function mergeIntoCluster(
   client: PoolClient,
@@ -93,43 +132,77 @@ export async function mergeIntoCluster(
   e: NormalizedEvent,
   rawId: number | null,
   officeIds: string[]
-): Promise<{ wasNewContributor: boolean }> {
+): Promise<{ wasNewContributor: boolean; mergedRow: MergedRow }> {
   const wasNewContributor = !match.contributing_sources.includes(e.primarySourceId);
   const merged = chooseMergedPrimary(
     { primary_source_id: match.primary_source_id, severity: match.severity },
     { primary_source_id: e.primarySourceId, severity: e.severity }
   );
 
-  await client.query(
+  // Dedup in JS. Sets preserve insertion order which is what the DB's
+  // DISTINCT unnest gave us anyway (implementation-defined but stable),
+  // and both source arrays are small (~1-4 entries).
+  const contributingSources = [...new Set([...match.contributing_sources, e.primarySourceId])];
+  const affectedOffices     = [...new Set([...match.affected_office_ids, ...officeIds])];
+
+  // Primary-source-conditional fields: only if this incoming event is (or
+  // becomes) the primary source do we overwrite title/summary/source_url.
+  const becomesPrimary = merged.primary_source_id === e.primarySourceId;
+  const finalTitle     = becomesPrimary ? e.title : /* keep existing — mergedRow gets it below */ null;
+  const finalSummary   = becomesPrimary ? e.summary : null;
+  const finalSourceUrl = becomesPrimary ? (e.sourceUrl ?? match.source_url) : match.source_url;
+  const finalRadiusKm  = e.radiusKm ?? match.radius_km;
+
+  const updated = await client.query<{ title: string; summary: string | null; lat: number; lng: number; type: string | null }>(
     `
     UPDATE events SET
       primary_source_id    = $2,
       severity             = $3,
-      contributing_sources = ARRAY(SELECT DISTINCT unnest(contributing_sources || $4::text[])),
-      affected_office_ids  = ARRAY(SELECT DISTINCT unnest(affected_office_ids || $5::text[])),
-      title                = CASE WHEN $2 = $6 THEN $7 ELSE title END,
-      summary              = CASE WHEN $2 = $6 THEN $8 ELSE summary END,
-      source_url           = CASE WHEN $2 = $6 THEN COALESCE($9, source_url) ELSE source_url END,
+      contributing_sources = $4::text[],
+      affected_office_ids  = $5::text[],
+      title                = CASE WHEN $6::boolean THEN $7 ELSE title END,
+      summary              = CASE WHEN $6::boolean THEN $8 ELSE summary END,
+      source_url           = COALESCE($9, source_url),
       radius_km            = COALESCE($10, radius_km),
       expires_at           = COALESCE($11, expires_at),
       raw_event_id         = COALESCE(raw_event_id, $12),
       updated_at           = NOW()
     WHERE id = $1
+    RETURNING title, summary, lat, lng, type
     `,
     [
       match.id,
       merged.primary_source_id,
       merged.severity,
-      [e.primarySourceId],
-      officeIds,
-      e.primarySourceId,            // condition operand for the title/summary update
-      e.title,
-      e.summary,
-      e.sourceUrl,
-      e.radiusKm,
+      contributingSources,
+      affectedOffices,
+      becomesPrimary,
+      finalTitle,
+      finalSummary,
+      finalSourceUrl,
+      finalRadiusKm,
       e.expiresAt,
       rawId,
     ]
   );
-  return { wasNewContributor };
+
+  const row = updated.rows[0];
+  const mergedRow: MergedRow = {
+    id:                   match.id,
+    title:                row?.title ?? e.title,
+    summary:              row?.summary ?? e.summary,
+    severity:             merged.severity,
+    type:                 row?.type ?? e.type,
+    primary_source_id:    merged.primary_source_id,
+    location:             match.location,
+    lat:                  Number(row?.lat ?? e.lat),
+    lng:                  Number(row?.lng ?? e.lng),
+    radius_km:            finalRadiusKm,
+    issued_at:            match.issued_at,
+    source_url:           finalSourceUrl,
+    affected_office_ids:  affectedOffices,
+    contributing_sources: contributingSources,
+  };
+
+  return { wasNewContributor, mergedRow };
 }
