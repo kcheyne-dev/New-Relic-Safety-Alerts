@@ -90,7 +90,8 @@ EONET doesn't publish severity, just categories. Most categories are not corpora
 | Category | Severity | Proximity gate | Action |
 | --- | --- | --- | --- |
 | volcanoes | **high** | none — pass globally | Rare; usually meaningful even if no office nearby |
-| severeStorms | **mod** | 250 km from any office | Cyclones/hurricanes worth flagging only if near hub |
+| severeStorms — named tropical | **high** | none — pass globally | Hurricanes / typhoons / tropical storms / cyclones. Global situational awareness; relevance-tier logic downstream classifies Direct/Indirect/Watch based on office/traveler/presence-country match. Title-matched via `/\b(hurricane\|typhoon\|tropical\s+(storm\|depression\|cyclone)\|cyclone)\b/i`. |
+| severeStorms — non-tropical | **mod** | 250 km from any office | Blizzards, nor'easters, derechos, etc. Worth flagging only if near hub. |
 | wildfires | **mod** | 250 km from any office | RX/prescribed already filtered upstream |
 | floods | **mod** | 250 km from any office | Mostly long-running events |
 | earthquakes | **low** | 250 km from any office | USGS/EMSC are primary; EONET is corroboration |

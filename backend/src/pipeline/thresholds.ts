@@ -121,16 +121,34 @@ export function evaluateGdacs(opts: { alertLevel: string | undefined }): Thresho
 // ----------------------------------------------------------------------------
 
 /**
- * EONET — volcanoes always pass; wildfires/floods/severeStorms/earthquakes
+ * EONET — volcanoes always pass; tropical cyclones always pass (global
+ * situational awareness); other severeStorms/wildfires/floods/earthquakes
  * need office proximity; everything else drops.
+ *
+ * Tropical cyclone carve-out (2026-08-17): EONET tags named tropical
+ * systems (hurricanes, typhoons, tropical storms, cyclones) under the
+ * generic `severeStorms` category. Before this carve-out, they got the
+ * standard 250km proximity gate and were dropped whenever no NR office
+ * was in range — leaving CMT operators blind to a typhoon threatening
+ * Philippines, a hurricane in the mid-Atlantic, etc. Named storms now
+ * bypass the proximity gate: they surface at 'high' severity, and the
+ * relevance-tier logic downstream (Q1/Q2 in enrichEventWithImpact +
+ * relevanceTierOf) classifies each as Direct / Indirect / Watch based
+ * on office / traveler / presence-country match. Non-tropical severe
+ * storms (blizzards, nor'easters, derechos) keep the 250km gate.
  *
  * Spec: docs/severity-thresholds.md#eonet--nasa-earth-observatory-natural-event-tracker
  */
-export function evaluateEonet(opts: { categoryId: string }): ThresholdOutcome {
+const TROPICAL_TITLE_RE = /\b(hurricane|typhoon|tropical\s+(storm|depression|cyclone)|cyclone)\b/i;
+
+export function evaluateEonet(opts: { categoryId: string; title?: string }): ThresholdOutcome {
   switch (opts.categoryId) {
     case 'volcanoes':
       return KEEP('high', 'volcano');
     case 'severeStorms':
+      if (opts.title && TROPICAL_TITLE_RE.test(opts.title)) {
+        return KEEP('high', 'tropical cyclone (global situational awareness)');
+      }
       return KEEP('mod', 'severe storm near office', PROXIMITY.eonet);
     case 'wildfires':
       return KEEP('mod', 'wildfire near office', PROXIMITY.eonet);

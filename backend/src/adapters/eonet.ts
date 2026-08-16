@@ -120,8 +120,11 @@ export const eonetAdapter: SourceAdapter = {
 
       const cat = e.categories[0]!;
 
-      // Threshold gate — see docs/severity-thresholds.md
-      const verdict = evaluateEonet({ categoryId: cat.id });
+      // Threshold gate — see docs/severity-thresholds.md.
+      // Title is passed so evaluateEonet can detect named tropical
+      // systems inside the generic 'severeStorms' category and grant
+      // them global visibility (bypass the 250km proximity gate).
+      const verdict = evaluateEonet({ categoryId: cat.id, title: e.title });
       if (!verdict.pass) { droppedThreshold++; continue; }
 
       const point = pointFromGeometry(latest);
