@@ -376,7 +376,7 @@ const map = L.map('map', { worldCopyJump: true, minZoom: 2, maxZoom: 14, zoomCon
  * needed for the public GitHub Pages deploy.
  *
  * Docs: https://docs.stadiamaps.com/authentication/ */
-const STADIA_API_KEY = '';   // TODO: paste your Stadia key here after signup at stadiamaps.com
+const STADIA_API_KEY = 'e6ca9bf3-a884-427c-8af9-e51a3556c468';   // Property: NRSA Dashboard, allowed domain: kcheyne-dev.github.io
 function stadiaTileUrl(style) {
   const suffix = STADIA_API_KEY ? `?api_key=${STADIA_API_KEY}` : '';
   return `https://tiles.stadiamaps.com/tiles/${style}/{z}/{x}/{y}{r}.png${suffix}`;
