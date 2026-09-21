@@ -352,9 +352,31 @@ state.UI_STATE.visibleAlertTypes = ALERT_TYPES.slice();
 const map = L.map('map', { worldCopyJump: true, minZoom: 2, maxZoom: 14, zoomControl: true })
   .setView([28, 5], 2.4);
 
+/* CARTO basemap tiles.
+ *
+ * Anonymous requests (empty CARTO_API_KEY) still resolve, but CARTO
+ * stamps "API KEY REQUIRED" watermarks on every tile as of early 2026 —
+ * ugly on presentation/demo screens. Register a free account at
+ * https://carto.com (75k map views/month, permanent free tier, commercial
+ * use permitted) and paste the key below.
+ *
+ * Security posture — the key is public because this ships as static JS.
+ * Mitigate by:
+ *   1. HTTP referer allowlist in the CARTO console — only serve tiles
+ *      when Referer matches localhost:8000 + kcheyne-dev.github.io.
+ *   2. Email alerts at 50% + 80% of the monthly quota in the CARTO
+ *      console so anomalous burn shows up before the meter runs out.
+ *
+ * Falls back to un-watermarked-until-2026 legacy URL when CARTO_API_KEY
+ * is empty so local dev works without any setup. */
+const CARTO_API_KEY = '';   // TODO: paste your CARTO key here
+function cartoTileUrl(style) {
+  const suffix = CARTO_API_KEY ? `?api_key=${CARTO_API_KEY}` : '';
+  return `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png${suffix}`;
+}
 const TILES = {
-  dark:  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
-  light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
+  dark:  L.tileLayer(cartoTileUrl('dark_all'),  { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
+  light: L.tileLayer(cartoTileUrl('light_all'), { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
 };
 TILES.dark.addTo(map);
 
