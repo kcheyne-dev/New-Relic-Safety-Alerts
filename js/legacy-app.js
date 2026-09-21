@@ -352,31 +352,42 @@ state.UI_STATE.visibleAlertTypes = ALERT_TYPES.slice();
 const map = L.map('map', { worldCopyJump: true, minZoom: 2, maxZoom: 14, zoomControl: true })
   .setView([28, 5], 2.4);
 
-/* CARTO basemap tiles.
+/* Stadia Maps basemap tiles.
  *
- * Anonymous requests (empty CARTO_API_KEY) still resolve, but CARTO
- * stamps "API KEY REQUIRED" watermarks on every tile as of early 2026 —
- * ugly on presentation/demo screens. Register a free account at
- * https://carto.com (75k map views/month, permanent free tier, commercial
- * use permitted) and paste the key below.
+ * Switched from CARTO to Stadia 2026-09-21 after CARTO retracted their
+ * permanent free tier in favor of trial-only. Stadia's Starter plan is
+ * free forever (200k tile requests/month) for evaluation / non-commercial
+ * use — appropriate posture for this prototype / design-review phase. If
+ * this dashboard becomes an operational NR tool, upgrade to Stadia
+ * Standard ($20/mo) which lifts the commercial-use restriction.
  *
- * Security posture — the key is public because this ships as static JS.
- * Mitigate by:
- *   1. HTTP referer allowlist in the CARTO console — only serve tiles
- *      when Referer matches localhost:8000 + kcheyne-dev.github.io.
- *   2. Email alerts at 50% + 80% of the monthly quota in the CARTO
- *      console so anomalous burn shows up before the meter runs out.
+ * Style choices mirror the CARTO originals: alidade_smooth_dark reads
+ * near-identically to CARTO dark_all; alidade_smooth to light_all.
  *
- * Falls back to un-watermarked-until-2026 legacy URL when CARTO_API_KEY
- * is empty so local dev works without any setup. */
-const CARTO_API_KEY = '';   // TODO: paste your CARTO key here
-function cartoTileUrl(style) {
-  const suffix = CARTO_API_KEY ? `?api_key=${CARTO_API_KEY}` : '';
-  return `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png${suffix}`;
+ * Security posture — the key ships in the JS bundle (unavoidable for a
+ * static frontend). Mitigate via Authorized Domains in the Stadia console:
+ *   - localhost
+ *   - kcheyne-dev.github.io
+ * Requests with a Referer outside the allowlist are rejected server-side,
+ * so even if the key is scraped it can't be used from anywhere else.
+ *
+ * Dev-friendly: Stadia serves tiles to localhost/127.0.0.1 without a key,
+ * so local development works with STADIA_API_KEY empty. The key is only
+ * needed for the public GitHub Pages deploy.
+ *
+ * Docs: https://docs.stadiamaps.com/authentication/ */
+const STADIA_API_KEY = '';   // TODO: paste your Stadia key here after signup at stadiamaps.com
+function stadiaTileUrl(style) {
+  const suffix = STADIA_API_KEY ? `?api_key=${STADIA_API_KEY}` : '';
+  return `https://tiles.stadiamaps.com/tiles/${style}/{z}/{x}/{y}{r}.png${suffix}`;
 }
+const TILE_ATTRIBUTION =
+  '&copy; <a href="https://www.stadiamaps.com/" target="_blank">Stadia Maps</a> ' +
+  '&copy; <a href="https://openmaptiles.org/" target="_blank">OpenMapTiles</a> ' +
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors';
 const TILES = {
-  dark:  L.tileLayer(cartoTileUrl('dark_all'),  { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
-  light: L.tileLayer(cartoTileUrl('light_all'), { subdomains:'abcd', attribution:'© OpenStreetMap, © CARTO' }),
+  dark:  L.tileLayer(stadiaTileUrl('alidade_smooth_dark'), { attribution: TILE_ATTRIBUTION, maxZoom: 20 }),
+  light: L.tileLayer(stadiaTileUrl('alidade_smooth'),      { attribution: TILE_ATTRIBUTION, maxZoom: 20 }),
 };
 TILES.dark.addTo(map);
 
